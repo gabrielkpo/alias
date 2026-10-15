@@ -44,13 +44,14 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 
 | Format | What is read |
 |---|---|
-| `.txt`, `.md` | UTF-8 (byte order mark dropped); Windows-1252 as a reported fallback |
-| `.docx` | body, tables (row by row), headers and footers, including first-page and even-page ones |
-| PDF with a text layer | every page, joined with a form feed; pages without text are reported |
+| `.txt`, `.md` | UTF-8, UTF-16 and UTF-32 (with or without byte order mark); Windows-1252 as a reported fallback |
+| `.docx` | body, tables, headers and footers (first-page and even-page too), text boxes, content controls, footnotes, endnotes, comments |
+| PDF with a text layer | every page (joined with a form feed), then filled-in form fields and annotation texts |
 
-Scanned PDFs and images need OCR and are not supported yet. Nothing is dropped silently: what
-could not be read is listed in `Document.warnings`. Headers and footers are kept on purpose,
-since names and file numbers often sit there.
+Personal data often sits outside the main text (a name in a header, an address in a text box, an
+IBAN in a form field), so those places are read. What still cannot be read is reported in
+`Document.warnings`: scanned pages (OCR is not supported yet), charts, SmartArt and embedded
+objects. Broken, encrypted or binary files raise `UnsupportedFileError`.
 
 ## Rule layer (step 1)
 | Type | French | English | Check |

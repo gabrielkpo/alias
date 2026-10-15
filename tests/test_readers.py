@@ -100,3 +100,102 @@ def test_read_then_mask_leaves_nothing_in_clear(tmp_path):
     result = mask(read_document(tmp_path / "w.docx").text, RuleDetector())
     assert result.text == "[EMAIL_1]\n[IBAN_1]"
     assert find_leaks(result.text, result.entities) == []
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-32"])
+def test_utf16_and_utf32_with_byte_order_mark(tmp_path, encoding):
+    (tmp_path / "unicode.txt").write_bytes("Écrire à a.b@example.com".encode(encoding))
+    document = read_document(tmp_path / "unicode.txt")
+    assert (document.text, document.warnings) == ("Écrire à a.b@example.com", [])
+
+
+def test_utf16_without_byte_order_mark_is_not_read_as_windows_1252(tmp_path):
+    (tmp_path / "nobom.txt").write_bytes("mail a.b@example.com".encode("utf-16-le"))
+    document = read_document(tmp_path / "nobom.txt")
+    assert document.text == "mail a.b@example.com"
+    assert document.warnings == ["no byte order mark, decoded as utf-16-le"]
+    assert mask(document.text, RuleDetector()).text == "mail [EMAIL_1]"
+
+
+def _append_xml(word, xml):
+    from docx.oxml import parse_xml
+
+    word.element.body.insert(len(word.element.body) - 1, parse_xml(xml))
+
+
+W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+MC = 'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"'
+
+
+def test_docx_text_boxes_content_controls_and_comments(tmp_path):
+    word = docx.Document()
+    word.add_paragraph("Bonjour,")
+    # A text box is stored twice (Choice and legacy Fallback): it must be read once.
+    box = "<w:txbxContent><w:p><w:r><w:t>{}</w:t></w:r></w:p></w:txbxContent>"
+    _append_xml(
+        word,
+        f"<w:p {W} {MC}><w:r><mc:AlternateContent>"
+        f"<mc:Choice Requires='wps'>{box.format('12 rue des Lilas')}</mc:Choice>"
+        f"<mc:Fallback>{box.format('12 rue des Lilas')}</mc:Fallback>"
+        "</mc:AlternateContent></w:r></w:p>",
+    )
+    _append_xml(
+        word,
+        f"<w:sdt {W}><w:sdtContent><w:p><w:r><w:t>Client : a.b@example.com</w:t></w:r></w:p>"
+        "</w:sdtContent></w:sdt>",
+    )
+    signed = word.add_paragraph("Signé")
+    word.add_comment(signed.runs, text="Relu par c.d@example.com", author="X")
+    word.save(tmp_path / "w.docx")
+
+    lines = read_document(tmp_path / "w.docx").text.splitlines()
+    assert lines.count("12 rue des Lilas") == 1
+    assert "Client : a.b@example.com" in lines
+    assert "Relu par c.d@example.com" in lines
+
+
+def test_docx_equal_adjacent_cells_are_kept(tmp_path):
+    word = docx.Document()
+    row = word.add_table(rows=1, cols=3).rows[0]
+    for cell, value in zip(row.cells, ["Oui", "Oui", "Non"], strict=True):
+        cell.text = value
+    word.save(tmp_path / "t.docx")
+    assert read_document(tmp_path / "t.docx").text == "Oui | Oui | Non"
+
+
+def test_broken_docx_is_refused(tmp_path):
+    (tmp_path / "old.docx").write_bytes(b"\xd0\xcf\x11\xe0 legacy .doc renamed")
+    with pytest.raises(UnsupportedFileError, match="not a readable .docx"):
+        read_document(tmp_path / "old.docx")
+
+
+def test_pdf_form_fields_and_annotations_are_read(make_pdf):
+    path = make_pdf(
+        [["Nom :", "IBAN :"]],
+        fields={"nom": "Hélène Martin", "iban": IBAN},
+        note="Rappeler au 01 99 00 12 34",
+    )
+    extra = read_document(path).text.split("\f")[-1].splitlines()
+    assert extra == ["nom: Hélène Martin", f"iban: {IBAN}", "Rappeler au 01 99 00 12 34"]
+
+
+def test_one_broken_pdf_page_does_not_hide_the_others(make_pdf, monkeypatch):
+    from pypdf import PageObject
+
+    original = PageObject.extract_text
+
+    def flaky(self, *args, **kwargs):
+        if "page two" in original(self, *args, **kwargs):
+            raise KeyError("/Font")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(PageObject, "extract_text", flaky)
+    document = read_document(make_pdf([["page one"], ["page two"], ["page three"]]))
+    assert [p.strip() for p in document.text.split("\f")] == ["page one", "", "page three"]
+    assert document.warnings == ["page 2: text could not be extracted (KeyError)"]
+
+
+def test_binary_file_with_a_text_suffix_is_refused(tmp_path):
+    (tmp_path / "image.txt").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x01")
+    with pytest.raises(UnsupportedFileError, match="binary"):
+        read_document(tmp_path / "image.txt")

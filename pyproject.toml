@@ -5,6 +5,7 @@ description = "Local PII masking before an LLM call: detect, replace with stable
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
+    "lxml>=5",
     "phonenumbers>=8.13",
     "pypdf>=4.0",
     "python-docx>=1.1",
