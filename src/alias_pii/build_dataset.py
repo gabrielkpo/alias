@@ -72,6 +72,25 @@ def public_documents(raw: Path, wikiner_share: float = 0.25) -> dict[str, list[D
     return by_split
 
 
+def deduplicate_across(splits: dict) -> dict:
+    """Near-duplicate removal over every source and split together, test first, then
+    validation, then train: a text seen in test never reappears in training."""
+    keys: set[str] = set()
+    result = {}
+    for split in ("test", "validation", "train"):
+        documents, rejected, duplicates = splits[split]
+        kept = []
+        for document in documents:
+            key = quality.near_duplicate_key(document.text)
+            if key in keys:
+                duplicates += 1
+                continue
+            keys.add(key)
+            kept.append(document)
+        result[split] = (kept, rejected, duplicates)
+    return {split: result[split] for split in SPLITS}
+
+
 def write_jsonl(documents: list[Document], path: Path) -> None:
     with path.open("w", encoding="utf-8") as out:
         for document in documents:
@@ -155,6 +174,7 @@ def main() -> None:
             pool = [d for d in documents if d.source == source]
             splits[split][0].extend(rng.sample(pool, min(len(pool), int(share * grid))))
         splits[split][0].extend(d for d in documents if d.source not in PUBLIC_SHARE)
+    splits = deduplicate_across(splits)
     for split, (documents, _, _) in splits.items():
         write_jsonl(documents, args.out / f"{split}.jsonl")
     (args.out / "DATASHEET.md").write_text(datasheet(splits, args.seed), encoding="utf-8")

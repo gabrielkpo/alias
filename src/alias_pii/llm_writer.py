@@ -81,6 +81,7 @@ class MistralClient:
         if not self.key:
             raise RuntimeError("MISTRAL_API_KEY is not set (environment or .env)")
         self.http = httpx.Client(timeout=120)
+        self.transport_error = httpx.TransportError
         self.min_interval, self.retries, self.last = min_interval, retries, 0.0
 
     def complete(self, messages: list[dict], model: str, temperature: float) -> str:
@@ -88,9 +89,13 @@ class MistralClient:
         for attempt in range(self.retries):
             time.sleep(max(0.0, self.min_interval - (time.monotonic() - self.last)))
             self.last = time.monotonic()
-            response = self.http.post(
-                API_URL, json=body, headers={"Authorization": f"Bearer {self.key}"}
-            )
+            try:
+                response = self.http.post(
+                    API_URL, json=body, headers={"Authorization": f"Bearer {self.key}"}
+                )
+            except self.transport_error:  # timeout, connection reset: retry like a 5xx
+                time.sleep(min(60, 2**attempt + random.random()))
+                continue
             if response.status_code == 429 or response.status_code >= 500:
                 time.sleep(min(60, 2**attempt + random.random()))
                 continue
