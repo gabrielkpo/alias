@@ -34,7 +34,7 @@ result = mask(
 )
 result.text  # "Écrire à [EMAIL_1], IBAN [IBAN_1]."  <- only this goes to the LLM
 answer = "Virement vers [IBAN_1] confirmé."
-restore(answer, result.table).text  # real IBAN back in the answer
+restore(answer, result).text  # real IBAN back, only for aliases sent in this exchange
 ```
 
 ## Rule layer (step 1)

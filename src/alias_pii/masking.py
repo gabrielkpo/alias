@@ -13,7 +13,7 @@ from typing import Protocol
 
 import phonenumbers
 
-from alias_pii.entities import Entity, EntityType
+from alias_pii.entities import Entity, EntityType, resolve_overlaps
 from alias_pii.validators import compact
 
 _TYPES = "|".join(t.value for t in EntityType)
@@ -70,13 +70,6 @@ class AliasTable:
     def value_of(self, alias: str) -> str | None:
         return self._values.get(alias)
 
-    @property
-    def aliases(self) -> list[str]:
-        return list(self._values)
-
-    def is_reserved(self, alias: str) -> bool:
-        return alias in self._reserved
-
     def _next_alias(self, type_: EntityType) -> str:
         while True:
             self._counters[type_] = self._counters.get(type_, 0) + 1
@@ -91,41 +84,64 @@ class AliasTable:
 @dataclass
 class MaskResult:
     text: str
-    entities: list[Entity]
+    entities: list[Entity] = field(repr=False)
     table: AliasTable
+    aliases: list[str]  # aliases this call wrote into `text`, in order of first use
+    literals: set[str]  # alias-shaped tokens that were already in the input text
 
 
 @dataclass
 class RestoreResult:
-    text: str
+    text: str = field(repr=False)
     restored: list[str]  # aliases found in the answer and replaced
-    missing: list[str]  # aliases of the table the answer does not mention (dropped or reworded)
-    unknown: list[str]  # alias-shaped tokens the table does not know (invented by the LLM)
+    missing: list[str]  # aliases sent to the LLM that the answer does not mention
+    unknown: list[str]  # alias-shaped tokens left as is: invented, or from another exchange
 
 
 def mask(text: str, detector: Detector, table: AliasTable | None = None) -> MaskResult:
     table = table if table is not None else AliasTable()
     table.reserve(text)
-    entities = detector.detect(text)
+    literals = {_canonical(m) for m in ALIAS_PATTERN.finditer(text)}
+    # Enforce the sorted, non-overlapping contract here: an unsorted span list would make the
+    # cursor go back and write an already-masked value in clear.
+    entities = resolve_overlaps(detector.detect(text))
     parts: list[str] = []
+    aliases: list[str] = []
     cursor = 0
-    for entity in entities:  # sorted and non-overlapping
+    for entity in entities:
+        alias = table.alias_for(entity)
         parts.append(text[cursor : entity.start])
-        parts.append(table.alias_for(entity))
+        parts.append(alias)
+        if alias not in aliases:
+            aliases.append(alias)
         cursor = entity.end
     parts.append(text[cursor:])
-    return MaskResult("".join(parts), entities, table)
+    return MaskResult("".join(parts), entities, table, aliases, literals)
 
 
-def restore(answer: str, table: AliasTable) -> RestoreResult:
+def restore(answer: str, *sent: MaskResult) -> RestoreResult:
+    """Put back the values of the aliases written by the `mask` calls whose text was sent.
+
+    Restoring is scoped to this exchange, not to the whole session table: otherwise a document
+    containing a literal "[EMAIL_1]", or an LLM guessing sequential aliases, could pull a value
+    from an earlier, unrelated document into the answer. An alias that was already literal in
+    one of the inputs is never restored, since it cannot be told apart from the real one.
+    """
+    if not sent:
+        raise ValueError("restore needs the MaskResult of each text sent to the LLM")
+    table = sent[0].table
+    if any(result.table is not table for result in sent):
+        raise ValueError("all MaskResults must share the same AliasTable")
+    literals = set().union(*(result.literals for result in sent))
+    allowed = [a for result in sent for a in result.aliases if a not in literals]
     restored: list[str] = []
     unknown: list[str] = []
 
     def replace(match: re.Match[str]) -> str:
         alias = _canonical(match)
-        value = table.value_of(alias)
+        value = table.value_of(alias) if alias in allowed else None
         if value is None:
-            if not table.is_reserved(alias) and alias not in unknown:
+            if alias not in literals and alias not in unknown:
                 unknown.append(alias)
             return match.group()
         if alias not in restored:
@@ -133,7 +149,7 @@ def restore(answer: str, table: AliasTable) -> RestoreResult:
         return value
 
     text = ALIAS_PATTERN.sub(replace, answer)
-    missing = [a for a in table.aliases if a not in restored]
+    missing = list(dict.fromkeys(a for a in allowed if a not in restored))
     return RestoreResult(text, restored, missing, unknown)
 
 

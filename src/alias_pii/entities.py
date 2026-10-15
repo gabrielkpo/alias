@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 
@@ -44,7 +44,7 @@ class Entity:
     type: EntityType
     start: int
     end: int
-    text: str
+    text: str = field(repr=False)  # the personal value: kept out of logs and tracebacks
     score: float = 1.0
     source: str = "rules"
     kind: str | None = None  # finer label, e.g. "FR_NIR", "US_SSN", "UK_NINO"
