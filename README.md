@@ -30,7 +30,7 @@ from alias_pii.masking import mask, restore
 from alias_pii.rules import RuleDetector
 
 result = mask(
-    "Écrire à jean.dupont@exemple.fr, IBAN FR76 3000 6000 0112 3456 7890 189.", RuleDetector()
+    "Écrire à jean.dupont@example.com, IBAN FR76 3000 6000 0112 3456 7890 189.", RuleDetector()
 )
 result.text  # "Écrire à [EMAIL_1], IBAN [IBAN_1]."  <- only this goes to the LLM
 answer = "Virement vers [IBAN_1] confirmé."

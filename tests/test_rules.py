@@ -13,13 +13,13 @@ def found(text):
 
 def test_french_letter():
     text = (
-        "Bonjour, merci d'écrire à jean.dupont@exemple.fr ou d'appeler le 06 12 34 56 78. "
+        "Bonjour, merci d'écrire à jean.dupont@example.com ou d'appeler le 01 99 00 12 34. "
         "Virement sur FR76 3000 6000 0112 3456 7890 189 avant vendredi. "
         "N° de sécurité sociale : 1 85 05 78 006 084 91. Dossier n° 2024/00421."
     )
     assert found(text) == [
-        (EntityType.EMAIL, "jean.dupont@exemple.fr", None),
-        (EntityType.PHONE, "06 12 34 56 78", "FR"),
+        (EntityType.EMAIL, "jean.dupont@example.com", None),
+        (EntityType.PHONE, "01 99 00 12 34", "FR"),
         (EntityType.IBAN, "FR76 3000 6000 0112 3456 7890 189", "FR"),
         (EntityType.NATIONAL_ID, "1 85 05 78 006 084 91", "FR_NIR"),
         (EntityType.IDENTIFIER, "2024/00421", None),
@@ -28,12 +28,12 @@ def test_french_letter():
 
 def test_english_letter():
     text = (
-        "Please contact jane.doe@example.co.uk or call +44 20 7946 0958. "
+        "Please contact jane.doe@example.org or call +44 20 7946 0958. "
         "US office: (415) 555-0132. SSN 123-45-6789, NINO AB 12 34 56 C. "
         "Pay to GB82 WEST 1234 5698 7654 32. Customer ID: AC-559102."
     )
     assert found(text) == [
-        (EntityType.EMAIL, "jane.doe@example.co.uk", None),
+        (EntityType.EMAIL, "jane.doe@example.org", None),
         (EntityType.PHONE, "+44 20 7946 0958", "GB"),
         (EntityType.PHONE, "(415) 555-0132", "US"),
         (EntityType.NATIONAL_ID, "123-45-6789", "US_SSN"),
@@ -92,10 +92,10 @@ def test_nir_beats_phone_on_overlap():
     ("text", "masked"),
     [
         # a weaker overlapping span is merged, not dropped: no prefix or suffix left in clear
-        ("Customer ID: AB-0612345678-ZZ", "Customer ID: [PHONE_1]"),
+        ("Customer ID: AB-0199001234-ZZ", "Customer ID: [PHONE_1]"),
         ("Account number is 12345678", "Account number is [IDENTIFIER_1]"),
         ("Le numéro de dossier est le 2024/1234", "Le numéro de dossier est le [IDENTIFIER_1]"),
-        ("écrire à jean@société.fr", "écrire à [EMAIL_1]"),
+        ("écrire à jean@société.example", "écrire à [EMAIL_1]"),
         ("NIR 1-85-05-78-006-084-91", "NIR [NATIONAL_ID_1]"),
         ("NINO ab 12 34 56 c", "NINO [NATIONAL_ID_1]"),
     ],
