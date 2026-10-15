@@ -75,7 +75,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 |---|---|---|
 | 1 | Rules (FR + EN), masking, restoring, leak check | done |
 | 2 | File readers; dataset v0.2 (grid generator, gates, balancer, datasheet), v0.3 LLM writer and v0.4 public corpora done; full build, LLM run, real sets | in progress |
-| 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, Mistral zero-shot | planned |
+| 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII (done); Mistral zero-shot | in progress |
 | 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best | planned |
 | 5 | Rules + model, leak rate | planned |
 | 6 | `alias-pii mask` CLI, JSON report, local API, Docker; CPU latency and memory | planned |
@@ -89,6 +89,27 @@ once at the end. Measures: recall and precision per entity type and per language
 before training: below one second per page on the Mac CPU, then the best entity-level recall on
 `PERSON`, `ADDRESS` and `BIRTH_DATE` averaged over French and English, then the lowest leak rate.
 Negative results will be published.
+
+## Results
+First baselines (step 3) on the synthetic test split, 4,200 documents in French, English and
+mixed: grid generator, gretel and WikiNER. Real annotated sets come later; these numbers measure
+the baselines on our labels, not on real documents.
+
+| Method | Precision | Recall | Leak rate | ms / 1,000 chars (Mac CPU) |
+|---|---|---|---|---|
+| rules | 0.66 | 0.33 | 66.6 % | 1 |
+| Presidio + spaCy lg | 0.46 | 0.48 | 34.8 % | 40 |
+| GLiNER multi PII | 0.63 | 0.74 | 22.5 % | 374 |
+
+- Rules find every e-mail, IBAN and phone number, and 89 % of national IDs, but nothing that needs
+  context (names, addresses, birth dates). They also mask company mailboxes, switchboards and
+  invoice numbers, which Alias leaves in clear: precision 0.58 on `EMAIL`, 0.42 on `IDENTIFIER`.
+- GLiNER finds names, addresses and birth dates (recall 0.80, 0.91, 1.00) but misses most IBANs and
+  national IDs (0.24 and 0.06): rules and a model complement each other, which step 5 tests.
+- GLiNER takes about 1.1 s for a 3,000-character page: above the one-second budget set for the
+  model choice.
+
+Full tables per label, language and source: `uv run python -m alias_pii.benchmark` (see Run it).
 
 ## Input files
 `read_document(path)` turns a file into plain text before detection:
@@ -133,6 +154,19 @@ uv sync --group dev
 uv run pytest
 ```
 
+Benchmark (step 3), on the generated dataset (see Data and privacy):
+
+```
+uv sync --group data --group bench
+uv run python -m spacy download fr_core_news_lg && uv run python -m spacy download en_core_web_lg
+uv run python -m alias_pii.benchmark --split test --methods rules,presidio,gliner --out reports
+```
+
+It writes `reports/benchmark-test.md` and `.json`: strict and overlap precision and recall, leak
+rate (gold values still readable after masking) and CPU latency, per label, language and source.
+A value counts as leaked only when it is readable in full (exactly or without separators): a
+name masked by half does not count, which the overlap and strict recalls show instead.
+
 
 ## Project structure
 
@@ -144,6 +178,7 @@ uv run pytest
 | `src/alias_pii/readers.py` | `read_document`: .txt, .md, .docx, text PDFs to plain text |
 | `src/alias_pii/identities.py`, `documents.py` | fake identities; grid document generator |
 | `src/alias_pii/quality.py`, `build_dataset.py` | quality gates; dataset build and datasheet |
+| `src/alias_pii/benchmark.py`, `baselines.py` | benchmark harness; rules, Presidio + spaCy and GLiNER baselines |
 | `src/alias_pii/llm_writer.py`, `sources.py` | LLM-written documents (Mistral, placeholders); public corpora converters |
 | `tests/` | unit tests; `tests/README.md` lists allowed fixture values |
 
