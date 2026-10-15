@@ -74,7 +74,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 | Step | Content | State |
 |---|---|---|
 | 1 | Rules (FR + EN), masking, restoring, leak check | done |
-| 2 | File readers; dataset v0.2 (grid generator, gates, balancer, datasheet) done; LLM-written documents, public corpora, real sets | in progress |
+| 2 | File readers; dataset v0.2 (grid generator, gates, balancer, datasheet), v0.3 LLM writer and v0.4 public corpora done; full build, LLM run, real sets | in progress |
 | 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, Mistral zero-shot | planned |
 | 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best | planned |
 | 5 | Rules + model, leak rate | planned |
@@ -144,6 +144,7 @@ uv run pytest
 | `src/alias_pii/readers.py` | `read_document`: .txt, .md, .docx, text PDFs to plain text |
 | `src/alias_pii/identities.py`, `documents.py` | fake identities; grid document generator |
 | `src/alias_pii/quality.py`, `build_dataset.py` | quality gates; dataset build and datasheet |
+| `src/alias_pii/llm_writer.py`, `sources.py` | LLM-written documents (Mistral, placeholders); public corpora converters |
 | `tests/` | unit tests; `tests/README.md` lists allowed fixture values |
 
 ## Data and privacy
@@ -155,7 +156,8 @@ uv run pytest
   synthetic and public data do. No weights trained on real data are published.
 - **Dataset:** how the training data is built, labelled, balanced and checked is specified in
   [docs/DATASET.md](docs/DATASET.md). It is generated locally and never committed:
-  `uv run --group data python -m alias_pii.build_dataset --out data/synthetic`.
+  `uv run --group data python -m alias_pii.build_dataset --out data/synthetic` (add `--raw data/raw`
+  for the public corpora, `--llm data/llm` for the LLM-written documents).
 - **Training data:** synthetic Faker text (MIT), WikiNER French (CC BY 4.0), gretel synthetic PII
   finance multilingual (Apache-2.0).
 
