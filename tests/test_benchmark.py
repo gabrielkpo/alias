@@ -52,3 +52,9 @@ def test_chunks_cover_text_and_language():
     assert all(text[o : o + len(p)] == p for o, p in pieces)
     assert language_of("Le patient est venu pour une visite.") == "fr"
     assert language_of("The patient came for a visit with the doctor.") == "en"
+
+
+def test_duplicate_predictions_count_once():
+    gold = [entity("EMAIL", "ana.li@example.org")]
+    c = score_document(TEXT, gold, gold * 2)
+    assert c["EMAIL"].strict == 1 and c["ALL"].scores()["recall"] == 1.0

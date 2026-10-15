@@ -99,6 +99,8 @@ def _mask(text: str, entities: Iterable[Entity]) -> str:
 def score_document(text: str, gold: list[Entity], predicted: list[Entity]) -> dict[str, Counts]:
     """Counts per label for one document (key `ALL` holds the total)."""
     counts: dict[str, Counts] = defaultdict(Counts)
+    # the same label on the same span counts once (Presidio can return US_SSN and UK_NINO there)
+    predicted = list({(p.type, p.start, p.end): p for p in predicted}.values())
     exact = {(e.type, e.start, e.end) for e in gold}
     leaks = {(e.start, e.end) for e in find_leaks(_mask(text, predicted), gold)}
     for g in gold:
