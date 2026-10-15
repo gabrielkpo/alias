@@ -44,7 +44,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 
 | Format | What is read |
 |---|---|
-| `.txt`, `.md` | UTF-8, UTF-16 and UTF-32 (with or without byte order mark); Windows-1252 as a reported fallback |
+| `.txt`, `.md` | UTF-8, UTF-16 and UTF-32 (UTF-16 also without byte order mark); Windows-1252 as a reported fallback; mixed encodings are refused, never guessed |
 | `.docx` | body, tables, headers and footers (first-page and even-page too), text boxes, content controls, footnotes, endnotes, comments |
 | PDF with a text layer | every page (joined with a form feed), then filled-in form fields and annotation texts |
 

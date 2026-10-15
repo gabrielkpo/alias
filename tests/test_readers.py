@@ -220,3 +220,39 @@ def test_text_with_stray_nul_bytes_is_refused_not_mis_decoded(tmp_path, raw):
     (tmp_path / "odd.txt").write_bytes(raw)
     with pytest.raises(UnsupportedFileError, match="NUL bytes"):
         read_document(tmp_path / "odd.txt")
+
+
+PII_LINE = (
+    "Contact: jean.dupont@example.com tel 01 99 00 12 34 IBAN FR76 3000 6000 0112 3456 7890 189\r\n"
+)
+
+
+@pytest.mark.parametrize("prefix", [PII_LINE, PII_LINE + "x"])  # even and odd length
+def test_ansi_followed_by_utf16_without_bom_is_refused(tmp_path, prefix):
+    """PowerShell `>>` appends UTF-16 to an ANSI file: no reading may hide the ANSI part."""
+    raw = prefix.encode("cp1252") + ("Suite du fichier\r\n" * 6).encode("utf-16-le")
+    (tmp_path / "mixed.txt").write_bytes(raw)
+    with pytest.raises(UnsupportedFileError):
+        read_document(tmp_path / "mixed.txt")
+
+
+@pytest.mark.parametrize("tail", [PII_LINE, PII_LINE + "x"])
+def test_utf16_with_bom_followed_by_ansi_is_refused(tmp_path, tail):
+    raw = "Début\r\n".encode("utf-16") + tail.encode("cp1252")
+    (tmp_path / "mixed.txt").write_bytes(raw)
+    with pytest.raises(UnsupportedFileError):
+        read_document(tmp_path / "mixed.txt")
+
+
+def test_utf16_with_one_misaligned_region_is_refused(tmp_path):
+    good = ("Ligne normale\r\n" * 200).encode("utf-16-le")  # region well under 2 %
+    raw = good + b"!" + "a.b@example.com".encode("utf-16-le") + b"!"
+    (tmp_path / "shifted.txt").write_bytes(raw)
+    with pytest.raises(UnsupportedFileError, match="outside French and English"):
+        read_document(tmp_path / "shifted.txt")
+
+
+def test_utf16_with_punctuation_and_symbols_is_accepted(tmp_path):
+    text = "« Café », 12 € – 50 % … • ✓ “ok” ’"
+    (tmp_path / "symbols.txt").write_bytes(text.encode("utf-16"))
+    assert read_document(tmp_path / "symbols.txt").text == text

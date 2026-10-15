@@ -78,18 +78,17 @@ def _read_plain(path: Path, fmt: str) -> Document:
     raw = path.read_bytes()
     for bom, encoding in _BOMS:
         if raw.startswith(bom):
-            return Document(path, raw.decode(encoding), fmt)
+            text = _decode_wide(path, raw, encoding)
+            return Document(path, text, fmt)
     if b"\x00" in raw:
-        # Real text never contains NUL bytes. Any wrong guess here is dangerous: decoded as
-        # UTF-8, UTF-16 gives "m\x00a\x00i\x00l"; decoded with the wrong byte order, text gives
-        # CJK-looking characters. Either way the rules match nothing, yet the original can be
-        # recovered exactly. So only accept UTF-16 when its NUL pattern is unambiguous.
-        encoding = _utf16_without_bom(raw)
+        # Real text never contains NUL bytes: this is UTF-16 without a byte order mark (which
+        # also decodes as "valid" UTF-8, giving "m\x00a\x00i\x00l").
+        encoding = _utf16_byte_order(raw)
         if encoding is None:
             raise UnsupportedFileError(
                 f"{path.name}: contains NUL bytes but is not recognisable UTF-16 text"
             )
-        text = raw.decode(encoding)
+        text = _decode_wide(path, raw, encoding)
         return Document(path, text, fmt, [f"no byte order mark, decoded as {encoding}"])
     try:
         return Document(path, raw.decode("utf-8"), fmt)
@@ -100,7 +99,7 @@ def _read_plain(path: Path, fmt: str) -> Document:
     return Document(path, text, fmt, ["not valid UTF-8, decoded as Windows-1252"])
 
 
-def _utf16_without_bom(raw: bytes) -> str | None:
+def _utf16_byte_order(raw: bytes) -> str | None:
     """Byte order of BOM-less UTF-16, from where its NUL bytes sit, or None if unclear.
 
     Latin-script text in UTF-16 has a NUL high byte for most characters: in the odd positions
@@ -111,14 +110,42 @@ def _utf16_without_bom(raw: bytes) -> str | None:
     pairs = len(raw) // 2
     nul_even = raw[0::2].count(0) / pairs
     nul_odd = raw[1::2].count(0) / pairs
-    for encoding, high, low in (("utf-16-le", nul_odd, nul_even), ("utf-16-be", nul_even, nul_odd)):
-        if high >= 0.3 and low <= 0.02:
-            try:
-                text = raw.decode(encoding)
-            except UnicodeDecodeError:
-                return None
-            return encoding if "\x00" not in text else None
+    if nul_odd >= 0.3 and nul_even <= 0.02:
+        return "utf-16-le"
+    if nul_even >= 0.3 and nul_odd <= 0.02:
+        return "utf-16-be"
     return None
+
+
+def _decode_wide(path: Path, raw: bytes, encoding: str) -> str:
+    """Decode UTF-16 or UTF-32, then check the result really is French or English text.
+
+    A wrong guess is dangerous rather than just ugly: one byte of ASCII paired with the next
+    gives a CJK-looking character ("Je" -> U+654A), so a misread region matches no rule, yet
+    re-encoding it gives the original back exactly. This happens with mixed files, such as ANSI
+    text appended to a UTF-16 file by a Windows shell. Such a file is refused, not guessed.
+    """
+    try:
+        text = raw.decode(encoding)
+    except UnicodeDecodeError as exc:
+        raise UnsupportedFileError(f"{path.name}: invalid {encoding} text ({exc.reason})") from exc
+    if "\x00" in text or any(_outside_scope(char) for char in text):
+        raise UnsupportedFileError(
+            f"{path.name}: decoding as {encoding} gives characters outside French and "
+            "English text (mixed encodings?); convert the file to UTF-8"
+        )
+    return text
+
+
+def _outside_scope(char: str) -> bool:
+    """Scripts a French or English document should not contain, and where misread ASCII lands.
+
+    Two printable ASCII bytes read as one UTF-16 unit give U+0909 to U+7E7E: letters and digits
+    put the result in U+3000 and above. Latin, punctuation, currency and common symbols
+    (U+0000-U+058F, U+1E00-U+2BFF) stay allowed.
+    """
+    code = ord(char)
+    return 0x0590 <= code <= 0x1DFF or 0x2C00 <= code <= 0xFAFF
 
 
 # --- Word ---------------------------------------------------------------------------------
