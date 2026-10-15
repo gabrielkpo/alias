@@ -151,7 +151,11 @@ def generate_with_report(
     templates = sorted(templates_for(split).items())
     examples: list[Example] = []
     rejected: Counter = Counter()
+    attempts = 0
     while len(examples) < n:
+        attempts += 1
+        if attempts > 20 * n + 100:  # a template that always fails a gate must not hang the build
+            raise RuntimeError(f"too many rejected documents: {dict(rejected)}")
         name, (language, template) = rng.choice(templates)
         locale = LOCALES["fr"] if language == "fr" else LOCALES[rng.choice(["en_us", "en_gb"])]
         example = _fill(name, language, template, IdentityFactory(locale, rng))
