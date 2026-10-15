@@ -152,12 +152,11 @@ uv run pytest
   ignored by Git.
 - **Never sent to a third party:** real texts do not go to Kaggle, Colab or an LLM API; only
   synthetic and public data do. No weights trained on real data are published.
-- **Synthetic data** is generated locally, never committed: `uv run --group data python -m
-  alias_pii.synthetic --split train --n 2000 --out data/synthetic/train.jsonl`. Train and
-  validation use different templates.
+- **Dataset:** how the training data is built, labelled, balanced and checked is specified in
+  [docs/DATASET.md](docs/DATASET.md). It is generated locally and never committed:
+  `uv run --group data python -m alias_pii.synthetic --split train --n 2000 --out data/synthetic/train.jsonl`.
 - **Training data:** synthetic Faker text (MIT), WikiNER French (CC BY 4.0), gretel synthetic PII
-  finance multilingual (Apache-2.0). Datasets with non-commercial or unclear licences
-  (ai4privacy, WikiNEuRal, MultiNERD) are excluded.
+  finance multilingual (Apache-2.0).
 
 ## What it is not
 Alias is a component, not an anonymity guarantee and not a GDPR compliance tool. Context can
