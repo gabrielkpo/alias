@@ -74,7 +74,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 | Step | Content | State |
 |---|---|---|
 | 1 | Rules (FR + EN), masking, restoring, leak check | done |
-| 2 | File readers, synthetic FR + EN generator and validation split (done); hand-annotated real sets | in progress |
+| 2 | File readers; dataset v0.2 (grid generator, gates, balancer, datasheet) done; LLM-written documents, public corpora, real sets | in progress |
 | 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, Mistral zero-shot | planned |
 | 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best | planned |
 | 5 | Rules + model, leak rate | planned |
@@ -142,8 +142,9 @@ uv run pytest
 | `src/alias_pii/rules.py`, `validators.py` | rule detector, IBAN and NIR checksums |
 | `src/alias_pii/masking.py` | alias table, `mask`, `restore`, `find_leaks` |
 | `src/alias_pii/readers.py` | `read_document`: .txt, .md, .docx, text PDFs to plain text |
-| `src/alias_pii/synthetic.py` | annotated synthetic documents (Faker), train and validation templates |
-| `tests/` | unit tests; `tests/README.md` lists the allowed fixture values |
+| `src/alias_pii/identities.py`, `documents.py` | fake identities; grid document generator |
+| `src/alias_pii/quality.py`, `build_dataset.py` | quality gates; dataset build and datasheet |
+| `tests/` | unit tests; `tests/README.md` lists allowed fixture values |
 
 ## Data and privacy
 - **In the repository:** code, and test values that cannot reach a real person (RFC 2606
@@ -154,7 +155,7 @@ uv run pytest
   synthetic and public data do. No weights trained on real data are published.
 - **Dataset:** how the training data is built, labelled, balanced and checked is specified in
   [docs/DATASET.md](docs/DATASET.md). It is generated locally and never committed:
-  `uv run --group data python -m alias_pii.synthetic --split train --n 2000 --out data/synthetic/train.jsonl`.
+  `uv run --group data python -m alias_pii.build_dataset --out data/synthetic`.
 - **Training data:** synthetic Faker text (MIT), WikiNER French (CC BY 4.0), gretel synthetic PII
   finance multilingual (Apache-2.0).
 
@@ -175,7 +176,7 @@ recall.
 - Pre-commit runs ruff and gitleaks: `pre-commit install`.
 - One pull request per change, Conventional Commits titles, squash merge; each PR goes through a
   security review and a code review, and CI (tests, gitleaks, CodeQL, title check) must be green.
-- Releases are cut by release-please from the commit history.
+- Releases: release-please.
 
 ## License
 MIT, see [LICENSE](LICENSE).
