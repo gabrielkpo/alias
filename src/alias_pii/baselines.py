@@ -7,10 +7,12 @@ dependency group installs them (`uv sync --group bench`), the models are downloa
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
+from pathlib import Path
 
-from alias_pii.entities import Entity, EntityType
+from alias_pii.entities import Entity, EntityType, resolve_overlaps
 from alias_pii.rules import RuleDetector
 
 _FRENCH = re.compile(r"\b(le|la|les|des|du|est|et|une|pour|vous|nous|dans|avec)\b", re.I)
@@ -94,8 +96,77 @@ class GlinerBaseline:
         return entities
 
 
+class HybridBaseline:
+    """Rules for the formats they validate, GLiNER for what needs context (names, addresses,
+    birth dates); overlaps merged as in masking. Tests the complementarity measured in step 3:
+    GLiNER misses most IBANs and national IDs, which the rules find."""
+
+    CONTEXT = {EntityType.PERSON, EntityType.ADDRESS, EntityType.BIRTH_DATE}
+
+    def __init__(self) -> None:
+        self.rules, self.gliner = RuleDetector(), GlinerBaseline()
+
+    def detect(self, text: str) -> list[Entity]:
+        model = [e for e in self.gliner.detect(text) if e.type in self.CONTEXT]
+        return resolve_overlaps(self.rules.detect(text) + model)
+
+
+ZERO_SHOT_PROMPT = (
+    "List every piece of personal data in the document below. Labels: PERSON (a person's name), "
+    "ADDRESS (a person's postal address), EMAIL, PHONE (a person's phone number), IBAN, "
+    "NATIONAL_ID (NIR, SSN, NINO), BIRTH_DATE, IDENTIFIER (a customer, file or patient number "
+    "of a person). Company names, company addresses, switchboards and invoice or order numbers "
+    "are not personal data. Answer with JSON only: "
+    '{"entities": [{"label": "...", "text": "exact substring of the document"}]}.'
+    "\n\nDocument:\n"
+)
+
+
+class MistralZeroShot:
+    """Mistral asked to list the values of each label (no training). Spans are every occurrence of
+    each returned value in the document; values not found verbatim are dropped. Only synthetic or
+    public benchmark documents are sent, never real ones. Answers are cached on disk."""
+
+    def __init__(
+        self, model: str = "mistral-small-latest", client=None, cache_dir: Path | None = None
+    ):
+        from alias_pii.llm_writer import Cache, MistralClient
+
+        self.model = model
+        self.client = client or MistralClient()
+        self.cache = Cache(cache_dir or Path("data/cache/mistral-zero-shot"))
+
+    def detect(self, text: str) -> list[Entity]:
+        messages = [{"role": "user", "content": ZERO_SHOT_PROMPT + text}]
+        key = self.cache.key(self.model, messages, 0.0)
+        raw = self.cache.get(key)
+        if raw is None:
+            raw = self.client.complete(messages, self.model, 0.0)
+            self.cache.put(key, raw)
+        return self.parse(text, raw)
+
+    @staticmethod
+    def parse(text: str, raw: str) -> list[Entity]:
+        raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```")
+        try:
+            items = json.loads(raw).get("entities", [])
+        except (json.JSONDecodeError, AttributeError):
+            return []
+        entities = []
+        for item in items:
+            label, value = item.get("label"), (item.get("text") or "").strip()
+            if label not in EntityType.__members__ or not value:
+                continue
+            for match in re.finditer(re.escape(value), text):
+                entities.append(Entity(EntityType(label), match.start(), match.end(), value,
+                                       1.0, "mistral"))  # fmt: skip
+        return resolve_overlaps(entities)
+
+
 METHODS: dict[str, Callable[[], object]] = {
     "rules": RuleDetector,
     "presidio": PresidioBaseline,
     "gliner": GlinerBaseline,
+    "hybrid": HybridBaseline,
+    "mistral": MistralZeroShot,
 }
