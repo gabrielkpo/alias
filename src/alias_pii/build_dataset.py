@@ -11,15 +11,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 from collections import Counter
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from alias_pii import quality
-from alias_pii.documents import LABELS, SPLITS, Document, GridGenerator
+from alias_pii import quality, sources
+from alias_pii.documents import LABELS, SPLITS, Document, GridGenerator, Span
 
-VERSION = "0.2"
+VERSION = "0.4"
+# Public corpora are capped relative to the grid documents of the same split, so that one
+# corpus (WikiNER is mostly names, gretel mostly names and addresses) cannot set the labels.
+PUBLIC_SHARE = {"gretel-pii-finance-multilingual": 0.3, "wikiner-fr": 0.1}
 
 
 def build_split(split: str, n: int, seed: int) -> tuple[list[Document], Counter, int]:
@@ -49,10 +53,36 @@ def build_split(split: str, n: int, seed: int) -> tuple[list[Document], Counter,
     return kept, rejected, duplicates
 
 
+def public_documents(raw: Path, wikiner_share: float = 0.25) -> dict[str, list[Document]]:
+    """gretel (French and English) and WikiNER documents converted to the schema, by split.
+    WikiNER paragraphs without a person are kept at `wikiner_share` of those with one, so the
+    encyclopedia text does not outweigh the documents the model is for."""
+    by_split: dict[str, list[Document]] = {split: [] for split in SPLITS}
+    for language in ("fr", "en"):
+        for part in ("train", "test"):
+            kept, _ = sources.convert(sources.gretel(raw, language, part))
+            for document in kept:
+                by_split[document.split].append(document)
+    for part in ("train", "test"):
+        kept, _ = sources.convert(sources.wikiner(raw, part))
+        with_person = [d for d in kept if d.spans]
+        without = [d for d in kept if not d.spans][: int(wikiner_share * len(with_person))]
+        for document in with_person + without:
+            by_split[document.split].append(document)
+    return by_split
+
+
 def write_jsonl(documents: list[Document], path: Path) -> None:
     with path.open("w", encoding="utf-8") as out:
         for document in documents:
             out.write(json.dumps(asdict(document), ensure_ascii=False) + "\n")
+
+
+def _load(line: str) -> Document:
+    data = json.loads(line)
+    data["spans"] = [Span(**s) for s in data["spans"]]
+    data["negatives"] = [Span(**s) for s in data["negatives"]]
+    return Document(**data)
 
 
 def datasheet(splits: dict, seed: int) -> str:
@@ -84,7 +114,7 @@ def datasheet(splits: dict, seed: int) -> str:
         }
     for label in LABELS:
         lines.append(f"| `{label}` | " + " | ".join(shares[s][label] for s in splits) + " |")
-    for axis in ("language", "doc_type", "layout", "domain", "locale", "person_origin"):
+    for axis in ("source", "language", "doc_type", "layout", "domain", "locale", "person_origin"):
         header = f"| {axis} | " + " | ".join(splits) + " |"
         lines += ["", f"## Documents by {axis.replace('_', ' ')}", "", header]
         lines.append("|---|" + "---|" * len(splits))
@@ -106,10 +136,25 @@ def main() -> None:
     parser.add_argument("--validation", type=int, default=3000)
     parser.add_argument("--test", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--raw", type=Path, help="add the public corpora downloaded here")
+    parser.add_argument("--llm", type=Path, help="add the LLM-written splits found here")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     sizes = {"train": args.train, "validation": args.validation, "test": args.test}
     splits = {split: build_split(split, sizes[split], args.seed) for split in SPLITS}
+    extra = public_documents(args.raw) if args.raw else {split: [] for split in SPLITS}
+    if args.llm:
+        for split in SPLITS:
+            path = args.llm / f"{split}.jsonl"
+            if path.is_file():
+                extra[split] += [_load(line) for line in path.open(encoding="utf-8")]
+    rng = random.Random(f"public-{args.seed}")
+    for split, documents in extra.items():
+        grid = len(splits[split][0])
+        for source, share in PUBLIC_SHARE.items():
+            pool = [d for d in documents if d.source == source]
+            splits[split][0].extend(rng.sample(pool, min(len(pool), int(share * grid))))
+        splits[split][0].extend(d for d in documents if d.source not in PUBLIC_SHARE)
     for split, (documents, _, _) in splits.items():
         write_jsonl(documents, args.out / f"{split}.jsonl")
     (args.out / "DATASHEET.md").write_text(datasheet(splits, args.seed), encoding="utf-8")

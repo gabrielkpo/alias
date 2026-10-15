@@ -129,11 +129,42 @@ a value:
 Only fake values ever reach the API. Prompts are versioned in the repository, and each record keeps
 the model name and prompt version that produced it.
 
+**Implementation (`alias_pii.llm_writer`, prompt version 1).** Each request draws a document type
+and domain from the grid, a language, a tone (six per language), a length (80 to 250 words) and
+the placeholders: the type's required fields, one to three optional ones, and a second person in
+40 % of requests. The values are filled in from a fresh identity per document, so the same answer
+never carries the same values twice. Answers are cached on disk by a hash of model, prompt version,
+temperature and messages, which makes a build resumable and rerunnable without new calls. Calls are
+spaced (about one per second, the free plan's limit) and retried with backoff on rate limits and
+server errors. The first prompt version does not ask for distractors; the gates still reject any
+strict-format value outside the placeholders. Remaining gap: a name the model writes without a
+placeholder is not detected by the rules (names have no format), so a manual sample review is part
+of every run.
+
 ### 4.3 Public corpora
 | Corpus | Licence | Use |
 |---|---|---|
-| WikiNER (French, English) | CC BY 4.0 | person names in real sentences; only `PER` is mapped to `PERSON` (its locations are not addresses) |
-| gretelai/synthetic_pii_finance_multilingual (French, English parts) | Apache-2.0 | financial documents written by an LLM; labels mapped to the Alias schema |
+| WikiNER French (mirror `Jean-Baptiste/wikiner_fr`) | CC BY 4.0 (original corpus) | person names in real sentences; only `PER` is mapped to `PERSON` (its locations are not addresses) |
+| gretelai/synthetic_pii_finance_multilingual (French and English files) | Apache-2.0 | financial documents written by an LLM (EDI, SWIFT, BAI, contracts, letters); labels mapped to the Alias schema |
+
+**Conversion (`alias_pii.sources`).** gretel: `name`, `first_name`, `last_name` → `PERSON`;
+`street_address` → `ADDRESS`; `email`, `phone_number`, `iban` → same; `ssn` → `NATIONAL_ID`;
+`date_of_birth` → `BIRTH_DATE`; customer, employee, passport and driving licence numbers →
+`IDENTIFIER`. Other gretel labels (companies, dates, card numbers, SWIFT codes, IP addresses,
+passwords) stay unlabelled: they are outside the Alias schema. Rows with a gretel quality score
+below 80 are skipped, overlapping spans of one label are merged, spans are trimmed. WikiNER rows are
+joined in article order into paragraphs of four sentences, with French spacing rules.
+
+Both corpora go through the same gates as the generated documents. Measured: about 80 % of gretel
+documents pass (the rest mostly contain an unlabelled e-mail or phone number, or a phone number
+that is not a valid format); all WikiNER paragraphs pass. Neither corpus has a validation part: a
+stable 10 % of each training part (hash of the row id) becomes validation, the corpora's test parts
+go to test.
+
+**Label policy differences, kept on purpose and visible through the `source` field.** gretel labels
+company addresses as `street_address`, whereas the grid leaves a company address unlabelled; WikiNER
+names are public figures, which Alias masks like anyone else. Training can weight or filter by
+source; evaluation reports results per source.
 
 Excluded for licence reasons: ai4privacy (non-commercial or unclear terms), WikiNEuRal and
 MultiNERD (CC BY-NC-SA), CATIE-AQ frenchNER (contains them).
@@ -152,6 +183,9 @@ unlabelled, and each document type has a target share of them.
   documents without people, which would be unrealistic.
 - **Natural validation set:** realistic proportions (names and e-mails dominate), to measure
   precision honestly.
+- **Public corpora are capped** relative to the grid documents of the same split (gretel 30 %,
+  WikiNER 10 %, `PUBLIC_SHARE` in `build_dataset`): uncapped, they made `PERSON` 73 % of the spans.
+  With the caps, on a 3,000-document grid sample: `PERSON` 31 %, the other labels 7 to 15 %.
 - **Target size:** about 30,000 training documents, 3,000 validation, 3,000 test, in equal parts
   French and English, plus a few hundred mixed documents.
 
@@ -209,5 +243,5 @@ composition per axis and per label, sources and licences, rejected-document coun
 |---|---|
 | 0.1 | this specification; first 12 templates (done) |
 | 0.2 | identity factory, grid generator (14 document types × 5 layouts × 2 languages + mixed), quality gates, balancer, datasheet, build command (done) |
-| 0.3 | LLM-written documents with placeholders |
-| 0.4 | public corpora mapped; first full build and manual review |
+| 0.3 | LLM-written documents with placeholders: writer, cache, retries and gates (done); first run pending the API key |
+| 0.4 | public corpora mapped, capped and merged into the build with per-source datasheet (done); first full build and manual review next |
