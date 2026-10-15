@@ -1,0 +1,23 @@
+[project]
+name = "alias-pii"
+version = "0.1.0"
+description = "Local PII masking before an LLM call: detect, replace with stable aliases, restore in the answer."
+requires-python = ">=3.12"
+dependencies = ["phonenumbers>=8.13"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/alias_pii"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

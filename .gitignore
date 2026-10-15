@@ -1,0 +1,13 @@
+# secrets
+.env
+# datasets, hand-annotated real texts and trained weights stay out of Git
+data/raw/
+data/real/
+models/
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
