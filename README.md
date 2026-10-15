@@ -74,7 +74,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 | Step | Content | State |
 |---|---|---|
 | 1 | Rules (FR + EN), masking, restoring, leak check | done |
-| 2 | File readers (done); synthetic FR + EN generator; validation set; hand-annotated real sets | in progress |
+| 2 | File readers, synthetic FR + EN generator and validation split (done); hand-annotated real sets | in progress |
 | 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, Mistral zero-shot | planned |
 | 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best | planned |
 | 5 | Rules + model, leak rate | planned |
@@ -124,8 +124,6 @@ Known limits of the readers:
 | `IDENTIFIER` | file, contract or customer number after a keyword | rules |
 | `PERSON`, `ADDRESS`, `BIRTH_DATE` | need context | trained model (step 4) |
 
-Labels are language-neutral so French and English documents get the same tags.
-
 ## Run it
 Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
@@ -135,7 +133,6 @@ uv sync --group dev
 uv run pytest
 ```
 
-Nothing is downloaded at this stage; models will be fetched from Hugging Face at step 4.
 
 ## Project structure
 
@@ -145,6 +142,7 @@ Nothing is downloaded at this stage; models will be fetched from Hugging Face at
 | `src/alias_pii/rules.py`, `validators.py` | rule detector, IBAN and NIR checksums |
 | `src/alias_pii/masking.py` | alias table, `mask`, `restore`, `find_leaks` |
 | `src/alias_pii/readers.py` | `read_document`: .txt, .md, .docx, text PDFs to plain text |
+| `src/alias_pii/synthetic.py` | annotated synthetic documents (Faker), train and validation templates |
 | `tests/` | unit tests; `tests/README.md` lists the allowed fixture values |
 
 ## Data and privacy
@@ -155,7 +153,8 @@ Nothing is downloaded at this stage; models will be fetched from Hugging Face at
 - **Never sent to a third party:** real texts do not go to Kaggle, Colab or an LLM API; only
   synthetic and public data do. No weights trained on real data are published.
 - **Dataset:** how the training data is built, labelled, balanced and checked is specified in
-  [docs/DATASET.md](docs/DATASET.md); it is generated locally and never committed.
+  [docs/DATASET.md](docs/DATASET.md). It is generated locally and never committed:
+  `uv run --group data python -m alias_pii.synthetic --split train --n 2000 --out data/synthetic/train.jsonl`.
 - **Training data:** synthetic Faker text (MIT), WikiNER French (CC BY 4.0), gretel synthetic PII
   finance multilingual (Apache-2.0).
 
