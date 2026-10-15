@@ -20,14 +20,14 @@ import argparse
 import json
 import random
 import re
-from dataclasses import asdict, dataclass
+from collections import Counter
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 
-import phonenumbers
-from faker import Faker
-
+from alias_pii import quality
 from alias_pii.entities import EntityType
+from alias_pii.identities import IdentityFactory
 
 LOCALES = {"fr": "fr_FR", "en_us": "en_US", "en_gb": "en_GB"}
 SPLITS = ("train", "validation")
@@ -47,6 +47,7 @@ class Example:
     language: str  # "fr" or "en"
     locale: str
     template: str
+    negatives: list[Span] = field(default_factory=list)  # distractors placed on purpose
 
 
 # --- templates --------------------------------------------------------------------------------
@@ -72,7 +73,7 @@ FR_TEMPLATES = {
         "Motif : contrôle annuel. Prochain rendez-vous au cabinet de {city}."
     ),
     "fr_email": (
-        "De : {EMAIL}\nÀ : accueil@{org_domain}\nObjet : rendez-vous\n\nBonjour, je suis "
+        "De : {EMAIL}\nÀ : {org_email}\nObjet : rendez-vous\n\nBonjour, je suis "
         "{PERSON} et je souhaite décaler mon rendez-vous du {date}. Mon numéro : {PHONE}.\nMerci !"
     ),
     "fr_hr": (
@@ -102,7 +103,7 @@ EN_TEMPLATES = {
         "Reason: annual check-up. Next appointment at the {city} practice."
     ),
     "en_email": (
-        "From: {EMAIL}\nTo: frontdesk@{org_domain}\nSubject: appointment\n\nHi, this is {PERSON}. "
+        "From: {EMAIL}\nTo: {org_email}\nSubject: appointment\n\nHi, this is {PERSON}. "
         "Could we move my appointment of {date}? My number is {PHONE}.\nThanks!"
     ),
     "en_hr": (
@@ -120,9 +121,6 @@ TEMPLATES = {"fr": FR_TEMPLATES, "en": EN_TEMPLATES}
 _VALIDATION = {"fr_hr", "fr_insurance", "en_hr", "en_insurance"}
 _SLOT = re.compile(r"\{([A-Za-z_]+)\}")
 
-EN_MONTHS = "January February March April May June July August September October November December"
-FR_MONTHS = "janvier février mars avril mai juin juillet août septembre octobre novembre décembre"
-
 
 def templates_for(split: str) -> dict[str, tuple[str, str]]:
     """Templates of a split, as {name: (language, text)}."""
@@ -136,162 +134,108 @@ def templates_for(split: str) -> dict[str, tuple[str, str]]:
     }
 
 
-# --- values -----------------------------------------------------------------------------------
-
-
-class _Values:
-    """Personal and distractor values for one locale, with varied surface forms."""
-
-    def __init__(self, locale: str, rng: random.Random):
-        self.locale = locale
-        self.rng = rng
-        self.fake = Faker(locale)
-        self.fake.seed_instance(rng.randrange(2**32))
-
-    def digits(self, count: int) -> str:
-        return "".join(str(self.rng.randrange(10)) for _ in range(count))
-
-    def person(self) -> str:
-        name = self.fake.name()
-        return name.upper() if self.rng.random() < 0.1 else name
-
-    def address(self) -> str:
-        return self.fake.address().replace("\n", ", ")
-
-    def email(self) -> str:
-        return self.fake.email()
-
-    def phone(self) -> str:
-        """A number in an allocated range, as a real document would contain: random digits are
-        often unallocated, and a detector would rightly ignore them."""
-        region = {"fr_FR": "FR", "en_GB": "GB"}.get(self.locale, "US")
-        while True:
-            number = self._phone_candidate()
-            if phonenumbers.is_valid_number(phonenumbers.parse(number, region)):
-                return number
-
-    def _phone_candidate(self) -> str:
-        r, d = self.rng.random(), self.digits
-        if self.locale == "fr_FR":
-            body = [self.rng.choice("1234567"), *(d(2) for _ in range(4))]
-            if r < 0.6:
-                return "0" + body[0] + " " + " ".join(body[1:])
-            if r < 0.8:
-                return "+33 " + body[0] + " " + " ".join(body[1:])
-            return "0" + body[0] + "." + ".".join(body[1:])
-        if self.locale == "en_GB":
-            return f"07{d(3)} {d(6)}" if r < 0.5 else f"+44 20 {d(4)} {d(4)}"
-        area = f"{self.rng.randrange(2, 10)}{d(2)}"
-        exchange = f"{self.rng.randrange(2, 10)}{d(2)}"
-        return f"({area}) {exchange}-{d(4)}" if r < 0.5 else f"{area}-{exchange}-{d(4)}"
-
-    def iban(self) -> str:
-        country = {"fr_FR": "FR", "en_GB": "GB"}.get(self.locale, self.rng.choice(["GB", "FR"]))
-        maker = Faker({"FR": "fr_FR", "GB": "en_GB"}[country])
-        maker.seed_instance(self.rng.randrange(2**32))
-        compact = maker.iban()
-        if self.rng.random() < 0.6:  # usually printed in groups of four
-            return " ".join(compact[i : i + 4] for i in range(0, len(compact), 4))
-        return compact
-
-    def national_id(self) -> tuple[str, str]:
-        """(value, name of the number in the document)."""
-        if self.locale == "fr_FR":
-            nir = self.fake.ssn()
-            if self.rng.random() < 0.5:
-                parts = (nir[0], nir[1:3], nir[3:5], nir[5:7], nir[7:10], nir[10:13], nir[13:])
-                nir = " ".join(parts)
-            return nir, "N° de sécurité sociale"
-        if self.locale == "en_GB":
-            prefix = self.rng.choice(["AB", "CE", "JG", "KL", "PR", "SW", "TY", "WX"])
-            value = f"{prefix} {self.digits(2)} {self.digits(2)} {self.digits(2)} "
-            return value + self.rng.choice("ABCD"), "National Insurance number"
-        return self.fake.ssn(), "SSN"
-
-    def identifier(self) -> str:
-        d = self.digits
-        forms = [f"{self.rng.randrange(2018, 2027)}/{d(5)}", f"AB-{d(6)}", f"C{d(7)}"]
-        return self.rng.choice(forms)
-
-    def birth_date(self) -> str:
-        # Fixed bounds rather than "age 18 to 90": the output must not depend on today's date.
-        return self._format_date(self.fake.date_between(date(1935, 1, 1), date(2007, 12, 31)))
-
-    def other_date(self) -> str:
-        return self._format_date(self.fake.date_between(date(2023, 1, 1), date(2026, 12, 31)))
-
-    def _format_date(self, day: date) -> str:
-        r = self.rng.random()
-        if self.locale == "fr_FR":
-            if r < 0.6:
-                return day.strftime("%d/%m/%Y")
-            return f"{day.day} {FR_MONTHS.split()[day.month - 1]} {day.year}"
-        if r < 0.5:
-            return day.strftime("%d/%m/%Y" if self.locale == "en_GB" else "%m/%d/%Y")
-        month = EN_MONTHS.split()[day.month - 1]
-        return (
-            f"{day.day} {month} {day.year}"
-            if self.locale == "en_GB"
-            else f"{month} {day.day}, {day.year}"
-        )
-
-    def amount(self) -> str:
-        value = self.rng.randrange(20, 2000)
-        symbol = {"fr_FR": "{} €", "en_GB": "£{}"}.get(self.locale, "${}")
-        return symbol.format(value)
-
-
 # --- generation -------------------------------------------------------------------------------
 
 
 def generate(n: int, split: str = "train", seed: int = 0) -> list[Example]:
-    """`n` documents from the templates of `split`, reproducible from `seed`."""
+    """`n` documents from the templates of `split` that pass the quality gates, reproducible from
+    `seed`."""
+    return generate_with_report(n, split, seed)[0]
+
+
+def generate_with_report(
+    n: int, split: str = "train", seed: int = 0
+) -> tuple[list[Example], Counter]:
+    """Like `generate`, also returning the rejected candidates counted by reason."""
     rng = random.Random(f"{seed}-{split}")
     templates = sorted(templates_for(split).items())
-    examples = []
-    for _ in range(n):
+    examples: list[Example] = []
+    rejected: Counter = Counter()
+    attempts = 0
+    while len(examples) < n:
+        attempts += 1
+        if attempts > 20 * n + 100:  # a template that always fails a gate must not hang the build
+            raise RuntimeError(f"too many rejected documents: {dict(rejected)}")
         name, (language, template) = rng.choice(templates)
         locale = LOCALES["fr"] if language == "fr" else LOCALES[rng.choice(["en_us", "en_gb"])]
-        examples.append(_fill(name, language, template, _Values(locale, rng)))
-    return examples
+        example = _fill(name, language, template, IdentityFactory(locale, rng))
+        problems = quality.check(example.text, example.spans, example.negatives)
+        if problems:
+            rejected.update(quality.summarise([problems]))
+            continue
+        examples.append(example)
+    return examples, rejected
 
 
-def _fill(name: str, language: str, template: str, values: _Values) -> Example:
-    # One person, one national ID per document: repeated slots repeat the same value, as in a
-    # real letter signed by the person who wrote it.
-    person = values.person()
-    national_id, national_id_name = values.national_id()
-    company = values.fake.company()
-    fixed = {
+def _fill(name: str, language: str, template: str, factory: IdentityFactory) -> Example:
+    identity = factory.identity()
+    fake = factory.fake
+    company = fake.company()
+    first_name = factory.name_as(identity)
+    later_names = [first_name, identity.person.last, factory.name_as(identity, "initial")]
+    names_used = 0
+
+    def person() -> str:
+        # The first mention follows any style; later mentions repeat it or shorten it ("Dupont",
+        # "J. Dupont"), as a letter signed after an introduction does.
+        nonlocal names_used
+        names_used += 1
+        return first_name if names_used == 1 else factory.rng.choice(later_names)
+
+    values = {
         "PERSON": person,
-        "NATIONAL_ID": national_id,
-        "NATIONAL_ID_NAME": national_id_name,
-        "org": company,
-        "org_domain": re.sub(r"[^a-z]", "", company.lower())[:12] + ".example",
-        "city": values.fake.city(),
+        "ADDRESS": lambda: factory.address_as(identity, multiline=False),
+        "EMAIL": lambda: identity.email,
+        "PHONE": lambda: factory.phone_as(identity),
+        "IBAN": lambda: factory.iban_as(identity),
+        "NATIONAL_ID": lambda: factory.national_id_as(identity),
+        "BIRTH_DATE": lambda: factory.date_as(identity.birth_date),
+        "IDENTIFIER": lambda: identity.identifier,
+        "NATIONAL_ID_NAME": lambda: _NATIONAL_ID_NAMES[identity.national_id_kind],
+        "date": lambda: factory.date_as(fake.date_between(date(2023, 1, 1), date(2026, 12, 31))),
+        "amount": lambda: _amount(factory),
+        "org": lambda: company,
+        "org_email": lambda: (
+            factory.rng.choice(["contact", "accueil", "frontdesk", "info"])
+            + "@"
+            + re.sub(r"[^a-z]", "", company.lower())[:12]
+            + ".example"
+        ),
+        "city": fake.city,
     }
-    makers = {
-        "ADDRESS": values.address,
-        "EMAIL": values.email,
-        "PHONE": values.phone,
-        "IBAN": values.iban,
-        "IDENTIFIER": values.identifier,
-        "BIRTH_DATE": values.birth_date,
-        "date": values.other_date,
-        "amount": values.amount,
-    }
-    text, spans, cursor = [], [], 0
+    text, spans, negatives = [], [], []
+    length = cursor = 0
     for match in _SLOT.finditer(template):
-        text.append(template[cursor : match.start()])
+        literal = template[cursor : match.start()]
+        text.append(literal)
+        length += len(literal)
         slot = match.group(1)
-        value = fixed[slot] if slot in fixed else makers[slot]()
-        start = sum(len(part) for part in text)
-        text.append(value)
+        value = values[slot]()
         if slot in EntityType.__members__:
-            spans.append(Span(start, start + len(value), slot))
+            spans.append(Span(length, length + len(value), slot))
+        elif slot in _NEGATIVE_SLOTS:
+            negatives.append(Span(length, length + len(value), _NEGATIVE_SLOTS[slot]))
+        text.append(value)
+        length += len(value)
         cursor = match.end()
     text.append(template[cursor:])
-    return Example("".join(text), spans, language, values.locale, name)
+    return Example("".join(text), spans, language, factory.locale, name, negatives)
+
+
+# Distractor slots whose value looks like personal data of the given type but is not.
+_NEGATIVE_SLOTS = {"org_email": "EMAIL"}
+
+_NATIONAL_ID_NAMES = {
+    "FR_NIR": "N° de sécurité sociale",
+    "UK_NINO": "National Insurance number",
+    "US_SSN": "SSN",
+}
+
+
+def _amount(factory: IdentityFactory) -> str:
+    value = factory.rng.randrange(20, 2000)
+    symbol = {"fr_FR": "{} €", "en_GB": "£{}"}.get(factory.locale, "${}")
+    return symbol.format(value)
 
 
 def write_jsonl(examples: list[Example], path: Path) -> None:
