@@ -1,0 +1,10 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "alias-pii",
+      "include-v-in-tag": true,
+      "extra-files": ["src/alias_pii/__init__.py"]
+    }
+  }
+}

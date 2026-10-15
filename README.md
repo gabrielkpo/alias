@@ -1,5 +1,7 @@
 # Alias
 
+[![CI](https://github.com/gabrielkpo/alias/actions/workflows/ci.yml/badge.svg)](https://github.com/gabrielkpo/alias/actions/workflows/ci.yml)
+
 Masks personal data in a document **locally**, before the text is sent to an LLM, then puts the
 real values back into the answer. French and English.
 
@@ -50,3 +52,6 @@ PERSON, ADDRESS and BIRTH_DATE need context: they are the job of the trained mod
 
 Known limits of the rules: a 4-digit year after a keyword (`compte 2024`) is flagged as an
 identifier (recall first); an SSN needs its dashes or spaces; a NIR without its key is missed.
+
+## License
+MIT, see [LICENSE](LICENSE).
