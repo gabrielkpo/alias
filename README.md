@@ -39,6 +39,30 @@ answer = "Virement vers [IBAN_1] confirmé."
 restore(answer, result).text  # real IBAN back, only for aliases sent in this exchange
 ```
 
+## Input files (step 2)
+`read_document(path)` turns a file into plain text before detection:
+
+| Format | What is read |
+|---|---|
+| `.txt`, `.md` | UTF-8, UTF-16 and UTF-32 (UTF-16 also without byte order mark); UTF-8 and Windows-1252 decided sequence by sequence (a UTF-8 sequence is kept only if its character is plausible in French or English; reported); text normalised to NFC, PDF ligatures split; UTF-16 mixed with anything else is refused, never guessed |
+| `.docx` | body, tables (nested too), headers and footers (first-page and even-page too), text boxes, content controls (inline, block, in cells), tracked insertions, footnotes, endnotes, comments |
+| PDF with a text layer | every page (joined with a form feed), then filled-in form fields and annotation texts |
+
+Personal data often sits outside the main text (a name in a header, an address in a text box, an
+IBAN in a form field), so those places are read. What still cannot be read is reported in
+`Document.warnings`: scanned pages (OCR is not supported yet), charts, SmartArt and embedded
+objects. Broken, encrypted or binary files raise `UnsupportedFileError`.
+
+Known limits of the readers:
+- Invisible or special spaces inside a value (zero-width space, soft hyphen, no-break space in an
+  IBAN, narrow no-break space in a phone number) stop detection; the value stays readable.
+- UTF-8 or Windows-1252 is decided per character from a list of characters plausible in French or
+  English: anything else (CJK, Hebrew, Arabic, full-width) comes out garbled.
+- UTF-16 or UTF-32 mixed with another encoding is refused; convert the file to UTF-8.
+- Some PDFs (LaTeX) store an accent before its letter ("R´ef´erence"): accented keywords then miss.
+- Non-standard PDF strings (UTF-8 in PDF 2.0 annotations and form fields) are decoded as
+  PDFDocEncoding by pypdf.
+
 ## Rule layer (step 1)
 | Type | French | English | Check |
 |---|---|---|---|
