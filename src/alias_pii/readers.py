@@ -8,6 +8,8 @@ are read too. What still cannot be read (scanned pages, charts, embedded objects
 
 from __future__ import annotations
 
+import re
+import unicodedata
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,7 +41,13 @@ _DOCX_UNREAD_PARTS = {
     "/embeddings/": "embedded objects",
 }
 _SAFE_XML = etree.XMLParser(resolve_entities=False, no_network=True)
-_CP1252_CHARS = frozenset(bytes(range(0x80, 0x100)).decode("cp1252", errors="ignore"))
+_NON_ASCII_RUN = re.compile(rb"[\x80-\xff]+")
+# A well-formed UTF-8 sequence (no overlong forms, no surrogates), one character.
+_UTF8_SEQUENCE = re.compile(
+    rb"[\xc2-\xdf][\x80-\xbf]"
+    rb"|\xe0[\xa0-\xbf][\x80-\xbf]|[\xe1-\xec\xee\xef][\x80-\xbf]{2}|\xed[\x80-\x9f][\x80-\xbf]"
+    rb"|\xf0[\x90-\xbf][\x80-\xbf]{2}|[\xf1-\xf3][\x80-\xbf]{3}|\xf4[\x80-\x8f][\x80-\xbf]{2}"
+)
 
 
 class UnsupportedFileError(ValueError):
@@ -66,10 +74,15 @@ def read_document(path: str | Path) -> Document:
     if size > MAX_BYTES:
         raise UnsupportedFileError(f"{path.name}: {size} bytes, above the {MAX_BYTES} limit")
     if suffix in (".txt", ".md"):
-        return _read_plain(path, suffix[1:])
-    if suffix == ".docx":
-        return _read_docx(path)
-    return _read_pdf(path)
+        document = _read_plain(path, suffix[1:])
+    elif suffix == ".docx":
+        document = _read_docx(path)
+    else:
+        document = _read_pdf(path)
+    # Composed accents (NFC): "re\u0301fe\u0301rence" from macOS or a PDF must match the same
+    # rules as "référence".
+    document.text = unicodedata.normalize("NFC", document.text)
+    return document
 
 
 # --- plain text ---------------------------------------------------------------------------
@@ -91,46 +104,75 @@ def _read_plain(path: Path, fmt: str) -> Document:
             )
         text = _decode_wide(path, raw, encoding)
         return Document(path, text, fmt, [f"no byte order mark, decoded as {encoding}"])
-    text, legacy_lines = _decode_lines(raw)
+    text, legacy_bytes = _decode_mixed(raw)
     warnings = []
-    if legacy_lines:
-        warnings.append(f"{legacy_lines} line(s) not UTF-8, decoded as Windows-1252")
+    if legacy_bytes:
+        warnings.append(f"{legacy_bytes} byte(s) not UTF-8, decoded as Windows-1252")
     return Document(path, text, fmt, warnings)
 
 
-def _decode_lines(raw: bytes) -> tuple[str, int]:
-    """UTF-8 or Windows-1252, decided line by line. Returns the text and the Windows-1252 count.
+def _decode_mixed(raw: bytes) -> tuple[str, int]:
+    """UTF-8, with Windows-1252 where the bytes are not plausible UTF-8. Returns the text and the
+    number of bytes read as Windows-1252.
 
-    Files mix both (a line appended by an old tool), and each wrong guess hides data from the
-    rules while staying exactly recoverable: UTF-8 read as Windows-1252 gives "sociÃ©tÃ©";
-    Windows-1252 read as UTF-8 can form valid but absurd characters ("ABONNÉ" + no-break space
-    gives "ABONNɠ"). So a line stays UTF-8 only if it is valid UTF-8 and every character is
-    plausible in French or English text; otherwise the whole line is read as Windows-1252.
+    Files mix both, even within a line (a line appended by an old tool without a newline), and
+    each wrong guess hides data from the rules while staying exactly recoverable: UTF-8 read as
+    Windows-1252 gives "sociÃ©tÃ©"; Windows-1252 read as UTF-8 can form valid but absurd
+    characters ("ABONNÉ" + no-break space gives "ABONNɠ"). So the decision is made sequence by
+    sequence: a well-formed UTF-8 sequence is kept if its character is plausible in French or
+    English text, and any other byte is read as Windows-1252.
     """
-    lines: list[str] = []
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    else:
+        if all(_plausible(char) for char in text):
+            return text, 0
+    parts: list[str] = []
     legacy = 0
-    for line in raw.split(b"\n"):
-        try:
-            text = line.decode("utf-8")
-        except UnicodeDecodeError:
-            text = None
-        if text is None or not all(_plausible(char) for char in text):
-            text = line.decode("cp1252", errors="replace")
-            legacy += 1
-        lines.append(text)
-    return "\n".join(lines), legacy
+    position = 0
+    for match in _NON_ASCII_RUN.finditer(raw):
+        parts.append(raw[position : match.start()].decode("ascii"))
+        run, index = match.group(), 0
+        while index < len(run):
+            sequence = _UTF8_SEQUENCE.match(run, index)
+            if sequence:
+                char = sequence.group().decode("utf-8")
+                if _plausible(char):
+                    parts.append(char)
+                    index = sequence.end()
+                    continue
+                chunk = sequence.group()  # well-formed but absurd: Windows-1252 bytes
+            else:
+                chunk = run[index : index + 1]
+            parts.append(chunk.decode("cp1252", errors="replace"))
+            legacy += len(chunk)
+            index += len(chunk)
+        position = match.end()
+    parts.append(raw[position:].decode("ascii"))
+    return "".join(parts), legacy
 
 
 def _plausible(char: str) -> bool:
-    """Characters a French or English text may contain once correctly decoded."""
+    """Characters a French or English text may contain once correctly decoded.
+
+    Wide on purpose (a rejected character only costs its own bytes), but excluding where
+    Windows-1252 letters followed by symbols land when read as UTF-8: IPA (U+0250-U+02AF, from
+    É, Ç, È... + a no-break space or a quote) and CJK (from é, è, à... + two symbols).
+    """
     code = ord(char)
     return (
         code < 0x80
-        or char in _CP1252_CHARS  # Latin-1 letters, Œ œ Ÿ, € and typographic quotes
-        or 0x0370 <= code <= 0x03FF  # Greek (units, maths)
+        or 0x00A0 <= code <= 0x024F  # Latin-1, Latin Extended-A and -B (Œ, Ł, Ș...)
+        or 0x02B0 <= code <= 0x036F  # spacing modifiers (ˆ ˜), combining accents (NFD text)
+        or 0x0370 <= code <= 0x04FF  # Greek (units, maths), Cyrillic (names)
+        or 0x1E00 <= code <= 0x1EFF  # Latin Extended Additional
         or 0x2000 <= code <= 0x2BFF  # punctuation, currency, arrows, maths, symbols
+        or 0xE000 <= code <= 0xF8FF  # private use: Word and PDF bullets
+        or 0xFB00 <= code <= 0xFB06  # ligatures copied from PDFs (fi, fl)
+        or code in (0xFE0F, 0xFEFF, 0xFFFD)  # emoji selector, stray byte order mark, replacement
         or 0x1F000 <= code <= 0x1FAFF  # emoji
-        or code == 0xFE0F  # emoji presentation selector
     )
 
 

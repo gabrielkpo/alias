@@ -1,3 +1,5 @@
+import unicodedata
+
 import docx
 import pytest
 from pypdf import PdfReader, PdfWriter
@@ -22,7 +24,7 @@ def test_legacy_encoding_is_decoded_and_reported(tmp_path):
     (tmp_path / "old.txt").write_bytes("Hélène écrit".encode("cp1252"))
     document = read_document(tmp_path / "old.txt")
     assert document.text == "Hélène écrit"
-    assert document.warnings == ["1 line(s) not UTF-8, decoded as Windows-1252"]
+    assert document.warnings == ["3 byte(s) not UTF-8, decoded as Windows-1252"]
 
 
 def test_docx_keeps_headers_footers_and_tables(tmp_path):
@@ -289,7 +291,7 @@ def test_utf8_file_with_a_windows_1252_line_keeps_its_utf8_parts(tmp_path):
     assert document.text == (
         "Référence : AB-2024-0042\nCourriel : jean@société.example\nAppelé le client\n"
     )
-    assert document.warnings == ["1 line(s) not UTF-8, decoded as Windows-1252"]
+    assert document.warnings == ["1 byte(s) not UTF-8, decoded as Windows-1252"]
     masked = mask(document.text, RuleDetector()).text
     assert masked == "Référence : [IDENTIFIER_1]\nCourriel : [EMAIL_1]\nAppelé le client\n"
 
@@ -326,3 +328,34 @@ def test_utf8_line_with_emoji_and_accents_stays_utf8(tmp_path):
     (tmp_path / "e.txt").write_text(text, encoding="utf-8")
     document = read_document(tmp_path / "e.txt")
     assert (document.text, document.warnings) == (text, [])
+
+
+def test_one_line_mixing_utf8_and_windows_1252_keeps_both(tmp_path):
+    """PowerShell 5 Add-Content appends ANSI text to a UTF-8 file with no final newline."""
+    raw = "Référence : AB-2024-0042 ; courriel jean@société.example".encode()
+    raw += " – mis à jour".encode("cp1252")
+    (tmp_path / "add.txt").write_bytes(raw)
+    document = read_document(tmp_path / "add.txt")
+    assert document.text == (
+        "Référence : AB-2024-0042 ; courriel jean@société.example – mis à jour"
+    )
+    assert mask(document.text, RuleDetector()).text == (
+        "Référence : [IDENTIFIER_1] ; courriel [EMAIL_1] – mis à jour"
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Référence : AB-2024-0042 (conﬁdentiel)",  # PDF ligature
+        "Re\u0301fe\u0301rence : AB-2024-0042",  # decomposed accents (macOS, PDF)
+        "\ufeffRéférence : AB-2024-0042",  # byte order mark in the middle of a file
+        "Référence : AB-2024-0042 \ufffd M. Łukasz Wójcik, Ștefănescu",
+    ],
+)
+def test_valid_utf8_with_unusual_but_legitimate_characters_stays_utf8(tmp_path, line):
+    (tmp_path / "u.txt").write_bytes(b"Intro\n" + line.encode())
+    document = read_document(tmp_path / "u.txt")
+    assert document.text == "Intro\n" + unicodedata.normalize("NFC", line)
+    assert document.warnings == []
+    assert "[IDENTIFIER_1]" in mask(document.text, RuleDetector()).text
