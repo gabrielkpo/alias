@@ -32,6 +32,7 @@ _BOMS = (  # longest first: the UTF-32 LE mark starts with the UTF-16 LE one
     (b"\xfe\xff", "utf-16"),
 )
 _MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
+_TXBX = qn("w:txbxContent")
 # Parts of a .docx that hold text outside the body, read with entities and network disabled.
 _DOCX_NOTE_PARTS = ("footnotes.xml", "endnotes.xml", "comments.xml")
 _DOCX_UNREAD_PARTS = {
@@ -263,7 +264,13 @@ def _misread_ascii(text: str) -> bool:
 def _read_docx(path: Path) -> Document:
     try:
         document = docx.Document(str(path))
-    except (PackageNotFoundError, zipfile.BadZipFile, KeyError, ValueError) as exc:
+    except (
+        PackageNotFoundError,
+        zipfile.BadZipFile,
+        KeyError,
+        ValueError,
+        etree.XMLSyntaxError,
+    ) as exc:
         raise UnsupportedFileError(f"{path.name}: not a readable .docx ({exc})") from exc
 
     lines: list[str] = []
@@ -286,14 +293,18 @@ def _read_docx(path: Path) -> Document:
     lines += _docx_blocks(document) + _text_boxes(body)
     # Block-level content controls (form fields in templates) are skipped by iter_inner_content.
     for sdt in body.iterchildren(qn("w:sdt")):
-        lines += [_paragraph_text(p) for p in sdt.iter(qn("w:p"))]
+        lines += _paragraphs(sdt)
 
     warnings: list[str] = []
     for package_part in document.part.package.iter_parts():
         name = str(package_part.partname)
         if name.rsplit("/", 1)[-1] in _DOCX_NOTE_PARTS:
-            root = etree.fromstring(package_part.blob, _SAFE_XML)
-            lines += [_paragraph_text(p) for p in root.iter(qn("w:p"))]
+            try:
+                root = etree.fromstring(package_part.blob, _SAFE_XML)
+            except etree.XMLSyntaxError:
+                warnings.append(f"{name} could not be read (malformed XML)")
+                continue
+            lines += _paragraphs(root)
         for marker, label in _DOCX_UNREAD_PARTS.items():
             message = f"{label} are not read"
             if marker in name and message not in warnings:
@@ -302,7 +313,7 @@ def _read_docx(path: Path) -> Document:
 
 
 def _docx_blocks(container) -> list[str]:
-    """Paragraphs and table cells in document order, so names in tables are not lost."""
+    """Paragraphs and table rows in document order, so names in tables are not lost."""
     lines: list[str] = []
     for block in container.iter_inner_content():
         if isinstance(block, docx.table.Table):
@@ -313,12 +324,12 @@ def _docx_blocks(container) -> list[str]:
                     if id(cell._tc) in seen:
                         continue
                     seen.add(id(cell._tc))
-                    cell_text = "\n".join(p.text for p in cell.paragraphs).strip()
+                    cell_text = "\n".join(_paragraphs(cell._tc)).strip()
                     if cell_text:
                         cells.append(cell_text)
                 lines.append(" | ".join(cells))
         else:
-            lines.append(block.text)
+            lines.append(_visible_text(block._p))
     return lines
 
 
@@ -328,12 +339,32 @@ def _text_boxes(element) -> list[str]:
     for box in element.iter(qn("w:txbxContent")):
         if any(ancestor.tag == _MC_FALLBACK for ancestor in box.iterancestors()):
             continue
-        lines += [_paragraph_text(p) for p in box.iterchildren(qn("w:p"))]
+        lines += _paragraphs(box)
     return lines
 
 
-def _paragraph_text(paragraph) -> str:
-    return "".join(node.text or "" for node in paragraph.iter(qn("w:t")))
+def _paragraphs(element) -> list[str]:
+    """Text of every paragraph under `element` (nested tables, content controls included), except
+    those inside a text box below it: text boxes are read once, by `_text_boxes`."""
+    return [_visible_text(p) for p in element.iter(qn("w:p")) if not _inside_box(p, element)]
+
+
+def _visible_text(paragraph) -> str:
+    """All the text of a paragraph, not only its direct runs: python-docx's Paragraph.text skips
+    inline content controls (filled form fields) and tracked insertions. Text in a text box
+    anchored in the paragraph is left to `_text_boxes`."""
+    return "".join(
+        node.text or "" for node in paragraph.iter(qn("w:t")) if not _inside_box(node, paragraph)
+    )
+
+
+def _inside_box(node, stop) -> bool:
+    for ancestor in node.iterancestors():
+        if ancestor is stop:
+            return False
+        if ancestor.tag == _TXBX:
+            return True
+    return False
 
 
 # --- PDF ----------------------------------------------------------------------------------
@@ -363,7 +394,10 @@ def _read_pdf(path: Path) -> Document:
                     f"page {number}: no extractable text (scanned page? OCR is not supported yet)"
                 )
         texts.append(text)
-        annotations += _pdf_annotations(page)
+        page_annotations, failed = _pdf_annotations(page)
+        annotations += page_annotations
+        if failed:
+            warnings.append(f"page {number}: {failed} annotation(s) could not be read")
 
     # Filled-in forms keep most of their personal data in fields, not in the page text.
     try:
@@ -381,14 +415,23 @@ def _read_pdf(path: Path) -> Document:
     return Document(path, text, "pdf", warnings)
 
 
-def _pdf_annotations(page) -> list[str]:
-    """Comments and sticky notes: their /Contents text, not their position on the page."""
+def _pdf_annotations(page) -> tuple[list[str], int]:
+    """Comments and sticky notes: their /Contents text. Returns the texts and how many could not
+    be read, so a failure is reported rather than dropped."""
     lines: list[str] = []
-    for ref in page.get("/Annots") or []:
+    failed = 0
+    try:
+        annots = page.get("/Annots")
+        annots = annots.get_object() if annots is not None else []
+        refs = list(annots)
+    except Exception:
+        return lines, 1
+    for ref in refs:
         try:
             contents = ref.get_object().get("/Contents")
         except Exception:
+            failed += 1
             continue
         if contents:
             lines.append(str(contents))
-    return lines
+    return lines, failed

@@ -375,3 +375,64 @@ def test_utf8_with_bom_is_read_like_utf8(tmp_path):
     (tmp_path / "bom.txt").write_bytes("﻿".encode() + text.encode())
     document = read_document(tmp_path / "bom.txt")
     assert (document.text, document.warnings) == (text, [])
+
+
+def test_docx_inline_content_controls_and_tracked_insertions(tmp_path):
+    word = docx.Document()
+    _append_xml(
+        word,
+        f"<w:p {W}><w:r><w:t xml:space='preserve'>Nom : </w:t></w:r>"
+        "<w:sdt><w:sdtContent><w:r><w:t>Hélène Martin</w:t></w:r></w:sdtContent></w:sdt>"
+        "<w:ins w:id='1' w:author='x'><w:r>"
+        "<w:t xml:space='preserve'>, a.b@example.com</w:t></w:r></w:ins>"
+        "</w:p>",
+    )
+    word.save(tmp_path / "form.docx")
+    assert read_document(tmp_path / "form.docx").text == "Nom : Hélène Martin, a.b@example.com"
+
+
+def test_docx_content_control_in_a_cell_and_table_in_a_text_box(tmp_path):
+    word = docx.Document()
+    cell = word.add_table(rows=1, cols=2).rows[0].cells
+    cell[0].text = "IBAN"
+    cell[1]._tc.append(
+        __import__("docx.oxml", fromlist=["parse_xml"]).parse_xml(
+            f"<w:sdt {W}><w:sdtContent><w:p><w:r><w:t>{IBAN}</w:t></w:r></w:p>"
+            "</w:sdtContent></w:sdt>"
+        )
+    )
+    _append_xml(
+        word,
+        f"<w:p {W}><w:r><w:txbxContent><w:tbl><w:tr><w:tc><w:p><w:r><w:t>12 rue des Lilas</w:t>"
+        "</w:r></w:p></w:tc></w:tr></w:tbl></w:txbxContent></w:r></w:p>",
+    )
+    word.save(tmp_path / "cells.docx")
+    lines = read_document(tmp_path / "cells.docx").text.splitlines()
+    assert f"IBAN | {IBAN}" in lines
+    assert lines.count("12 rue des Lilas") == 1
+
+
+def test_malformed_docx_comments_part_is_refused_cleanly(tmp_path):
+    import zipfile
+
+    word = docx.Document()
+    para = word.add_paragraph("Corps")
+    word.add_comment(para.runs, text="note", author="X")
+    word.save(tmp_path / "ok.docx")
+    with (
+        zipfile.ZipFile(tmp_path / "ok.docx") as src,
+        zipfile.ZipFile(tmp_path / "bad.docx", "w") as dst,
+    ):
+        for item in src.infolist():
+            data = src.read(item.filename)
+            dst.writestr(item, b"<w:comments" if item.filename == "word/comments.xml" else data)
+    with pytest.raises(UnsupportedFileError, match="not a readable .docx"):
+        read_document(tmp_path / "bad.docx")
+
+
+def test_unreadable_pdf_annotation_is_reported(make_pdf, monkeypatch):
+    from alias_pii import readers as module
+
+    monkeypatch.setattr(module, "_pdf_annotations", lambda page: ([], 1))
+    document = read_document(make_pdf([["texte"]], note="note"))
+    assert document.warnings == ["page 1: 1 annotation(s) could not be read"]
