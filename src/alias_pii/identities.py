@@ -138,11 +138,11 @@ class IdentityFactory:
                 city += " CEDEX"
             return (*lines, city)
         if self.locale == "en_GB":
-            lines = [fake.street_address()]
+            lines = [fake.street_address().replace("\n", ", ")]
             if r < 0.3 and not lines[0].startswith(("Flat", "Studio")):
                 lines.insert(0, f"Flat {self.rng.randrange(1, 40)}")
             return (*lines, fake.city(), fake.postcode())
-        lines = [fake.street_address()]
+        lines = [fake.street_address().replace("\n", ", ")]
         return (*lines, f"{fake.city()}, {fake.state_abbr()} {fake.zipcode()}")
 
     def email_for(self, person: Person) -> str:

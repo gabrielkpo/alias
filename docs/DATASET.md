@@ -1,6 +1,7 @@
 # Alias dataset: specification
 
-> Status: **specification, version 0.1** (validated design, not built yet). This document
+> Status: **version 0.2 built** (identity factory, grid generator, quality gates, balancer,
+> datasheet); LLM-written documents and public corpora come next (§12). This document
 > describes how the training, validation and test data of Alias are built, labelled, balanced and
 > checked. Every number below is a target; the built dataset will report its actual composition in
 > a generated datasheet (`data/DATASHEET.md`).
@@ -89,10 +90,27 @@ flowchart LR
     S --> D["JSONL + datasheet"]
 ```
 
-### 4.1 Templates (programmatic)
-About a hundred templates spread over the grid, filled with values from the identity factory.
-Labels are exact and generation is free and fast; the cost is rigid phrasing. The first twelve
-are in `src/alias_pii/synthetic.py`.
+### 4.1 Grid generator (programmatic)
+Rather than a hundred fixed templates, documents are **assembled** (`src/alias_pii/documents.py`):
+a document type chooses the personal fields it carries (always-present fields plus optional ones
+drawn by the balancer), a layout arranges them (prose, `key: value` form, table or CSV, e-mail
+thread, chat), phrase banks in French and English word them, and declared distractors are mixed
+in. Spans are recorded while the text is built, so labels are exact by construction. Values come
+from the identity factory (`src/alias_pii/identities.py`): names of sixteen origins, compound and
+double names, seven name styles, French, UK and US addresses, e-mails derived from the name,
+phones in allocated ranges, IBANs from eight countries, NIR (Corsica included), SSN and NINO, each
+in several surface forms. Neutral context sentences of the document's domain (`src/alias_pii/phrasebank.py`, ten
+domains, French and English) surround the personal fields, as in real documents; sentences carrying
+two values ("Contact: {PHONE} / {EMAIL}") and values at the start, middle or in brackets vary the
+patterns. A light noise step swaps letters in the literal text only.
+
+Measured on version 0.2 (1,500 documents per split): about 100 words per document; personal data
+is 13 to 15 % of the characters overall, about 10 % in prose and e-mails, 15 to 22 % in forms,
+tables and chats, which are dense by nature. Grid documents are fluent sentence by sentence but less
+coherent as a whole (a CV can open with "Dear customer"): coverage of formats and patterns is their
+job, coherence is the job of the LLM-written source.
+Generation is free and fast (about 4,000 documents in 11 seconds); the cost is phrasing that
+stays more regular than real text, which the LLM-written source (4.2) addresses.
 
 ### 4.2 LLM-written documents with placeholders
 This is the main source of diversity. The labels stay exact because the LLM never sees or invents
@@ -128,8 +146,10 @@ unlabelled, and each document type has a target share of them.
 
 ## 6. Balance and size
 
-- **Training set:** each entity type between 10 % and 15 % of the entities, in each language;
-  the balancer oversamples the documents rich in rare types.
+- **Training set:** optional fields are drawn toward an equal share per label. Measured on
+  version 0.2: every label between 8 % and 14 % of the spans except `PERSON` (about 24 %), since
+  almost every document names someone, often twice. A strict 12.5 % per label would need
+  documents without people, which would be unrealistic.
 - **Natural validation set:** realistic proportions (names and e-mails dominate), to measure
   precision honestly.
 - **Target size:** about 30,000 training documents, 3,000 validation, 3,000 test, in equal parts
@@ -164,7 +184,8 @@ One JSON object per line:
  "layout": "email", "source": "llm", "generator": "mistral-...|prompt-v1", "split": "train"}
 ```
 
-The dataset is regenerated with one command from a seed. A datasheet is generated alongside it:
+The dataset is regenerated with one command from a seed:
+`uv run --group data python -m alias_pii.build_dataset --out data/synthetic --seed 0`. A datasheet is generated alongside it:
 composition per axis and per label, sources and licences, rejected-document counts, version.
 
 ## 10. Privacy and ethics
@@ -186,7 +207,7 @@ composition per axis and per label, sources and licences, rejected-document coun
 ## 12. Versions
 | Version | Content |
 |---|---|
-| 0.1 | this specification; first 12 templates |
-| 0.2 | identity factory, about 100 templates, quality gates, balancer, datasheet |
+| 0.1 | this specification; first 12 templates (done) |
+| 0.2 | identity factory, grid generator (14 document types × 5 layouts × 2 languages + mixed), quality gates, balancer, datasheet, build command (done) |
 | 0.3 | LLM-written documents with placeholders |
 | 0.4 | public corpora mapped; first full build and manual review |

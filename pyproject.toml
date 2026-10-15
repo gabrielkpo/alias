@@ -30,3 +30,8 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# Phrase banks are data: one sentence per item reads better than wrapped strings.
+"src/alias_pii/documents.py" = ["E501"]
+"src/alias_pii/phrasebank.py" = ["E501"]
