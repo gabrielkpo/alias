@@ -55,9 +55,9 @@ class AliasTable:
     _counters: dict[EntityType, int] = field(default_factory=dict)
     _reserved: set[str] = field(default_factory=set)
 
-    def reserve(self, text: str) -> None:
-        """Never hand out an alias that already appears literally in the input text."""
-        self._reserved.update(_canonical(m) for m in ALIAS_PATTERN.finditer(text))
+    def reserve(self, aliases: set[str]) -> None:
+        """Never hand out an alias that already appears literally in an input text."""
+        self._reserved.update(aliases)
 
     def alias_for(self, entity: Entity) -> str:
         key = (entity.type, normalize(entity))
@@ -100,8 +100,8 @@ class RestoreResult:
 
 def mask(text: str, detector: Detector, table: AliasTable | None = None) -> MaskResult:
     table = table if table is not None else AliasTable()
-    table.reserve(text)
     literals = {_canonical(m) for m in ALIAS_PATTERN.finditer(text)}
+    table.reserve(literals)
     # Enforce the sorted, non-overlapping contract here: an unsorted span list would make the
     # cursor go back and write an already-masked value in clear.
     entities = resolve_overlaps(detector.detect(text))
@@ -133,7 +133,8 @@ def restore(answer: str, *sent: MaskResult) -> RestoreResult:
     if any(result.table is not table for result in sent):
         raise ValueError("all MaskResults must share the same AliasTable")
     literals = set().union(*(result.literals for result in sent))
-    allowed = [a for result in sent for a in result.aliases if a not in literals]
+    sent_aliases = [a for result in sent for a in result.aliases if a not in literals]
+    allowed = set(sent_aliases)
     restored: list[str] = []
     unknown: list[str] = []
 
@@ -149,7 +150,7 @@ def restore(answer: str, *sent: MaskResult) -> RestoreResult:
         return value
 
     text = ALIAS_PATTERN.sub(replace, answer)
-    missing = list(dict.fromkeys(a for a in allowed if a not in restored))
+    missing = list(dict.fromkeys(a for a in sent_aliases if a not in restored))
     return RestoreResult(text, restored, missing, unknown)
 
 

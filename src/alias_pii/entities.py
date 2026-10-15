@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 
@@ -54,16 +54,32 @@ class Entity:
 
 
 def resolve_overlaps(entities: list[Entity]) -> list[Entity]:
-    """Keep a set of non-overlapping spans, sorted by position.
+    """Merge overlapping spans into one, so the result is sorted and non-overlapping.
 
-    Greedy: highest priority first, then longest span, then highest score, then leftmost.
+    A group of overlapping spans becomes a single span covering all of them, typed after its
+    strongest member (priority, then length, then score). Dropping the weaker span instead would
+    leave its non-overlapping part in clear: "AB-0612345678-ZZ" would become "AB-[PHONE_1]-ZZ".
     """
-    ranked = sorted(
-        entities,
-        key=lambda e: (-PRIORITY[e.type], -(e.end - e.start), -e.score, e.start),
-    )
-    kept: list[Entity] = []
-    for entity in ranked:
-        if not any(entity.overlaps(k) for k in kept):
-            kept.append(entity)
-    return sorted(kept, key=lambda e: e.start)
+    merged: list[Entity] = []
+    group: list[Entity] = []
+    for entity in sorted(entities, key=lambda e: (e.start, e.end)):
+        if group and entity.start >= max(e.end for e in group):
+            merged.append(_merge(group))
+            group = []
+        group.append(entity)
+    if group:
+        merged.append(_merge(group))
+    return merged
+
+
+def _merge(group: list[Entity]) -> Entity:
+    best = max(group, key=lambda e: (PRIORITY[e.type], e.end - e.start, e.score))
+    start = min(e.start for e in group)
+    end = max(e.end for e in group)
+    if (start, end) == (best.start, best.end):
+        return best
+    # Overlapping spans cover [start, end) without gaps: rebuild the text from their pieces.
+    chars = [""] * (end - start)
+    for e in group:
+        chars[e.start - start : e.end - start] = e.text
+    return replace(best, start=start, end=end, text="".join(chars))

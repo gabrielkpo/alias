@@ -16,13 +16,16 @@ from alias_pii.validators import IBAN_LENGTHS, iban_is_valid, nir_is_valid
 
 PHONE_REGIONS = ("FR", "GB", "US")
 
-_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b")
+# Unicode domains too (jean@société.fr): \w is Unicode-aware; the TLD is letters only.
+_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{2,}\b")
 
-# 15 characters with optional single separators: sex, year, month, department (or 2A/2B),
-# commune, order number, key. The checksum decides; the pattern only finds candidates.
+# 15 characters with optional single separators (space, dot or dash): sex, year, month,
+# department (or 2A/2B), commune, order number, key. The checksum decides; the pattern only
+# finds candidates.
+_SEP = r"[ .-]?"
 _NIR = re.compile(
-    r"(?<![\w])[1-478](?:[ .]?\d){4}[ .]?(?:\d[ .]?\d|2[ .]?[ABab])(?:[ .]?\d){6}[ .]?\d[ .]?\d"
-    r"(?![\w])"
+    rf"(?<![\w])[1-478](?:{_SEP}\d){{4}}{_SEP}(?:\d{_SEP}\d|2{_SEP}[ABab])(?:{_SEP}\d){{6}}"
+    rf"{_SEP}\d{_SEP}\d(?![\w])"
 )
 
 # Separators required: nine bare digits are too often something else.
@@ -31,7 +34,8 @@ _US_SSN = re.compile(r"(?<![\d-])(?!000|666|9\d\d)\d{3}([- ])(?!00)\d{2}\1(?!000
 # HMRC rules: no D, F, I, Q, U, V in either prefix letter, no O second, and some pairs unused.
 _UK_NINO = re.compile(
     r"(?<![A-Za-z0-9])(?!BG|GB|NK|KN|TN|NT|ZZ)[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z]"
-    r" ?\d{2} ?\d{2} ?\d{2} ?[A-D](?![A-Za-z0-9])"
+    r" ?\d{2} ?\d{2} ?\d{2} ?[A-D](?![A-Za-z0-9])",
+    re.IGNORECASE,
 )
 
 _IBAN_START = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]{2}\d{2}")
@@ -44,10 +48,12 @@ _ID_KEYWORD = (
     r"|case|file|contract|customer|reference|invoice|policy|member(?:ship)?|employee|account"
     r"|claim|order|ticket|passport|licen[cs]e|id)"
 )
-# "n° de dossier : 2024/0042", "Customer ID: AB-123456", "policy number 88-1234"
+# A short verb or article may sit between the keyword and the value: "account number is ...".
+_FILLER = r"(?:(?:is|was|est|était|=)\s+)?(?:(?:le|la|the)\s+)?"
+# "n° de dossier : 2024/0042", "Customer ID: AB-123456", "le numéro de dossier est le 2024/1234"
 _IDENTIFIER = re.compile(
     rf"(?:\b{_NUMBER_WORD}\s*(?:de\s+|du\s+|d['’]\s*|of\s+)?)?\b{_ID_KEYWORD}(?!\w)"
-    rf"(?:\s+{_NUMBER_WORD})?\s*(?:[:#]\s*)?"
+    rf"(?:\s+{_NUMBER_WORD})?\s*(?:[:#]\s*)?{_FILLER}"
     r"(?P<value>[A-Z0-9](?:[A-Z0-9/_.\-]*[A-Z0-9])?)",
     re.IGNORECASE,
 )

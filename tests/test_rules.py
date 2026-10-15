@@ -1,6 +1,7 @@
 import pytest
 
 from alias_pii.entities import EntityType
+from alias_pii.masking import mask
 from alias_pii.rules import RuleDetector
 
 detector = RuleDetector()
@@ -85,3 +86,19 @@ def test_iban_beats_identifier_on_overlap():
 def test_nir_beats_phone_on_overlap():
     text = "NIR 185057800608491"
     assert [e.type for e in detector.detect(text)] == [EntityType.NATIONAL_ID]
+
+
+@pytest.mark.parametrize(
+    ("text", "masked"),
+    [
+        # a weaker overlapping span is merged, not dropped: no prefix or suffix left in clear
+        ("Customer ID: AB-0612345678-ZZ", "Customer ID: [PHONE_1]"),
+        ("Account number is 12345678", "Account number is [IDENTIFIER_1]"),
+        ("Le numéro de dossier est le 2024/1234", "Le numéro de dossier est le [IDENTIFIER_1]"),
+        ("écrire à jean@société.fr", "écrire à [EMAIL_1]"),
+        ("NIR 1-85-05-78-006-084-91", "NIR [NATIONAL_ID_1]"),
+        ("NINO ab 12 34 56 c", "NINO [NATIONAL_ID_1]"),
+    ],
+)
+def test_formats_that_used_to_leak(text, masked):
+    assert mask(text, detector).text == masked
