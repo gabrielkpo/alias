@@ -197,5 +197,26 @@ def test_one_broken_pdf_page_does_not_hide_the_others(make_pdf, monkeypatch):
 
 def test_binary_file_with_a_text_suffix_is_refused(tmp_path):
     (tmp_path / "image.txt").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x01")
-    with pytest.raises(UnsupportedFileError, match="binary"):
+    with pytest.raises(UnsupportedFileError, match="NUL bytes"):
         read_document(tmp_path / "image.txt")
+
+
+def test_big_endian_utf16_without_byte_order_mark(tmp_path):
+    (tmp_path / "be.txt").write_bytes("Écrire à a.b@example.com".encode("utf-16-be"))
+    document = read_document(tmp_path / "be.txt")
+    assert document.text == "Écrire à a.b@example.com"
+    assert document.warnings == ["no byte order mark, decoded as utf-16-be"]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"Contact: a.b@example.com, tel 01 99 00 12 34\x00",  # UTF-8 with a stray NUL
+        b"Contact: a.b@example.com\x00\x00",  # padding
+    ],
+)
+def test_text_with_stray_nul_bytes_is_refused_not_mis_decoded(tmp_path, raw):
+    """Decoded as UTF-16 it would become CJK-looking text: unmasked yet fully recoverable."""
+    (tmp_path / "odd.txt").write_bytes(raw)
+    with pytest.raises(UnsupportedFileError, match="NUL bytes"):
+        read_document(tmp_path / "odd.txt")

@@ -80,17 +80,17 @@ def _read_plain(path: Path, fmt: str) -> Document:
         if raw.startswith(bom):
             return Document(path, raw.decode(encoding), fmt)
     if b"\x00" in raw:
-        # Real text never contains NUL bytes: this is UTF-16 without a byte order mark (which
-        # also decodes as "valid" UTF-8). Read as is, it would give "m\x00a\x00i\x00l": text the
-        # rules cannot match but an LLM can still read.
-        for encoding in ("utf-16-le", "utf-16-be"):
-            try:
-                text = raw.decode(encoding)
-            except UnicodeDecodeError:
-                continue
-            if "\x00" not in text:
-                return Document(path, text, fmt, [f"no byte order mark, decoded as {encoding}"])
-        raise UnsupportedFileError(f"{path.name}: binary content, not a text file")
+        # Real text never contains NUL bytes. Any wrong guess here is dangerous: decoded as
+        # UTF-8, UTF-16 gives "m\x00a\x00i\x00l"; decoded with the wrong byte order, text gives
+        # CJK-looking characters. Either way the rules match nothing, yet the original can be
+        # recovered exactly. So only accept UTF-16 when its NUL pattern is unambiguous.
+        encoding = _utf16_without_bom(raw)
+        if encoding is None:
+            raise UnsupportedFileError(
+                f"{path.name}: contains NUL bytes but is not recognisable UTF-16 text"
+            )
+        text = raw.decode(encoding)
+        return Document(path, text, fmt, [f"no byte order mark, decoded as {encoding}"])
     try:
         return Document(path, raw.decode("utf-8"), fmt)
     except UnicodeDecodeError:
@@ -98,6 +98,27 @@ def _read_plain(path: Path, fmt: str) -> Document:
     # Older French files are often Windows-1252; say so rather than guessing in silence.
     text = raw.decode("cp1252", errors="replace")
     return Document(path, text, fmt, ["not valid UTF-8, decoded as Windows-1252"])
+
+
+def _utf16_without_bom(raw: bytes) -> str | None:
+    """Byte order of BOM-less UTF-16, from where its NUL bytes sit, or None if unclear.
+
+    Latin-script text in UTF-16 has a NUL high byte for most characters: in the odd positions
+    for little-endian, in the even ones for big-endian, and almost never in the other half.
+    """
+    if len(raw) % 2:
+        return None
+    pairs = len(raw) // 2
+    nul_even = raw[0::2].count(0) / pairs
+    nul_odd = raw[1::2].count(0) / pairs
+    for encoding, high, low in (("utf-16-le", nul_odd, nul_even), ("utf-16-be", nul_even, nul_odd)):
+        if high >= 0.3 and low <= 0.02:
+            try:
+                text = raw.decode(encoding)
+            except UnicodeDecodeError:
+                return None
+            return encoding if "\x00" not in text else None
+    return None
 
 
 # --- Word ---------------------------------------------------------------------------------
