@@ -157,8 +157,7 @@ Nothing is downloaded at this stage; models will be fetched from Hugging Face at
 - **Dataset:** how the training data is built, labelled, balanced and checked is specified in
   [docs/DATASET.md](docs/DATASET.md); it is generated locally and never committed.
 - **Training data:** synthetic Faker text (MIT), WikiNER French (CC BY 4.0), gretel synthetic PII
-  finance multilingual (Apache-2.0). Datasets with non-commercial or unclear licences
-  (ai4privacy, WikiNEuRal, MultiNERD) are excluded.
+  finance multilingual (Apache-2.0).
 
 ## What it is not
 Alias is a component, not an anonymity guarantee and not a GDPR compliance tool. Context can
