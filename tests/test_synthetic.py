@@ -1,13 +1,17 @@
 import json
-from collections import Counter
 
 import pytest
 
 pytest.importorskip("faker")
 
 from alias_pii.entities import EntityType  # noqa: E402
-from alias_pii.rules import RuleDetector  # noqa: E402
-from alias_pii.synthetic import generate, templates_for, write_jsonl  # noqa: E402
+from alias_pii.quality import check  # noqa: E402
+from alias_pii.synthetic import (  # noqa: E402
+    generate,
+    generate_with_report,
+    templates_for,
+    write_jsonl,
+)
 
 
 @pytest.fixture(scope="module")
@@ -43,18 +47,14 @@ def test_validation_templates_are_never_used_for_training():
     assert {e.template for e in generate(100, "validation")} <= set(templates_for("validation"))
 
 
-@pytest.mark.parametrize("label", ["EMAIL", "PHONE", "IBAN", "NATIONAL_ID"])
-def test_rule_formats_are_realistic(train, label):
-    """The rules must find every generated e-mail, phone, IBAN and national ID: otherwise the
-    generator produces values no real document would contain."""
-    detector = RuleDetector()
-    missed = Counter()
+def test_every_generated_document_passes_the_quality_gates(train):
     for example in train:
-        found = {(e.start, e.end) for e in detector.detect(example.text)}
-        for span in example.spans:
-            if span.label == label and (span.start, span.end) not in found:
-                missed[example.text[span.start : span.end]] += 1
-    assert not missed
+        assert check(example.text, example.spans, example.negatives) == []
+
+
+def test_rejections_are_rare():
+    examples, rejected = generate_with_report(300, "train", seed=3)
+    assert len(examples) == 300 and sum(rejected.values()) < 15
 
 
 def test_jsonl_round_trip(tmp_path, train):
