@@ -4,7 +4,10 @@
       "release-type": "python",
       "package-name": "alias-pii",
       "include-v-in-tag": true,
-      "extra-files": ["src/alias_pii/__init__.py"]
+      "extra-files": [
+        "src/alias_pii/__init__.py"
+      ],
+      "include-component-in-tag": false
     }
   }
 }
