@@ -28,7 +28,6 @@ MAX_BYTES = 50 * 1024 * 1024
 _BOMS = (  # longest first: the UTF-32 LE mark starts with the UTF-16 LE one
     (b"\xff\xfe\x00\x00", "utf-32"),
     (b"\x00\x00\xfe\xff", "utf-32"),
-    (b"\xef\xbb\xbf", "utf-8-sig"),
     (b"\xff\xfe", "utf-16"),
     (b"\xfe\xff", "utf-16"),
 )
@@ -40,6 +39,7 @@ _DOCX_UNREAD_PARTS = {
     "/diagrams/": "SmartArt",
     "/embeddings/": "embedded objects",
 }
+_LIGATURES = {code: unicodedata.normalize("NFKC", chr(code)) for code in range(0xFB00, 0xFB07)}
 _SAFE_XML = etree.XMLParser(resolve_entities=False, no_network=True)
 _NON_ASCII_RUN = re.compile(rb"[\x80-\xff]+")
 # A well-formed UTF-8 sequence (no overlong forms, no surrogates), one character.
@@ -81,7 +81,10 @@ def read_document(path: str | Path) -> Document:
         document = _read_pdf(path)
     # Composed accents (NFC): "re\u0301fe\u0301rence" from macOS or a PDF must match the same
     # rules as "référence".
-    document.text = unicodedata.normalize("NFC", document.text)
+    # PDF ligatures (U+FB00-U+FB06) are split too, or "\ufb01le no." would hide the "file"
+    # keyword; a full NFKC would also rewrite ², ½ or ™, so only these are expanded.
+    text = unicodedata.normalize("NFC", document.text)
+    document.text = text.translate(_LIGATURES)
     return document
 
 
@@ -90,6 +93,8 @@ def read_document(path: str | Path) -> Document:
 
 def _read_plain(path: Path, fmt: str) -> Document:
     raw = path.read_bytes()
+    if raw.startswith(b"\xef\xbb\xbf"):  # UTF-8 byte order mark: same path as plain UTF-8
+        raw = raw[3:]
     for bom, encoding in _BOMS:
         if raw.startswith(bom):
             text = _decode_wide(path, raw, encoding)

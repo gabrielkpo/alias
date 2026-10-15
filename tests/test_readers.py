@@ -356,6 +356,22 @@ def test_one_line_mixing_utf8_and_windows_1252_keeps_both(tmp_path):
 def test_valid_utf8_with_unusual_but_legitimate_characters_stays_utf8(tmp_path, line):
     (tmp_path / "u.txt").write_bytes(b"Intro\n" + line.encode())
     document = read_document(tmp_path / "u.txt")
-    assert document.text == "Intro\n" + unicodedata.normalize("NFC", line)
+    expected = unicodedata.normalize("NFC", line).replace("\ufb01", "fi")
+    assert document.text == "Intro\n" + expected
     assert document.warnings == []
     assert "[IDENTIFIER_1]" in mask(document.text, RuleDetector()).text
+
+
+def test_pdf_ligatures_are_split_so_keywords_match(tmp_path):
+    (tmp_path / "lig.txt").write_text("ﬁle no. 12345678, conﬁdentiel", encoding="utf-8")
+    document = read_document(tmp_path / "lig.txt")
+    assert document.text == "file no. 12345678, confidentiel"
+    assert mask(document.text, RuleDetector()).text == "file no. [IDENTIFIER_1], confidentiel"
+
+
+def test_utf8_with_bom_is_read_like_utf8(tmp_path):
+    """Notepad "UTF-8 with BOM" and Excel "CSV UTF-8": symbols must not trip the UTF-16 checks."""
+    text = "✓ 3 ≥ 2 • • 🙂 Иван, jean@société.example"
+    (tmp_path / "bom.txt").write_bytes("﻿".encode() + text.encode())
+    document = read_document(tmp_path / "bom.txt")
+    assert (document.text, document.warnings) == (text, [])
