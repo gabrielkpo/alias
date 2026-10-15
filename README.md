@@ -154,6 +154,8 @@ Nothing is downloaded at this stage; models will be fetched from Hugging Face at
   ignored by Git.
 - **Never sent to a third party:** real texts do not go to Kaggle, Colab or an LLM API; only
   synthetic and public data do. No weights trained on real data are published.
+- **Dataset:** how the training data is built, labelled, balanced and checked is specified in
+  [docs/DATASET.md](docs/DATASET.md); it is generated locally and never committed.
 - **Training data:** synthetic Faker text (MIT), WikiNER French (CC BY 4.0), gretel synthetic PII
   finance multilingual (Apache-2.0). Datasets with non-commercial or unclear licences
   (ai4privacy, WikiNEuRal, MultiNERD) are excluded.
