@@ -99,7 +99,16 @@ in. Spans are recorded while the text is built, so labels are exact by construct
 from the identity factory (`src/alias_pii/identities.py`): names of sixteen origins, compound and
 double names, seven name styles, French, UK and US addresses, e-mails derived from the name,
 phones in allocated ranges, IBANs from eight countries, NIR (Corsica included), SSN and NINO, each
-in several surface forms. A light noise step swaps letters in the literal text only.
+in several surface forms. Neutral context sentences of the document's domain (`src/alias_pii/phrasebank.py`, ten
+domains, French and English) surround the personal fields, as in real documents; sentences carrying
+two values ("Contact: {PHONE} / {EMAIL}") and values at the start, middle or in brackets vary the
+patterns. A light noise step swaps letters in the literal text only.
+
+Measured on version 0.2 (1,500 documents per split): about 100 words per document; personal data
+is 13 to 15 % of the characters overall, about 10 % in prose and e-mails, 15 to 22 % in forms,
+tables and chats, which are dense by nature. Grid documents are fluent sentence by sentence but less
+coherent as a whole (a CV can open with "Dear customer"): coverage of formats and patterns is their
+job, coherence is the job of the LLM-written source.
 Generation is free and fast (about 4,000 documents in 11 seconds); the cost is phrasing that
 stays more regular than real text, which the LLM-written source (4.2) addresses.
 

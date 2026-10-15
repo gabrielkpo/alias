@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from alias_pii.identities import Identity, IdentityFactory
+from alias_pii.phrasebank import CONTEXT
 
 LABELS = ("PERSON", "ADDRESS", "EMAIL", "PHONE", "IBAN", "NATIONAL_ID", "BIRTH_DATE", "IDENTIFIER")
 SPLITS = ("train", "validation", "test")
@@ -126,37 +127,55 @@ NATIONAL_ID_NAMES = {
 
 SENTENCES = {
     "fr": {
-        "PERSON": ["Ce dossier concerne {v}.", "{v} a contacté nos services la semaine dernière.", "Je soussigné(e) {v}, certifie l'exactitude des informations.",
+        "PERSON": ["Suite à l'appel de {v}, nous avons ouvert un dossier.", "Interlocuteur : {v}.", "Le dossier de {v} a été transmis au service compétent.", "Nous avons bien reçu le courrier de {v} (copie jointe).", "Ce dossier concerne {v}.", "{v} a contacté nos services la semaine dernière.", "Je soussigné(e) {v}, certifie l'exactitude des informations.",
                    "Merci de transmettre ce document à {v}.", "La demande a été déposée par {v}.", "{v} sera présent(e) au rendez-vous."],
-        "ADDRESS": ["Le courrier doit être envoyé au {v}.", "Domicile actuel : {v}.", "Le logement situé {v} est concerné.",
+        "ADDRESS": ["Les documents seront remis en main propre au {v}.", "L'intervention aura lieu à l'adresse suivante : {v}.", "Adresse déclarée ({v}) vérifiée.", "Le courrier doit être envoyé au {v}.", "Domicile actuel : {v}.", "Le logement situé {v} est concerné.",
                     "Merci de noter ma nouvelle adresse : {v}.", "La livraison est prévue au {v}."],
-        "EMAIL": ["Vous pouvez écrire à {v}.", "Réponse attendue à l'adresse {v}.", "Les justificatifs ont été envoyés depuis {v}.",
+        "EMAIL": ["Le lien de confirmation a été envoyé à {v}.", "Copie à : {v}.", "{v} reste l'adresse de contact principale.", "Vous pouvez écrire à {v}.", "Réponse attendue à l'adresse {v}.", "Les justificatifs ont été envoyés depuis {v}.",
                   "Pour toute question : {v}."],
-        "PHONE": ["Joignable au {v} en journée.", "Merci de rappeler le {v}.", "En cas d'urgence, composer le {v}.",
+        "PHONE": ["Tél. : {v} (laisser un message).", "{v} : numéro à privilégier après 18 h.", "Le client a rappelé depuis le {v}.", "Joignable au {v} en journée.", "Merci de rappeler le {v}.", "En cas d'urgence, composer le {v}.",
                   "Le numéro communiqué est le {v}."],
-        "IBAN": ["Le remboursement sera versé sur le compte {v}.", "Merci de prélever le compte {v} chaque mois.",
+        "IBAN": ["Prélèvement mensuel sur {v}.", "{v} : compte de remboursement.", "Merci de vérifier l'IBAN indiqué ({v}).", "Le remboursement sera versé sur le compte {v}.", "Merci de prélever le compte {v} chaque mois.",
                  "Le virement a été émis depuis le compte {v}.", "Nouvelles coordonnées bancaires : {v}."],
-        "NATIONAL_ID": ["Son numéro de sécurité sociale est le {v}.", "Le NIR {v} figure sur la carte Vitale.",
+        "NATIONAL_ID": ["NIR : {v}.", "Immatriculation {v} vérifiée auprès de la caisse.", "Son numéro de sécurité sociale est le {v}.", "Le NIR {v} figure sur la carte Vitale.",
                         "Merci d'indiquer le numéro {v} sur la feuille de soins."],
-        "BIRTH_DATE": ["La personne est née le {v}.", "Date de naissance déclarée : {v}.", "Né(e) le {v}, l'assuré(e) a fourni ses justificatifs."],
-        "IDENTIFIER": ["Merci de rappeler la référence {v} dans toute correspondance.", "Votre dossier {v} est en cours de traitement.",
+        "BIRTH_DATE": ["Âge calculé à partir de la date de naissance ({v}).", "{v} : date de naissance figurant sur la pièce d'identité.", "La personne est née le {v}.", "Date de naissance déclarée : {v}.", "Né(e) le {v}, l'assuré(e) a fourni ses justificatifs."],
+        "IDENTIFIER": ["Réf. {v} à rappeler.", "{v} : numéro de dossier attribué.", "Le contrat (n° {v}) arrive à échéance.", "Merci de rappeler la référence {v} dans toute correspondance.", "Votre dossier {v} est en cours de traitement.",
                        "La demande enregistrée sous le numéro {v} est complète.", "Contrat {v} : renouvellement automatique."],
     },
     "en": {
-        "PERSON": ["This file concerns {v}.", "{v} contacted our team last week.", "I, {v}, confirm that the information above is correct.",
+        "PERSON": ["Following a call from {v}, a file has been opened.", "Contact person: {v}.", "{v}'s file has been forwarded to the relevant team.", "We have received the letter from {v} (copy attached).", "This file concerns {v}.", "{v} contacted our team last week.", "I, {v}, confirm that the information above is correct.",
                    "Please forward this document to {v}.", "The request was submitted by {v}.", "{v} will attend the appointment."],
-        "ADDRESS": ["Please send the letter to {v}.", "Current address: {v}.", "The property at {v} is concerned.",
+        "ADDRESS": ["The documents will be hand-delivered to {v}.", "The visit will take place at {v}.", "Declared address ({v}) verified.", "Please send the letter to {v}.", "Current address: {v}.", "The property at {v} is concerned.",
                     "Please note my new address: {v}.", "Delivery is scheduled to {v}."],
-        "EMAIL": ["You can write to {v}.", "Please reply to {v}.", "The documents were sent from {v}.", "For any question: {v}."],
-        "PHONE": ["Reachable on {v} during the day.", "Please call back on {v}.", "In an emergency, dial {v}.", "The number given is {v}."],
-        "IBAN": ["The refund will be paid into account {v}.", "Please debit account {v} every month.",
+        "EMAIL": ["The confirmation link was sent to {v}.", "Cc: {v}.", "{v} remains the main contact address.", "You can write to {v}.", "Please reply to {v}.", "The documents were sent from {v}.", "For any question: {v}."],
+        "PHONE": ["Tel.: {v} (leave a message).", "{v}: preferred number after 6 pm.", "The customer called back from {v}.", "Reachable on {v} during the day.", "Please call back on {v}.", "In an emergency, dial {v}.", "The number given is {v}."],
+        "IBAN": ["Monthly direct debit from {v}.", "{v}: refund account.", "Please check the IBAN given ({v}).", "The refund will be paid into account {v}.", "Please debit account {v} every month.",
                  "The transfer was made from account {v}.", "New bank details: {v}."],
-        "NATIONAL_ID": ["Their national identification number is {v}.", "The number {v} appears on the card.",
+        "NATIONAL_ID": ["ID: {v}.", "Number {v} checked against official records.", "Their national identification number is {v}.", "The number {v} appears on the card.",
                         "Please quote {v} on the form."],
-        "BIRTH_DATE": ["The person was born on {v}.", "Declared date of birth: {v}.", "Born on {v}, the applicant provided proof of identity."],
-        "IDENTIFIER": ["Please quote reference {v} in any correspondence.", "Your file {v} is being processed.",
+        "BIRTH_DATE": ["Age calculated from the date of birth ({v}).", "{v}: date of birth shown on the ID card.", "The person was born on {v}.", "Declared date of birth: {v}.", "Born on {v}, the applicant provided proof of identity."],
+        "IDENTIFIER": ["Ref. {v} to quote.", "{v}: file number assigned.", "The contract (no. {v}) is due for renewal.", "Please quote reference {v} in any correspondence.", "Your file {v} is being processed.",
                        "The request registered under number {v} is complete.", "Contract {v}: automatic renewal."],
     },
+}  # fmt: skip
+
+# Sentences carrying two values, used instead of the two single sentences.
+COMBINED = {
+    "fr": [(("PHONE", "EMAIL"), "Contact : {PHONE} / {EMAIL}."),
+           (("PHONE", "EMAIL"), "Vous pouvez me joindre au {PHONE} ou par courriel ({EMAIL})."),
+           (("PERSON", "BIRTH_DATE"), "{PERSON}, né(e) le {BIRTH_DATE}, a déposé la demande."),
+           (("PERSON", "ADDRESS"), "{PERSON}, domicilié(e) {ADDRESS}, est le titulaire du dossier."),
+           (("ADDRESS", "PHONE"), "Adresse : {ADDRESS} (tél. {PHONE})."),
+           (("PERSON", "IBAN"), "Le compte {IBAN} est ouvert au nom de {PERSON}."),
+           (("IDENTIFIER", "BIRTH_DATE"), "Dossier {IDENTIFIER}, assuré(e) né(e) le {BIRTH_DATE}.")],
+    "en": [(("PHONE", "EMAIL"), "Contact: {PHONE} / {EMAIL}."),
+           (("PHONE", "EMAIL"), "You can reach me on {PHONE} or by email ({EMAIL})."),
+           (("PERSON", "BIRTH_DATE"), "{PERSON}, born on {BIRTH_DATE}, submitted the request."),
+           (("PERSON", "ADDRESS"), "{PERSON}, of {ADDRESS}, is the account holder."),
+           (("ADDRESS", "PHONE"), "Address: {ADDRESS} (tel. {PHONE})."),
+           (("PERSON", "IBAN"), "Account {IBAN} is held by {PERSON}."),
+           (("IDENTIFIER", "BIRTH_DATE"), "File {IDENTIFIER}, policyholder born on {BIRTH_DATE}.")],
 }  # fmt: skip
 
 # Distractors: look personal, are not. Declared kinds are checked by the quality gates.
@@ -284,6 +303,7 @@ class GridGenerator:
         fields.remove("PERSON")
         fields.insert(0, "PERSON")  # the person is introduced first
         values = self._values(factory, identity, fields)
+        self.domain = rng.choice(spec["domains"])
         builder = _Builder()
         text_language = "fr" if language == "mixed" else language
         render = getattr(self, f"_{layout}")
@@ -297,7 +317,7 @@ class GridGenerator:
             language=language,
             locale=locale,
             doc_type=doc_type,
-            domain=rng.choice(spec["domains"]),
+            domain=self.domain,
             layout=layout,
             split=self.split,
             negatives=builder.negatives,
@@ -354,6 +374,21 @@ class GridGenerator:
         values["PERSON_AGAIN"] = (rng.choice(later), "PERSON", None)
         return values
 
+    def _context(self, language: str, n: int) -> list[str]:
+        """Neutral sentences of the document's domain: real documents are mostly this. They carry
+        no personal data, so they are shared by every split: the split that matters for leakage
+        is the wording around the values (`_bank`)."""
+        bank = CONTEXT[language][self.domain]
+        return self.rng.sample(bank, min(n, len(bank)))
+
+    def _combined(self, language: str, fields: list[str]) -> tuple[str, set[str]] | None:
+        """A sentence carrying two personal values, when both fields are present."""
+        options = [(pattern, set(labels)) for labels, pattern in COMBINED[language]
+                   if set(labels) <= set(fields)]  # fmt: skip
+        if not options or self.rng.random() < 0.6:
+            return None
+        return self.rng.choice(options)
+
     def _negatives(self, language: str, n: int) -> list[str]:
         return [self.rng.choice(_bank(NEGATIVE_SENTENCES[language], self.split)) for _ in range(n)]
 
@@ -377,15 +412,21 @@ class GridGenerator:
             b.sentence("{city}, ", {"city": values["city"]})
             b.sentence("{date}\n\n", {"date": values["date"]})
         b.text(self.rng.choice(GREETINGS[language]) + "\n\n")
+        combined = self._combined(language, fields)
+        covered = combined[1] if combined else set()
         sentences = [
             (label, self.rng.choice(_bank(SENTENCES[language][label], self.split)))
             for label in fields
+            if label not in covered
         ]
+        if combined:
+            sentences.insert(1, ("_combined", combined[0]))
         sentences += [(None, s) for s in self._negatives(language, self.rng.randint(1, 3))]
+        sentences += [(None, s) for s in self._context(language, self.rng.randint(6, 10))]
         first, rest = sentences[0], sentences[1:]
         self.rng.shuffle(rest)
         for index, (label, pattern) in enumerate([first, *rest]):
-            slot = {"v": values[label] if label else None, **values} if label else values
+            slot = {"v": values[label], **values} if label and label != "_combined" else values
             b.sentence(pattern, slot)
             b.text(" " if index % 3 != 2 else "\n\n")
         b.text("\n\n" + self.rng.choice(CLOSINGS[language]) + "\n")
@@ -410,13 +451,15 @@ class GridGenerator:
             else:
                 b.value(value[0], value[1])
             b.text("\n")
-        b.text("\n")
+        b.text("\n" + ("Observations : " if language == "fr" else "Notes: "))
+        b.text(" ".join(self._context(language, self.rng.randint(3, 6))) + "\n\n")
         for pattern in self._negatives(language, self.rng.randint(1, 2)):
             b.sentence(pattern, values)
             b.text("\n")
 
     def _table(self, b, language, doc_type, fields, values, factory, identity) -> None:
         self._title(b, language, doc_type, values)
+        b.text(" ".join(self._context(language, self.rng.randint(1, 2))) + "\n\n")
         names = [self._field_name(language, label, identity) for label in fields]
         delimiter = self.rng.choice([" | ", ";", ",", "\t"])
         if delimiter == ",":  # CSV: values with commas are quoted
@@ -432,7 +475,7 @@ class GridGenerator:
             else:
                 b.value(value, label)
             b.text(delimiter if index < len(fields) - 1 else "\n")
-        b.text("\n")
+        b.text("\n" + " ".join(self._context(language, self.rng.randint(1, 3))) + "\n\n")
         for pattern in self._negatives(language, self.rng.randint(1, 2)):
             b.sentence(pattern, values)
             b.text("\n")
@@ -448,6 +491,7 @@ class GridGenerator:
             (TITLES[language][doc_type] or ("Demande" if language == "fr" else "Request")) + "\n\n"
         )
         b.text(self.rng.choice(GREETINGS[language]) + "\n\n")
+        b.text(" ".join(self._context(language, self.rng.randint(2, 4))) + " ")
         body = [label for label in fields if label != "EMAIL"]
         for label in body:
             b.sentence(
@@ -458,6 +502,7 @@ class GridGenerator:
         for pattern in self._negatives(language, self.rng.randint(0, 2)):
             b.sentence(pattern, values)
             b.text(" ")
+        b.text("\n\n" + " ".join(self._context(language, self.rng.randint(1, 3))))
         b.text("\n\n" + self.rng.choice(CLOSINGS[language]) + "\n")
         self._signature(b, values)
 
@@ -478,6 +523,8 @@ class GridGenerator:
             b.text("[Client] " if language == "fr" else "[Customer] ")
             b.sentence(lines[label], {"v": values[label]})
             b.text("\n")
+            if self.rng.random() < 0.4:
+                b.text(f"[{agent}] " + self._context(language, 1)[0].lower() + "\n")
         b.text(
             f"[{agent}] " + ("merci, je regarde" if language == "fr" else "thanks, checking") + "\n"
         )
