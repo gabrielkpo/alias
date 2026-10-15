@@ -8,7 +8,6 @@ are read too. What still cannot be read (scanned pages, charts, embedded objects
 
 from __future__ import annotations
 
-import re
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,7 +39,7 @@ _DOCX_UNREAD_PARTS = {
     "/embeddings/": "embedded objects",
 }
 _SAFE_XML = etree.XMLParser(resolve_entities=False, no_network=True)
-_ESCAPED_BYTES = re.compile("[\udc80-\udcff]+")
+_CP1252_CHARS = frozenset(bytes(range(0x80, 0x100)).decode("cp1252", errors="ignore"))
 
 
 class UnsupportedFileError(ValueError):
@@ -92,31 +91,47 @@ def _read_plain(path: Path, fmt: str) -> Document:
             )
         text = _decode_wide(path, raw, encoding)
         return Document(path, text, fmt, [f"no byte order mark, decoded as {encoding}"])
-    try:
-        return Document(path, raw.decode("utf-8"), fmt)
-    except UnicodeDecodeError:
-        pass
-    # Older French files are often Windows-1252, and files often mix both (a line appended by
-    # an old tool). Decoding everything as Windows-1252 would turn the UTF-8 parts into
-    # "sociÃ©tÃ©", which no rule matches yet converts back exactly. So only the bytes that are
-    # not valid UTF-8 are read as Windows-1252, and the warning says how many.
-    text, count = _utf8_with_cp1252_fallback(raw)
-    return Document(
-        path, text, fmt, [f"not valid UTF-8 in places: {count} bytes decoded as Windows-1252"]
+    text, legacy_lines = _decode_lines(raw)
+    warnings = []
+    if legacy_lines:
+        warnings.append(f"{legacy_lines} line(s) not UTF-8, decoded as Windows-1252")
+    return Document(path, text, fmt, warnings)
+
+
+def _decode_lines(raw: bytes) -> tuple[str, int]:
+    """UTF-8 or Windows-1252, decided line by line. Returns the text and the Windows-1252 count.
+
+    Files mix both (a line appended by an old tool), and each wrong guess hides data from the
+    rules while staying exactly recoverable: UTF-8 read as Windows-1252 gives "sociÃ©tÃ©";
+    Windows-1252 read as UTF-8 can form valid but absurd characters ("ABONNÉ" + no-break space
+    gives "ABONNɠ"). So a line stays UTF-8 only if it is valid UTF-8 and every character is
+    plausible in French or English text; otherwise the whole line is read as Windows-1252.
+    """
+    lines: list[str] = []
+    legacy = 0
+    for line in raw.split(b"\n"):
+        try:
+            text = line.decode("utf-8")
+        except UnicodeDecodeError:
+            text = None
+        if text is None or not all(_plausible(char) for char in text):
+            text = line.decode("cp1252", errors="replace")
+            legacy += 1
+        lines.append(text)
+    return "\n".join(lines), legacy
+
+
+def _plausible(char: str) -> bool:
+    """Characters a French or English text may contain once correctly decoded."""
+    code = ord(char)
+    return (
+        code < 0x80
+        or char in _CP1252_CHARS  # Latin-1 letters, Œ œ Ÿ, € and typographic quotes
+        or 0x0370 <= code <= 0x03FF  # Greek (units, maths)
+        or 0x2000 <= code <= 0x2BFF  # punctuation, currency, arrows, maths, symbols
+        or 0x1F000 <= code <= 0x1FAFF  # emoji
+        or code == 0xFE0F  # emoji presentation selector
     )
-
-
-def _utf8_with_cp1252_fallback(raw: bytes) -> tuple[str, int]:
-    """UTF-8, with each invalid byte read as Windows-1252. Returns the text and that count."""
-    escaped = raw.decode("utf-8", errors="surrogateescape")  # bad byte b -> U+DC00 + b
-    count = 0
-
-    def fallback(match: re.Match[str]) -> str:
-        nonlocal count
-        count += len(match.group())
-        return bytes(ord(c) - 0xDC00 for c in match.group()).decode("cp1252", errors="replace")
-
-    return _ESCAPED_BYTES.sub(fallback, escaped), count
 
 
 def _utf16_byte_order(raw: bytes) -> str | None:

@@ -22,7 +22,7 @@ def test_legacy_encoding_is_decoded_and_reported(tmp_path):
     (tmp_path / "old.txt").write_bytes("Hélène écrit".encode("cp1252"))
     document = read_document(tmp_path / "old.txt")
     assert document.text == "Hélène écrit"
-    assert document.warnings == ["not valid UTF-8 in places: 3 bytes decoded as Windows-1252"]
+    assert document.warnings == ["1 line(s) not UTF-8, decoded as Windows-1252"]
 
 
 def test_docx_keeps_headers_footers_and_tables(tmp_path):
@@ -289,7 +289,7 @@ def test_utf8_file_with_a_windows_1252_line_keeps_its_utf8_parts(tmp_path):
     assert document.text == (
         "Référence : AB-2024-0042\nCourriel : jean@société.example\nAppelé le client\n"
     )
-    assert document.warnings == ["not valid UTF-8 in places: 1 bytes decoded as Windows-1252"]
+    assert document.warnings == ["1 line(s) not UTF-8, decoded as Windows-1252"]
     masked = mask(document.text, RuleDetector()).text
     assert masked == "Référence : [IDENTIFIER_1]\nCourriel : [EMAIL_1]\nAppelé le client\n"
 
@@ -300,3 +300,29 @@ def test_digits_paired_with_control_bytes_in_utf16_are_refused(tmp_path):
     (tmp_path / "cyr.txt").write_bytes(raw)
     with pytest.raises(UnsupportedFileError):
         read_document(tmp_path / "cyr.txt")
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        ["N° D’ABONNÉ\u00a0: 48213377"],  # also contains invalid UTF-8 bytes
+        ["ABONNÉ\u00a0: 48213377"],  # valid UTF-8 by accident: É + no-break space = U+0260
+    ],
+)
+def test_windows_1252_that_looks_like_utf8_is_still_read_as_windows_1252(tmp_path, lines):
+    (tmp_path / "abonne.txt").write_bytes("\r\n".join(lines).encode("cp1252"))
+    document = read_document(tmp_path / "abonne.txt")
+    assert document.text == "\r\n".join(lines)
+    assert mask(document.text, RuleDetector()).text.endswith(": [IDENTIFIER_1]")
+
+
+def test_french_quotes_around_a_name_in_windows_1252(tmp_path):
+    (tmp_path / "q.txt").write_bytes("«\u00a0José\u00a0» a signé".encode("cp1252"))
+    assert read_document(tmp_path / "q.txt").text == "«\u00a0José\u00a0» a signé"
+
+
+def test_utf8_line_with_emoji_and_accents_stays_utf8(tmp_path):
+    text = "✓ Écrire à jean@société.example 🙂 ≤ 3 €\n"
+    (tmp_path / "e.txt").write_text(text, encoding="utf-8")
+    document = read_document(tmp_path / "e.txt")
+    assert (document.text, document.warnings) == (text, [])
