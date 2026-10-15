@@ -3,6 +3,7 @@ name = "alias-pii"
 version = "0.1.0"
 description = "Local PII masking before an LLM call: detect, replace with stable aliases, restore in the answer."
 requires-python = ">=3.12"
+license = "MIT"
 dependencies = ["phonenumbers>=8.13"]
 
 [dependency-groups]

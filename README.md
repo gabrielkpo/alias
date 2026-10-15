@@ -1,5 +1,7 @@
 # Alias
 
+[![CI](https://github.com/gabrielkpo/alias/actions/workflows/ci.yml/badge.svg)](https://github.com/gabrielkpo/alias/actions/workflows/ci.yml)
+
 Masks personal data in a document **locally**, before the text is sent to an LLM, then puts the
 real values back into the answer. French and English.
 
@@ -24,3 +26,6 @@ recall.
 uv sync --group dev
 uv run pytest
 ```
+
+## License
+MIT, see [LICENSE](LICENSE).
