@@ -22,7 +22,7 @@ def test_legacy_encoding_is_decoded_and_reported(tmp_path):
     (tmp_path / "old.txt").write_bytes("Hélène écrit".encode("cp1252"))
     document = read_document(tmp_path / "old.txt")
     assert document.text == "Hélène écrit"
-    assert document.warnings == ["not valid UTF-8, decoded as Windows-1252"]
+    assert document.warnings == ["not valid UTF-8 in places: 3 bytes decoded as Windows-1252"]
 
 
 def test_docx_keeps_headers_footers_and_tables(tmp_path):
@@ -278,3 +278,25 @@ def test_big_endian_bom_with_spaced_digits_is_refused(tmp_path):
     (tmp_path / "be.txt").write_bytes(raw)
     with pytest.raises(UnsupportedFileError):
         read_document(tmp_path / "be.txt")
+
+
+def test_utf8_file_with_a_windows_1252_line_keeps_its_utf8_parts(tmp_path):
+    """Decoded whole as Windows-1252, "société" would become "sociÃ©tÃ©" and escape the rules."""
+    raw = "Référence : AB-2024-0042\nCourriel : jean@société.example\n".encode()
+    raw += "Appelé le client\n".encode("cp1252")
+    (tmp_path / "mixed.txt").write_bytes(raw)
+    document = read_document(tmp_path / "mixed.txt")
+    assert document.text == (
+        "Référence : AB-2024-0042\nCourriel : jean@société.example\nAppelé le client\n"
+    )
+    assert document.warnings == ["not valid UTF-8 in places: 1 bytes decoded as Windows-1252"]
+    masked = mask(document.text, RuleDetector()).text
+    assert masked == "Référence : [IDENTIFIER_1]\nCourriel : [EMAIL_1]\nAppelé le client\n"
+
+
+def test_digits_paired_with_control_bytes_in_utf16_are_refused(tmp_path):
+    """Each digit followed by 0x04 reads as Cyrillic: outside French and English, refused."""
+    raw = "\ufeffNIR : ".encode("utf-16-le") + b"".join(bytes([d, 4]) for d in b"185057800608491")
+    (tmp_path / "cyr.txt").write_bytes(raw)
+    with pytest.raises(UnsupportedFileError):
+        read_document(tmp_path / "cyr.txt")

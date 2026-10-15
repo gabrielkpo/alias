@@ -8,6 +8,7 @@ are read too. What still cannot be read (scanned pages, charts, embedded objects
 
 from __future__ import annotations
 
+import re
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,6 +40,7 @@ _DOCX_UNREAD_PARTS = {
     "/embeddings/": "embedded objects",
 }
 _SAFE_XML = etree.XMLParser(resolve_entities=False, no_network=True)
+_ESCAPED_BYTES = re.compile("[\udc80-\udcff]+")
 
 
 class UnsupportedFileError(ValueError):
@@ -94,9 +96,27 @@ def _read_plain(path: Path, fmt: str) -> Document:
         return Document(path, raw.decode("utf-8"), fmt)
     except UnicodeDecodeError:
         pass
-    # Older French files are often Windows-1252; say so rather than guessing in silence.
-    text = raw.decode("cp1252", errors="replace")
-    return Document(path, text, fmt, ["not valid UTF-8, decoded as Windows-1252"])
+    # Older French files are often Windows-1252, and files often mix both (a line appended by
+    # an old tool). Decoding everything as Windows-1252 would turn the UTF-8 parts into
+    # "sociÃ©tÃ©", which no rule matches yet converts back exactly. So only the bytes that are
+    # not valid UTF-8 are read as Windows-1252, and the warning says how many.
+    text, count = _utf8_with_cp1252_fallback(raw)
+    return Document(
+        path, text, fmt, [f"not valid UTF-8 in places: {count} bytes decoded as Windows-1252"]
+    )
+
+
+def _utf8_with_cp1252_fallback(raw: bytes) -> tuple[str, int]:
+    """UTF-8, with each invalid byte read as Windows-1252. Returns the text and that count."""
+    escaped = raw.decode("utf-8", errors="surrogateescape")  # bad byte b -> U+DC00 + b
+    count = 0
+
+    def fallback(match: re.Match[str]) -> str:
+        nonlocal count
+        count += len(match.group())
+        return bytes(ord(c) - 0xDC00 for c in match.group()).decode("cp1252", errors="replace")
+
+    return _ESCAPED_BYTES.sub(fallback, escaped), count
 
 
 def _utf16_byte_order(raw: bytes) -> str | None:
@@ -145,7 +165,13 @@ def _outside_scope(char: str) -> bool:
     (U+0000-U+058F, U+1E00-U+2BFF) stay allowed; `_misread_ascii` covers what lands there.
     """
     code = ord(char)
-    return 0x0590 <= code <= 0x1DFF or 0x2C00 <= code <= 0xFAFF
+    return (
+        0x0400 <= code <= 0x052F  # Cyrillic
+        or 0x0590 <= code <= 0x1DFF
+        or 0x2C00 <= code <= 0xFAFF
+        or 0xFB1D <= code <= 0xFDFF  # Hebrew and Arabic presentation forms
+        or 0xFE70 <= code <= 0xFEFF
+    )
 
 
 def _misread_ascii(text: str) -> bool:
