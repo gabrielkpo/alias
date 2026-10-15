@@ -39,6 +39,19 @@ answer = "Virement vers [IBAN_1] confirmé."
 restore(answer, result).text  # real IBAN back, only for aliases sent in this exchange
 ```
 
+## Input files (step 2)
+`read_document(path)` turns a file into plain text before detection:
+
+| Format | What is read |
+|---|---|
+| `.txt`, `.md` | UTF-8 (byte order mark dropped); Windows-1252 as a reported fallback |
+| `.docx` | body, tables (row by row), headers and footers, including first-page and even-page ones |
+| PDF with a text layer | every page, joined with a form feed; pages without text are reported |
+
+Scanned PDFs and images need OCR and are not supported yet. Nothing is dropped silently: what
+could not be read is listed in `Document.warnings`. Headers and footers are kept on purpose,
+since names and file numbers often sit there.
+
 ## Rule layer (step 1)
 | Type | French | English | Check |
 |---|---|---|---|
