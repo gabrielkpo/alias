@@ -129,7 +129,7 @@ def _decode_wide(path: Path, raw: bytes, encoding: str) -> str:
         text = raw.decode(encoding)
     except UnicodeDecodeError as exc:
         raise UnsupportedFileError(f"{path.name}: invalid {encoding} text ({exc.reason})") from exc
-    if "\x00" in text or any(_outside_scope(char) for char in text):
+    if "\x00" in text or any(_outside_scope(char) for char in text) or _misread_ascii(text):
         raise UnsupportedFileError(
             f"{path.name}: decoding as {encoding} gives characters outside French and "
             "English text (mixed encodings?); convert the file to UTF-8"
@@ -142,10 +142,31 @@ def _outside_scope(char: str) -> bool:
 
     Two printable ASCII bytes read as one UTF-16 unit give U+0909 to U+7E7E: letters and digits
     put the result in U+3000 and above. Latin, punctuation, currency and common symbols
-    (U+0000-U+058F, U+1E00-U+2BFF) stay allowed.
+    (U+0000-U+058F, U+1E00-U+2BFF) stay allowed; `_misread_ascii` covers what lands there.
     """
     code = ord(char)
     return 0x0590 <= code <= 0x1DFF or 0x2C00 <= code <= 0xFAFF
+
+
+def _misread_ascii(text: str) -> bool:
+    """Misread ASCII that lands among allowed symbols: "1 8 5 0" read as UTF-16 is "‱‸‵".
+
+    A character whose two bytes are both printable ASCII is suspicious when one byte is a letter
+    or a digit, or when it follows another such character. Real symbols there (…, •, ™)
+    have punctuation bytes and come alone; a few rare ones (≤, ≥, ⅓) are refused too. Characters
+    beyond U+FFFF (emoji, or bytes paired into surrogates) are refused as well.
+    """
+    previous = False
+    for char in text:
+        code = ord(char)
+        if code > 0xFFFF:
+            return True
+        high, low = code >> 8, code & 0xFF
+        both_ascii = 0x20 <= high <= 0x7E and 0x20 <= low <= 0x7E
+        if both_ascii and (chr(high).isalnum() or chr(low).isalnum() or previous):
+            return True
+        previous = both_ascii
+    return False
 
 
 # --- Word ---------------------------------------------------------------------------------

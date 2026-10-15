@@ -256,3 +256,25 @@ def test_utf16_with_punctuation_and_symbols_is_accepted(tmp_path):
     text = "« Café », 12 € – 50 % … • ✓ “ok” ’"
     (tmp_path / "symbols.txt").write_bytes(text.encode("utf-16"))
     assert read_document(tmp_path / "symbols.txt").text == text
+
+
+SPACED_NIR = b"1 8 5 0 5 7 8 0 0 6 0 8 4 9 1 "
+SPACED_PHONE = b"0 1 9 9 0 0 1 2 3 4 "
+
+
+@pytest.mark.parametrize("tail", [SPACED_NIR, SPACED_PHONE])
+@pytest.mark.parametrize(
+    "head", ["﻿Dossier : ".encode("utf-16-le"), "Dossier : ".encode("utf-16-le")]
+)
+def test_spaced_digits_appended_to_utf16_are_refused(tmp_path, head, tail):
+    """Misread, "1 8 5" becomes symbols in an allowed range: unmasked yet recoverable."""
+    (tmp_path / "mixed.txt").write_bytes(head + tail)
+    with pytest.raises(UnsupportedFileError):
+        read_document(tmp_path / "mixed.txt")
+
+
+def test_big_endian_bom_with_spaced_digits_is_refused(tmp_path):
+    raw = b"\xfe\xff" + "Dossier :".encode("utf-16-be") + b" " + SPACED_NIR[:-1]
+    (tmp_path / "be.txt").write_bytes(raw)
+    with pytest.raises(UnsupportedFileError):
+        read_document(tmp_path / "be.txt")
