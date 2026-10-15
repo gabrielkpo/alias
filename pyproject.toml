@@ -12,6 +12,13 @@ dependencies = [
 ]
 
 [dependency-groups]
+bench = [
+    "gliner>=0.2",
+    "presidio-analyzer>=2.2",
+    "protobuf>=4",
+    "sentencepiece>=0.2",
+    "transformers>=4.51,<5",
+]
 data = [
     "faker>=30",
     "httpx>=0.27",

@@ -14,3 +14,4 @@ __pycache__/
 data/synthetic/
 data/cache/
 data/llm/
+reports/
