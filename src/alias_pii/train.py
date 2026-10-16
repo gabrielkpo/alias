@@ -34,7 +34,8 @@ class Config:
     max_length: int = 512
     stride: int = 128
     learning_rate: float = 3e-5
-    batch_size: int = 16
+    batch_size: int = 16  # per device, after accumulation
+    grad_accum: int = 1  # same batch in smaller passes when memory is short (mDeBERTa on a T4)
     warmup_ratio: float = 0.1
     weight_decay: float = 0.01
     seed: int = 0
@@ -157,6 +158,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=16, help="lower it on a laptop")
+    parser.add_argument("--grad-accum", type=int, default=1, help="passes per batch (same batch)")
     parser.add_argument("--limit", type=int, default=0, help="first N documents (smoke test)")
     parser.add_argument("--results", type=Path, default=Path("results/training.jsonl"))
     args = parser.parse_args()
@@ -173,7 +175,11 @@ def main() -> None:
         TrainingArguments,
     )
 
-    config = Config(model=args.model, epochs=args.epochs, batch_size=args.batch_size)
+    if args.batch_size % args.grad_accum:
+        parser.error("--batch-size must be a multiple of --grad-accum")
+    config = Config(
+        model=args.model, epochs=args.epochs, batch_size=args.batch_size, grad_accum=args.grad_accum
+    )
     train_docs = load(args.data / "train.jsonl")
     validation_docs = load(args.data / "validation.jsonl")
     if args.limit:
@@ -194,7 +200,8 @@ def main() -> None:
         output_dir=str(args.out / "checkpoints"),
         num_train_epochs=config.epochs,
         learning_rate=config.learning_rate,
-        per_device_train_batch_size=config.batch_size,
+        per_device_train_batch_size=config.batch_size // config.grad_accum,
+        gradient_accumulation_steps=config.grad_accum,
         warmup_ratio=config.warmup_ratio,
         weight_decay=config.weight_decay,
         seed=config.seed,

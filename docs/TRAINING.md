@@ -16,7 +16,7 @@ end, by `alias_pii.benchmark`.
 ## Same settings for all three
 
 `alias_pii.train.Config`: 3 epochs, windows of 512 tokens overlapping by 128, learning rate 3e-5,
-batch 16, warm-up 10 %, weight decay 0.01, seed 0. Labels are BIO over the eight Alias types
+batch 16 per device (reached by gradient accumulation when memory is short: `--grad-accum 2` for mDeBERTa on a 16 GB T4, same batch), warm-up 10 %, weight decay 0.01, seed 0. Labels are BIO over the eight Alias types
 (17 tags). A token takes the label of the span containing its first non-space character; long
 documents are read in overlapping windows and, at prediction time, each token keeps the
 prediction of the window where it sits farthest from an edge (`alias_pii.tagging`).
