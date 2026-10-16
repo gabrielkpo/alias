@@ -23,8 +23,9 @@ prediction of the window where it sits farthest from an edge (`alias_pii.tagging
 
 ## Choice rule
 
-1. **Eliminatory:** under one second per page on the Mac CPU (M1, 8 GB), after int8
-   quantisation; measured on the Mac after training, not on the training GPU.
+1. **Eliminatory:** under one second per page on a standard 4-core CPU (GitHub Actions
+   `ubuntu-latest`), after int8 quantisation; measured there after training, not on the
+   training GPU. (Changed on 16/10, before any training: heavy runs never use the laptop.)
 2. **Main criterion:** best strict recall on `PERSON`, `ADDRESS` and `BIRTH_DATE`, averaged over
    French and English (`choice_recall` in the results file).
 3. **Tie-break** (gap under one point): lowest leak rate combined with the rules, then fastest.
@@ -67,5 +68,6 @@ known. No model trained on real data is ever published.
 
 ## Smoke test
 
-`--limit 200 --epochs 1` trains on 200 documents to check the whole chain on a laptop before
-using GPU time.
+`--limit 300 --epochs 1` trains on 300 documents to check the whole chain before using GPU time.
+It runs on GitHub's CPU machines, not on a laptop: `gh workflow run compute.yml -f
+task=smoke-train`, or the `compute` label on a pull request.

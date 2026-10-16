@@ -53,7 +53,7 @@ Choices and trade-offs:
 - **Restoring is scoped to the exchange.** Only aliases written in the text actually sent are
   restored, so a document containing a literal `[EMAIL_1]` cannot pull a value from another one.
 - **Local rather than an API.** Slower to build and to measure, but nothing personal leaves the
-  machine; the model has to run on a laptop CPU (Mac M1, 8 GB).
+  machine; the model has to run on an ordinary CPU, without a GPU.
 
 ## Example
 
@@ -86,7 +86,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 `fr_FR`, `en_US`, `en_GB`), and two small real sets annotated by hand (French and English), read
 once at the end. Measures: recall and precision per entity type and per language, **leak rate**
 (values still readable in the masked text), CPU latency and memory. The model choice is written
-before training: below one second per page on the Mac CPU, then the best entity-level recall on
+before training: below one second per page on a standard 4-core CPU (GitHub Actions runner), then the best entity-level recall on
 `PERSON`, `ADDRESS` and `BIRTH_DATE` averaged over French and English, then the lowest leak rate.
 Negative results will be published.
 
@@ -95,7 +95,7 @@ First baselines (step 3) on the synthetic test split, 4,200 documents in French,
 mixed: grid generator, gretel and WikiNER. Real annotated sets come later; these numbers measure
 the baselines on our labels, not on real documents.
 
-| Method | Precision | Recall | Leak rate | ms / 1,000 chars (Mac CPU) |
+| Method | Precision | Recall | Leak rate | ms / 1,000 chars (CPU) |
 |---|---|---|---|---|
 | rules | 0.66 | 0.33 | 66.6 % | 1 |
 | Presidio + spaCy lg | 0.46 | 0.48 | 34.8 % | 40 |
@@ -165,6 +165,10 @@ uv sync --group data --group bench
 uv run python -m spacy download fr_core_news_lg && uv run python -m spacy download en_core_web_lg
 uv run python -m alias_pii.benchmark --split test --methods rules,presidio,gliner --out reports
 ```
+
+Heavy runs do not need a laptop: the `Compute` workflow (Actions tab, or `gh workflow run
+compute.yml -f task=benchmark -f size=full`) rebuilds the dataset from the generator and the
+public corpora on a GitHub CPU machine and uploads the reports as an artifact.
 
 It writes `reports/benchmark-test.md` and `.json`: strict and overlap precision and recall, leak
 rate (gold values still readable after masking) and CPU latency, per label, language and source.

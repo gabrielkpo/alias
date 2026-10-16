@@ -1,0 +1,87 @@
+# Heavy runs on a GitHub CPU machine instead of a laptop (Gabriel's decision of 16/10): dataset
+# build, benchmark, training smoke test, CPU latency. Synthetic and public data only: the
+# dataset is rebuilt here from the generator and the public corpora; nothing private is used.
+# Start it from the Actions tab or `gh workflow run compute.yml -f task=benchmark`, or add the
+# `compute` label to a pull request (smoke test).
+name: Compute
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to run
+        type: choice
+        options: [smoke-train, benchmark]
+        default: smoke-train
+      size:
+        description: Dataset size
+        type: choice
+        options: [small, full]
+        default: small
+      methods:
+        description: Benchmark methods (comma list, no API methods)
+        type: choice
+        options: [rules, "rules,presidio", "rules,presidio,gliner,hybrid"]
+        default: rules
+  pull_request:
+    types: [labeled]
+permissions:
+  contents: read
+concurrency:
+  group: compute-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compute:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'compute'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      TASK: ${{ inputs.task || 'smoke-train' }}
+      SIZE: ${{ inputs.size || 'small' }}
+      METHODS: ${{ inputs.methods || 'rules' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: pip install uv
+      - name: Download the public corpora
+        run: |
+          base=https://huggingface.co/datasets
+          mkdir -p data/raw/gretel data/raw/wikiner_fr
+          for f in English_train English_test France_train France_test; do
+            curl -sSfL -o "data/raw/gretel/$f.parquet" \
+              "$base/gretelai/synthetic_pii_finance_multilingual/resolve/main/data/$f-00000-of-00001.parquet"
+          done
+          curl -sSfL -o data/raw/wikiner_fr/train.parquet \
+            "$base/Jean-Baptiste/wikiner_fr/resolve/main/data/train-00000-of-00001-8a0e6775bf277040.parquet"
+          curl -sSfL -o data/raw/wikiner_fr/test.parquet \
+            "$base/Jean-Baptiste/wikiner_fr/resolve/main/data/test-00000-of-00001-f042d39bd1dddf20.parquet"
+      - name: Build the dataset
+        run: |
+          if [ "$SIZE" = full ]; then n="--train 30000 --validation 3000 --test 3000"
+          else n="--train 1000 --validation 200 --test 200"; fi
+          uv run --group data python -m alias_pii.build_dataset --out data/synthetic --raw data/raw $n
+      - name: Training smoke test (mmBERT-small, CPU)
+        if: env.TASK == 'smoke-train'
+        run: |
+          uv run --group data --group train python -m alias_pii.train \
+            --model jhu-clsp/mmBERT-small --data data/synthetic --out models/smoke \
+            --epochs 1 --limit 300 --batch-size 8 --results reports/training-smoke.jsonl
+      - name: Benchmark
+        if: env.TASK == 'benchmark'
+        run: |
+          if echo "$METHODS" | grep -q presidio; then  # Presidio needs the spaCy models
+            uv run --group bench python -m spacy download fr_core_news_lg
+            uv run --group bench python -m spacy download en_core_web_lg
+          fi
+          uv run --group data --group bench python -m alias_pii.benchmark \
+            --data data/synthetic --split test --methods "$METHODS" --out reports
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compute-${{ env.TASK }}-${{ github.run_id }}
+          path: |
+            reports/
+            data/synthetic/DATASHEET.md
+          if-no-files-found: ignore
