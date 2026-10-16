@@ -130,7 +130,8 @@ def validation_scores(detector, documents: list[dict]) -> dict:
         "choice_recall": (per_language["fr"] + per_language["en"]) / 2,
         "choice_recall_by_language": per_language,
         "all": summary["by"]["all"]["all"],
-        "ms_per_1000_chars": summary["ms_per_1000_chars"],
+        # measured on the training device (GPU on Kaggle): the CPU budget is checked separately
+        "ms_per_1000_chars_training_device": summary["ms_per_1000_chars"],
     }
 
 
@@ -190,7 +191,9 @@ def main() -> None:
         train_dataset=Dataset.from_list(windows),
         data_collator=DataCollatorForTokenClassification(tokenizer, label_pad_token_id=IGNORE),
     )
-    checkpoints = sorted((args.out / "checkpoints").glob("checkpoint-*"))
+    checkpoints = sorted(
+        (args.out / "checkpoints").glob("checkpoint-*"), key=lambda p: int(p.name.split("-")[-1])
+    )
     trainer.train(resume_from_checkpoint=str(checkpoints[-1]) if checkpoints else None)
     trainer.save_model(str(args.out / "final"))
     tokenizer.save_pretrained(str(args.out / "final"))
