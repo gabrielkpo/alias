@@ -32,7 +32,7 @@ from alias_pii import quality
 from alias_pii.documents import DOC_TYPES, SPLITS, TEST_ONLY_TYPES, Document, Span
 from alias_pii.identities import IdentityFactory
 
-PROMPT_VERSION = "3"
+PROMPT_VERSION = "4"
 DEFAULT_MODEL = "mistral-small-latest"
 API_URL = "https://api.mistral.ai/v1/chat/completions"
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Z_]+?)_(\d)\s*\}\}")
@@ -55,7 +55,7 @@ SYSTEM = (
     "You write realistic {language} documents for a dataset that trains a personal-data "
     "detector. Every piece of personal data must be written as one of the placeholders given, "
     "exactly as given (for example {{{{PERSON_1}}}}), never as a real or invented value. Use "
-    "each placeholder at least once; you may repeat it. Do not create other placeholders. Do not "
+    "each placeholder at least once. Do not create other placeholders. Do not "
     "write any other name, e-mail address, phone number, postal address, account number or ID "
     "number: refer to other people by their role and to organisations by a generic name. "
     "Only person placeholders may appear more than once; every other placeholder appears exactly "
@@ -67,7 +67,8 @@ SYSTEM = (
     "Output only the document, without comments or Markdown fences."
 )
 # A gap the model left instead of a value, such as "[Employee's Address]" or "<bank name>".
-TEMPLATE_GAP = re.compile(r"\[[A-Za-z][^\]\n]{2,60}\]|<[A-Za-z][^>\n]{2,40}>")
+# An e-mail address in angle brackets ("Ana Li <ana@example.org>") is not a gap.
+TEMPLATE_GAP = re.compile(r"\[[A-Za-z][^\]\n]{2,60}\]|<(?![^>\n]*@)[A-Za-z][^>\n]{2,40}>")
 USER = (
     "Document type: {doc_type}. Domain: {domain}. Tone: {style}. Length: about {words} words.\n"
     "Placeholders:\n{placeholders}"

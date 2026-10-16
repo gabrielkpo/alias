@@ -84,3 +84,9 @@ def test_only_person_placeholders_may_repeat():
     values = {"PERSON_1": ("Ana Li", "PERSON"), "BIRTH_DATE_1": ("01/02/1990", "BIRTH_DATE")}
     _, _, problems = fill("{{PERSON_1}} {{PERSON_1}} {{BIRTH_DATE_1}} {{BIRTH_DATE_1}}", values)
     assert problems == ["BIRTH_DATE_1: placeholder repeated"]
+
+
+def test_email_in_angle_brackets_is_not_a_gap():
+    values = {"PERSON_1": ("Ana Li", "PERSON"), "EMAIL_1": ("ana.li@example.org", "EMAIL")}
+    _, _, problems = fill("De : {{PERSON_1}} <{{EMAIL_1}}>", values)
+    assert problems == []
