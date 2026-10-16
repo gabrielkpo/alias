@@ -32,7 +32,7 @@ from alias_pii import quality
 from alias_pii.documents import DOC_TYPES, SPLITS, TEST_ONLY_TYPES, Document, Span
 from alias_pii.identities import IdentityFactory
 
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "3"
 DEFAULT_MODEL = "mistral-small-latest"
 API_URL = "https://api.mistral.ai/v1/chat/completions"
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Z_]+?)_(\d)\s*\}\}")
@@ -58,8 +58,16 @@ SYSTEM = (
     "each placeholder at least once; you may repeat it. Do not create other placeholders. Do not "
     "write any other name, e-mail address, phone number, postal address, account number or ID "
     "number: refer to other people by their role and to organisations by a generic name. "
+    "Only person placeholders may appear more than once; every other placeholder appears exactly "
+    "once, for the value it names (a birth date placeholder is never a hire date). "
+    "Each person placeholder is one person: never use the same one for two people (an employee "
+    "and their manager); anyone else is named by role only (the manager, the adviser). Never "
+    "leave a gap such as [Address] or <name>: when a value has no placeholder, leave that field "
+    "out or describe it in words. "
     "Output only the document, without comments or Markdown fences."
 )
+# A gap the model left instead of a value, such as "[Employee's Address]" or "<bank name>".
+TEMPLATE_GAP = re.compile(r"\[[A-Za-z][^\]\n]{2,60}\]|<[A-Za-z][^>\n]{2,40}>")
 USER = (
     "Document type: {doc_type}. Domain: {domain}. Tone: {style}. Length: about {words} words.\n"
     "Placeholders:\n{placeholders}"
@@ -139,7 +147,10 @@ def fill(text: str, values: dict[str, tuple[str, str]]) -> tuple[str, list[Span]
     """Replace every placeholder by its value. `values` maps `PERSON_1` to (value, label).
     Returns the text, the spans and the problems (missing or invented placeholders)."""
     problems: list[str] = []
-    found = {f"{m.group(1)}_{m.group(2)}" for m in PLACEHOLDER.finditer(text)}
+    occurrences = Counter(f"{m.group(1)}_{m.group(2)}" for m in PLACEHOLDER.finditer(text))
+    found = set(occurrences)
+    problems += [f"{name}: placeholder repeated" for name, n in sorted(occurrences.items())
+                 if n > 1 and not name.startswith("PERSON_")]  # fmt: skip
     problems += [f"{name}: placeholder missing" for name in sorted(set(values) - found)]
     problems += [f"{name}: placeholder invented" for name in sorted(found - set(values))]
     if problems:
@@ -160,6 +171,8 @@ def fill(text: str, values: dict[str, tuple[str, str]]) -> tuple[str, list[Span]
     filled = "".join(out)
     if "{{" in filled or "}}" in filled:
         problems.append("TEXT: leftover braces")
+    if TEMPLATE_GAP.search(filled):
+        problems.append("TEXT: template gap left by the model")
     return filled, spans, problems
 
 
@@ -181,7 +194,10 @@ class LLMWriter:
         doc_type = rng.choice(self.doc_types)
         spec = DOC_TYPES[doc_type]
         language = rng.choice(["fr", "en"])
-        labels = list(spec["fields"]) + rng.sample(spec["optional"], rng.randint(1, 3))
+        optional = spec["optional"]  # some types have fewer than three optional fields
+        labels = list(spec["fields"]) + rng.sample(
+            optional, rng.randint(min(1, len(optional)), min(3, len(optional)))
+        )
         names = [f"{label}_1" for label in labels]
         if rng.random() < 0.4:
             names.append("PERSON_2")  # a second person: colleague, relative, adviser

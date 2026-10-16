@@ -59,3 +59,28 @@ def test_leak_outside_placeholders_is_rejected(tmp_path):
 def test_unknown_split():
     with pytest.raises(ValueError):
         LLMWriter("dev", FakeClient(), None)
+
+
+def test_every_document_type_gives_a_request(tmp_path):
+    from alias_pii.documents import DOC_TYPES
+
+    writer = LLMWriter("test", FakeClient(), Cache(tmp_path), seed=3)
+    seen = set()
+    for _ in range(400):
+        request = writer.request()
+        seen.add(request["doc_type"])
+        assert len(request["placeholders"]) == len(set(request["placeholders"]))
+    assert seen == set(DOC_TYPES)
+
+
+def test_template_gaps_are_rejected():
+    _, _, problems = fill(
+        "Adresse : [Adresse du salarié] — {{PERSON_1}}", {"PERSON_1": ("Ana Li", "PERSON")}
+    )
+    assert "TEXT: template gap left by the model" in problems
+
+
+def test_only_person_placeholders_may_repeat():
+    values = {"PERSON_1": ("Ana Li", "PERSON"), "BIRTH_DATE_1": ("01/02/1990", "BIRTH_DATE")}
+    _, _, problems = fill("{{PERSON_1}} {{PERSON_1}} {{BIRTH_DATE_1}} {{BIRTH_DATE_1}}", values)
+    assert problems == ["BIRTH_DATE_1: placeholder repeated"]
