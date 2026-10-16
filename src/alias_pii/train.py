@@ -72,7 +72,11 @@ class TrainedDetector:
 
         self.torch = torch
         self.tokenizer = AutoTokenizer.from_pretrained(path)
-        self.model = AutoModelForTokenClassification.from_pretrained(path).to(device).eval()
+        self.model = (
+            AutoModelForTokenClassification.from_pretrained(path, **_loading_options(path))
+            .to(device)
+            .eval()
+        )
         self.max_length, self.stride, self.device = max_length, stride, device
 
     def detect(self, text: str) -> list[Entity]:
@@ -95,6 +99,17 @@ class TrainedDetector:
             ([tuple(o) for o in offs], tags) for offs, tags in zip(offsets, predicted, strict=True)
         ]
         return spans_from_tokens(text, merge_windows(windows))
+
+
+def _loading_options(model: str) -> dict:
+    """ModernBERT models (mmBERT) compile their MLP with torch.compile by default, which crashes
+    under the Trainer on Kaggle GPUs ("FX to symbolically trace a dynamo-optimized function",
+    then SIGSEGV). Turn it off; other architectures load unchanged."""
+    from transformers import AutoConfig
+
+    if AutoConfig.from_pretrained(model).model_type == "modernbert":
+        return {"reference_compile": False}
+    return {}
 
 
 def _version(path: Path) -> str:
@@ -169,7 +184,11 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(config.model)
     windows = [w for d in train_docs for w in encode(tokenizer, d, config)]
     model = AutoModelForTokenClassification.from_pretrained(
-        config.model, num_labels=len(TAGS), id2label=dict(enumerate(TAGS)), label2id=TAG_ID
+        config.model,
+        num_labels=len(TAGS),
+        id2label=dict(enumerate(TAGS)),
+        label2id=TAG_ID,
+        **_loading_options(config.model),
     )
     training = TrainingArguments(
         output_dir=str(args.out / "checkpoints"),
