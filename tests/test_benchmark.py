@@ -92,3 +92,23 @@ def test_hybrid_keeps_context_labels_from_the_model_only():
     hybrid.rules, hybrid.gliner = __import__("alias_pii.rules").rules.RuleDetector(), FakeModel()
     labels = sorted(e.type.value for e in hybrid.detect(TEXT))
     assert labels == ["EMAIL", "PERSON", "PHONE"]  # e-mail and phone from the rules, once each
+
+
+def test_mistral_parse_whole_words_and_bad_items():
+    from alias_pii.baselines import MistralZeroShot
+
+    text = "Ana Li vit à Lille."
+    raw = '{"entities": ["Ana", 3, {"label": "PERSON", "text": "Li"}]}'
+    assert [(e.start, e.end) for e in MistralZeroShot.parse(text, raw)] == [(4, 6)]
+
+
+def test_api_methods_refuse_real_data(tmp_path, monkeypatch):
+    import pytest
+
+    from alias_pii import benchmark
+
+    real = tmp_path / "real"
+    real.mkdir()
+    monkeypatch.setattr("sys.argv", ["b", "--data", str(real), "--methods", "mistral"])
+    with pytest.raises(SystemExit):
+        benchmark.main()

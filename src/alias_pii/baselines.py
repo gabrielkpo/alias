@@ -153,15 +153,21 @@ class MistralZeroShot:
         except (json.JSONDecodeError, AttributeError):
             return []
         entities = []
-        for item in items:
-            label, value = item.get("label"), (item.get("text") or "").strip()
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict):
+                continue
+            label, value = item.get("label"), str(item.get("text") or "").strip()
             if label not in EntityType.__members__ or not value:
                 continue
-            for match in re.finditer(re.escape(value), text):
+            # whole occurrences only: "Li" must not label the start of "Lille"
+            for match in re.finditer(rf"(?<!\w){re.escape(value)}(?!\w)", text):
                 entities.append(Entity(EntityType(label), match.start(), match.end(), value,
                                        1.0, "mistral"))  # fmt: skip
         return resolve_overlaps(entities)
 
+
+# Methods that send document text to a third-party API: never run on real documents.
+API_METHODS = {"mistral"}
 
 METHODS: dict[str, Callable[[], object]] = {
     "rules": RuleDetector,
