@@ -58,3 +58,57 @@ def test_duplicate_predictions_count_once():
     gold = [entity("EMAIL", "ana.li@example.org")]
     c = score_document(TEXT, gold, gold * 2)
     assert c["EMAIL"].strict == 1 and c["ALL"].scores()["recall"] == 1.0
+
+
+def test_mistral_zero_shot_parses_and_caches(tmp_path):
+    from alias_pii.baselines import MistralZeroShot
+
+    class FakeClient:
+        calls = 0
+
+        def complete(self, messages, model, temperature):
+            FakeClient.calls += 1
+            return (
+                '```json\n{"entities": [{"label": "PERSON", "text": "Ana Li"},'
+                ' {"label": "EMAIL", "text": "no@example.org"}, {"label": "X", "text": "y"}]}```'
+            )
+
+    detector = MistralZeroShot(client=FakeClient(), cache_dir=tmp_path)
+    found = detector.detect(TEXT)
+    assert [(e.type.value, e.text) for e in found] == [("PERSON", "Ana Li")]
+    detector.detect(TEXT)
+    assert FakeClient.calls == 1  # second answer from the cache
+    assert MistralZeroShot.parse(TEXT, "not json") == []
+
+
+def test_hybrid_keeps_context_labels_from_the_model_only():
+    from alias_pii.baselines import HybridBaseline
+
+    class FakeModel:
+        def detect(self, text):
+            return [entity("PERSON", "Ana Li", text), entity("EMAIL", "ana.li@example.org", text)]
+
+    hybrid = HybridBaseline.__new__(HybridBaseline)
+    hybrid.rules, hybrid.gliner = __import__("alias_pii.rules").rules.RuleDetector(), FakeModel()
+    labels = sorted(e.type.value for e in hybrid.detect(TEXT))
+    assert labels == ["EMAIL", "PERSON", "PHONE"]  # e-mail and phone from the rules, once each
+
+
+def test_mistral_parse_whole_words_and_bad_items():
+    from alias_pii.baselines import MistralZeroShot
+
+    text = "Ana Li vit à Lille."
+    raw = '{"entities": ["Ana", 3, {"label": "PERSON", "text": "Li"}]}'
+    assert [(e.start, e.end) for e in MistralZeroShot.parse(text, raw)] == [(4, 6)]
+
+
+def test_api_methods_refuse_real_data(tmp_path, monkeypatch):
+    import pytest
+
+    from alias_pii import benchmark
+
+    real = tmp_path / "real"
+    real.mkdir()
+    monkeypatch.setattr("sys.argv", ["b", "--data", str(real), "--methods", "mistral"])
+    with pytest.raises(SystemExit):
+        benchmark.main()

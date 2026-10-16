@@ -180,7 +180,7 @@ def report(summaries: list[dict], split: str, n: int) -> str:
 
 
 def main(methods: dict[str, Callable[[], Detector]] | None = None) -> None:
-    from alias_pii.baselines import METHODS
+    from alias_pii.baselines import API_METHODS, METHODS
 
     methods = methods or METHODS
     parser = argparse.ArgumentParser(description="Benchmark Alias detectors.")
@@ -190,6 +190,9 @@ def main(methods: dict[str, Callable[[], Detector]] | None = None) -> None:
     parser.add_argument("--limit", type=int, default=0, help="first N documents only")
     parser.add_argument("--out", type=Path, default=Path("reports"))
     args = parser.parse_args()
+    api = API_METHODS & set(args.methods.split(","))
+    if api and "real" in args.data.resolve().parts:
+        parser.error(f"{sorted(api)} send text to an API: real documents never leave the machine")
     documents = load(args.data / f"{args.split}.jsonl")
     if args.limit:
         documents = documents[: args.limit]

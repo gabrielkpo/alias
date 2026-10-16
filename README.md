@@ -75,7 +75,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 |---|---|---|
 | 1 | Rules (FR + EN), masking, restoring, leak check | done |
 | 2 | File readers; dataset v0.2 (grid generator, gates, balancer, datasheet), v0.3 LLM writer and v0.4 public corpora done; full build, LLM run, real sets | in progress |
-| 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII (done); Mistral zero-shot | in progress |
+| 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, rules + GLiNER (done); Mistral zero-shot (adapter ready, run pending the API key) | in progress |
 | 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best | planned |
 | 5 | Rules + model, leak rate | planned |
 | 6 | `alias-pii mask` CLI, JSON report, local API, Docker; CPU latency and memory | planned |
@@ -100,12 +100,16 @@ the baselines on our labels, not on real documents.
 | rules | 0.66 | 0.33 | 66.6 % | 1 |
 | Presidio + spaCy lg | 0.46 | 0.48 | 34.8 % | 40 |
 | GLiNER multi PII | 0.63 | 0.74 | 22.5 % | 374 |
+| rules + GLiNER (hybrid) | 0.63 | 0.85 | 12.6 % | about 375 |
 
 - Rules find every e-mail, IBAN and phone number, and 89 % of national IDs, but nothing that needs
   context (names, addresses, birth dates). They also mask company mailboxes, switchboards and
   invoice numbers, which Alias leaves in clear: precision 0.58 on `EMAIL`, 0.42 on `IDENTIFIER`.
 - GLiNER finds names, addresses and birth dates (recall 0.80, 0.91, 1.00) but misses most IBANs and
-  national IDs (0.24 and 0.06): rules and a model complement each other, which step 5 tests.
+  national IDs (0.24 and 0.06): rules and a model complement each other.
+- The hybrid (rules for validated formats, GLiNER for names, addresses and birth dates) gets
+  recall 0.85 and halves the leak rate (12.6 %). What leaks most is names (17 %) and
+  identifiers (42 %): the targets for the trained model of step 4.
 - GLiNER takes about 1.1 s for a 3,000-character page: above the one-second budget set for the
   model choice.
 
