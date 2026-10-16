@@ -175,8 +175,8 @@ def main() -> None:
         TrainingArguments,
     )
 
-    if args.batch_size % args.grad_accum:
-        parser.error("--batch-size must be a multiple of --grad-accum")
+    if args.grad_accum < 1 or args.batch_size % args.grad_accum:
+        parser.error("--grad-accum must be at least 1 and divide --batch-size")
     config = Config(
         model=args.model, epochs=args.epochs, batch_size=args.batch_size, grad_accum=args.grad_accum
     )
