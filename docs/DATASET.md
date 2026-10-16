@@ -129,7 +129,19 @@ a value:
 Only fake values ever reach the API. Prompts are versioned in the repository, and each record keeps
 the model name and prompt version that produced it.
 
-**Implementation (`alias_pii.llm_writer`, prompt version 1).** Each request draws a document type
+**Prompt versions, measured on 20 requests each with `mistral-small-latest` (16/10).**
+Version 1 kept 13 of 20 documents, but reading them showed gaps left between brackets
+(`[Employee's Residential Address]`) and one person in every role (employee, manager and emergency
+contact). Version 2 forbids gaps (a new gate rejects them) and gives each person placeholder one
+person: 11 of 20 kept, but a birth-date placeholder was reused as a hire date, a wrong label.
+Version 3 lets only person placeholders repeat (a gate rejects any other repeated one): 11 of 20
+kept, and the documents read are coherent. Version 4 removes a sentence that still allowed
+repeats and accepts e-mail addresses in angle brackets ("Ana Li <ana@example.org>"): 10 of 20
+kept, 86 words on average. Rejections are mostly a requested placeholder missing, repeated or a
+new one invented (dates especially). Known limit: documents are shorter than requested (65 to 86
+words on average, against 113 with version 1); 20 requests per version is a small sample.
+
+**Implementation (`alias_pii.llm_writer`, prompt version 4).** Each request draws a document type
 and domain from the grid, a language, a tone (six per language), a length (80 to 250 words) and
 the placeholders: the type's required fields, one to three optional ones, and a second person in
 40 % of requests. The values are filled in from a fresh identity per document, so the same answer
