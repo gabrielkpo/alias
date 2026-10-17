@@ -25,12 +25,34 @@ prediction of the window where it sits farthest from an edge (`alias_pii.tagging
 
 ## Choice rule
 
-1. **Eliminatory:** under one second per page on a standard 4-core CPU (GitHub Actions
-   `ubuntu-latest`), after int8 quantisation; measured there after training, not on the
-   training GPU. (Changed on 16/10, before any training: heavy runs never use the laptop.)
+1. **Eliminatory:** under one second per page on a standard 4-core CPU, after int8
+   quantisation; measured on a Kaggle CPU session (4 cores), not on the training GPU.
 2. **Main criterion:** best strict recall on `PERSON`, `ADDRESS` and `BIRTH_DATE`, averaged over
    French and English (`choice_recall` in the results file).
 3. **Tie-break** (gap under one point): lowest leak rate combined with the rules, then fastest.
+
+**Rule changed after the results (Gabriel's decision of 17/10), recorded here as such.** The
+eliminatory rule assumed that int8 quantisation keeps the quality. It does not: PyTorch dynamic
+int8 dropped mmBERT-small's precision from 0.970 to 0.337 on the test split, and the careful
+modes (head kept in float, or only the feed-forward layers in int8) reached 0.71 at best on the
+validation. The rule now reads "about one second per page, unquantised". Faster inference without
+quality loss (ONNX Runtime) moves to step 6.
+
+## Results
+
+Validation split (synthetic), unquantised, from `results/training.jsonl`; CPU latency on a Kaggle
+CPU session (4 cores), seconds per 3,000-character page:
+
+| Model | Choice recall | French / English | Precision | Leak rate | Latency, float | Latency, int8 (all) |
+|---|---|---|---|---|---|---|
+| **mmBERT-small** | **0.976** | 0.984 / 0.968 | 0.974 | 1.4 % | 1.07 to 1.22 | 0.66 (quality lost) |
+| XLM-RoBERTa base | 0.952 | 0.956 / 0.948 | 0.958 | 1.3 % | 1.49 to 1.73 | 0.83 (quality lost) |
+| mDeBERTa-v3 base | 0.927 | 0.921 / 0.933 | 0.947 | 1.3 % | 2.63 | 1.44 |
+
+mmBERT-small is chosen. mDeBERTa, often the strongest on multilingual NER, came last here and was
+also the slowest. Its single test read (4,200 documents): precision 0.970, recall 0.980, leak
+rate 1.1 %, against 0.63, 0.85 and 12.6 % for the best baseline (rules + GLiNER). These are
+synthetic numbers; the real annotated sets are the next measure.
 
 ## Where it runs: Kaggle
 

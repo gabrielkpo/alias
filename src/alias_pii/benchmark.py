@@ -179,6 +179,22 @@ def report(summaries: list[dict], split: str, n: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+def build(name: str, methods: dict[str, Callable[[], Detector]]) -> Detector:
+    """A named baseline, or a fine-tuned checkpoint: `model:<path>` (as trained) or
+    `model-int8[-<mode>]:<path>` (dynamic int8 quantisation for CPU; mode `all` by default,
+    `no-head` or `mlp`, see `train.quantize_int8`)."""
+    kind, _, path = name.partition(":")
+    if kind == "model" and path:
+        from alias_pii.train import TrainedDetector
+
+        return TrainedDetector(path)
+    if kind.startswith("model-int8") and path:
+        from alias_pii.train import TrainedDetector
+
+        return TrainedDetector(path, quantize=kind.removeprefix("model-int8").lstrip("-") or "all")
+    return methods[name]()
+
+
 def main(methods: dict[str, Callable[[], Detector]] | None = None) -> None:
     from alias_pii.baselines import API_METHODS, METHODS
 
@@ -199,7 +215,7 @@ def main(methods: dict[str, Callable[[], Detector]] | None = None) -> None:
     summaries = []
     args.out.mkdir(parents=True, exist_ok=True)
     for name in args.methods.split(","):
-        summaries.append(run(name, methods[name](), documents).summary())
+        summaries.append(run(name, build(name, methods), documents).summary())
         print(f"{name}: done")
         # written after each method, so a failing baseline does not lose the others
         (args.out / f"benchmark-{args.split}.json").write_text(json.dumps(summaries, indent=1))

@@ -76,7 +76,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 | 1 | Rules (FR + EN), masking, restoring, leak check | done |
 | 2 | File readers; dataset v0.2 (grid generator, gates, balancer, datasheet), v0.3 LLM writer and v0.4 public corpora done; full build, LLM run, real sets | in progress |
 | 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, rules + GLiNER (done); Mistral zero-shot (adapter ready, run pending the API key) | in progress |
-| 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best | planned |
+| 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best: mmBERT-small | done |
 | 5 | Rules + model, leak rate | planned |
 | 6 | `alias-pii mask` CLI, JSON report, local API, Docker; CPU latency and memory | planned |
 | 7 | Held-out test, results | planned |
@@ -86,14 +86,16 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 `fr_FR`, `en_US`, `en_GB`), and two small real sets annotated by hand (French and English), read
 once at the end. Measures: recall and precision per entity type and per language, **leak rate**
 (values still readable in the masked text), CPU latency and memory. The model choice is written
-before training: below one second per page on a standard 4-core CPU (GitHub Actions runner), then the best entity-level recall on
+before training: below one second per page on a standard 4-core CPU (relaxed after the results
+to about one second, unquantised: docs/TRAINING.md), then the best entity-level recall on
 `PERSON`, `ADDRESS` and `BIRTH_DATE` averaged over French and English, then the lowest leak rate.
 Negative results will be published.
 
 ## Results
-First baselines (step 3) on the synthetic test split, 4,200 documents in French, English and
-mixed: grid generator, gretel and WikiNER. Real annotated sets come later; these numbers measure
-the baselines on our labels, not on real documents.
+Baselines (step 3) and the fine-tuned model (step 4) on the synthetic test split, 4,200
+documents in French, English and mixed: grid generator, gretel and WikiNER. The test split was
+read once by the chosen model, after the choice was made on the validation split. Real annotated
+sets come later; these numbers measure the methods on our labels, not on real documents.
 
 | Method | Precision | Recall | Leak rate | ms / 1,000 chars (CPU) |
 |---|---|---|---|---|
@@ -101,6 +103,7 @@ the baselines on our labels, not on real documents.
 | Presidio + spaCy lg | 0.46 | 0.48 | 34.8 % | 40 |
 | GLiNER multi PII | 0.63 | 0.74 | 22.5 % | 374 |
 | rules + GLiNER (hybrid) | 0.63 | 0.85 | 12.6 % | about 375 |
+| **Alias model: mmBERT-small fine-tuned (step 4)** | **0.97** | **0.98** | **1.1 %** | about 360 |
 
 - Rules find every e-mail, IBAN and phone number, and 89 % of national IDs, but nothing that needs
   context (names, addresses, birth dates). They also mask company mailboxes, switchboards and
@@ -112,6 +115,9 @@ the baselines on our labels, not on real documents.
   identifiers (42 %): the targets for the trained model of step 4.
 - GLiNER takes about 1.1 s for a 3,000-character page: above the one-second budget set for the
   model choice.
+- The fine-tuned mmBERT-small leaks ten times less than the best baseline. It was chosen among
+  three candidates (docs/TRAINING.md); int8 quantisation destroyed its precision, so it runs
+  unquantised, at about one second per page on 4 CPU cores.
 
 Full tables per label, language and source: `uv run python -m alias_pii.benchmark` (see Run it).
 
