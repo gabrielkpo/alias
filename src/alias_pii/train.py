@@ -67,7 +67,14 @@ def encode(tokenizer, document: dict, config: Config) -> list[dict]:
 class TrainedDetector:
     """A fine-tuned checkpoint as a detector (`detect(text)`), for masking and the benchmark."""
 
-    def __init__(self, path: str, max_length: int = 512, stride: int = 128, device: str = "cpu"):
+    def __init__(
+        self,
+        path: str,
+        max_length: int = 512,
+        stride: int = 128,
+        device: str = "cpu",
+        int8: bool = False,
+    ):
         import torch
         from transformers import AutoModelForTokenClassification, AutoTokenizer
 
@@ -78,6 +85,10 @@ class TrainedDetector:
             .to(device)
             .eval()
         )
+        if int8:  # dynamic int8 quantisation of the linear layers, for CPU inference
+            self.model = torch.ao.quantization.quantize_dynamic(
+                self.model, {torch.nn.Linear}, dtype=torch.qint8
+            )
         self.max_length, self.stride, self.device = max_length, stride, device
 
     def detect(self, text: str) -> list[Entity]:
