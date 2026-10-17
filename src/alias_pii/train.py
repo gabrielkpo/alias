@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -164,6 +165,10 @@ def _version(path: Path) -> str:
 
 
 def _commit() -> str:
+    """The code commit, from git, or from ALIAS_COMMIT where the package was installed by pip
+    (Kaggle notebooks), which leaves no git folder."""
+    if os.environ.get("ALIAS_COMMIT"):
+        return os.environ["ALIAS_COMMIT"]
     try:
         return subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
