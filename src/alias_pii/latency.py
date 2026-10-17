@@ -51,7 +51,7 @@ def main() -> None:
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--pages", type=int, default=53, help="3 warm-up pages + 50 timed")
     parser.add_argument("--threads", type=int, default=4)
-    parser.add_argument("--fp32", action="store_true", help="skip int8 quantisation")
+    parser.add_argument("--quantize", choices=["none", "all", "no-head", "mlp"], default="all")
     args = parser.parse_args()
 
     import torch
@@ -59,9 +59,10 @@ def main() -> None:
     from alias_pii.train import TrainedDetector
 
     torch.set_num_threads(args.threads)
-    detector = TrainedDetector(args.model, int8=not args.fp32)
+    mode = None if args.quantize == "none" else args.quantize
+    detector = TrainedDetector(args.model, quantize=mode)
     result = measure(detector, pages(load(args.data / "test.jsonl"), args.pages))
-    result.update(model=args.model, threads=args.threads, int8=not args.fp32)
+    result.update(model=args.model, threads=args.threads, quantize=args.quantize)
     print(json.dumps(result))
 
 

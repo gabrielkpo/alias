@@ -181,12 +181,19 @@ def report(summaries: list[dict], split: str, n: int) -> str:
 
 def build(name: str, methods: dict[str, Callable[[], Detector]]) -> Detector:
     """A named baseline, or a fine-tuned checkpoint: `model:<path>` (as trained) or
-    `model-int8:<path>` (dynamic int8 quantisation, as used on CPU)."""
+    `model-int8[-<mode>]:<path>` (dynamic int8 quantisation for CPU; mode `all` by default,
+    `no-head` or `mlp`, see `train.quantize_int8`)."""
     kind, _, path = name.partition(":")
-    if kind in ("model", "model-int8") and path:
+    if kind == "model" and path:
         from alias_pii.train import TrainedDetector
 
-        return TrainedDetector(path, int8=kind == "model-int8")
+        return TrainedDetector(path)
+    if kind.startswith("model-int8") and path:
+        from alias_pii.train import TrainedDetector
+
+        return TrainedDetector(
+            path, quantize=kind.removeprefix("model-int8-") if "-" in kind[10:] else "all"
+        )
     return methods[name]()
 
 

@@ -73,7 +73,7 @@ class TrainedDetector:
         max_length: int = 512,
         stride: int = 128,
         device: str = "cpu",
-        int8: bool = False,
+        quantize: str | None = None,
     ):
         import torch
         from transformers import AutoModelForTokenClassification, AutoTokenizer
@@ -85,10 +85,8 @@ class TrainedDetector:
             .to(device)
             .eval()
         )
-        if int8:  # dynamic int8 quantisation of the linear layers, for CPU inference
-            self.model = torch.ao.quantization.quantize_dynamic(
-                self.model, {torch.nn.Linear}, dtype=torch.qint8
-            )
+        if quantize:
+            self.model = quantize_int8(self.model, quantize)
         self.max_length, self.stride, self.device = max_length, stride, device
 
     def detect(self, text: str) -> list[Entity]:
@@ -111,6 +109,40 @@ class TrainedDetector:
             ([tuple(o) for o in offs], tags) for offs, tags in zip(offsets, predicted, strict=True)
         ]
         return spans_from_tokens(text, merge_windows(windows))
+
+
+QUANTIZE_MODES = ("all", "no-head", "mlp")
+
+
+def _quantized(name: str, mode: str) -> bool:
+    """Whether a linear layer is turned to int8: `all` of them; `no-head` keeps the
+    classification head (`classifier`, `head`) in float; `mlp` quantises only the feed-forward
+    layers and keeps attention and head in float."""
+    if mode == "all":
+        return True
+    if name.startswith(("classifier", "head")):
+        return False
+    if mode == "no-head":
+        return True
+    return (
+        ".mlp." in name
+        or ".intermediate." in name
+        or (name.endswith("output.dense") and "attention" not in name)
+    )
+
+
+def quantize_int8(model, mode: str):
+    """Dynamic int8 quantisation of the selected linear layers, for CPU inference."""
+    import torch
+
+    if mode not in QUANTIZE_MODES:
+        raise ValueError(f"quantize must be one of {QUANTIZE_MODES}")
+    spec = {
+        name: torch.ao.quantization.default_dynamic_qconfig
+        for name, module in model.named_modules()
+        if isinstance(module, torch.nn.Linear) and _quantized(name, mode)
+    }
+    return torch.ao.quantization.quantize_dynamic(model, spec, dtype=torch.qint8)
 
 
 def _loading_options(model: str) -> dict:

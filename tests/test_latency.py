@@ -21,3 +21,17 @@ def test_measure_reports_and_passes():
 
 def test_build_named_methods():
     assert isinstance(build("fixed", {"fixed": Instant}), Instant)
+
+
+def test_quantize_modes_choose_layers():
+    from alias_pii.train import _quantized
+
+    assert _quantized("classifier", "all")
+    assert not _quantized("classifier", "no-head") and _quantized(
+        "model.layers.0.attn.Wqkv", "no-head"
+    )
+    assert _quantized("model.layers.0.mlp.Wi", "mlp") and not _quantized(
+        "model.layers.0.attn.Wqkv", "mlp"
+    )
+    assert _quantized("roberta.encoder.layer.0.output.dense", "mlp")
+    assert not _quantized("roberta.encoder.layer.0.attention.output.dense", "mlp")
