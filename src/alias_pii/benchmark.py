@@ -191,9 +191,7 @@ def build(name: str, methods: dict[str, Callable[[], Detector]]) -> Detector:
     if kind.startswith("model-int8") and path:
         from alias_pii.train import TrainedDetector
 
-        return TrainedDetector(
-            path, quantize=kind.removeprefix("model-int8-") if "-" in kind[10:] else "all"
-        )
+        return TrainedDetector(path, quantize=kind.removeprefix("model-int8").lstrip("-") or "all")
     return methods[name]()
 
 

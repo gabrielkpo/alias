@@ -86,15 +86,16 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 `fr_FR`, `en_US`, `en_GB`), and two small real sets annotated by hand (French and English), read
 once at the end. Measures: recall and precision per entity type and per language, **leak rate**
 (values still readable in the masked text), CPU latency and memory. The model choice is written
-before training: below one second per page on a standard 4-core CPU (relaxed after the results to about one second, unquantised: docs/TRAINING.md), then the best entity-level recall on
+before training: below one second per page on a standard 4-core CPU (relaxed after the results
+to about one second, unquantised: docs/TRAINING.md), then the best entity-level recall on
 `PERSON`, `ADDRESS` and `BIRTH_DATE` averaged over French and English, then the lowest leak rate.
 Negative results will be published.
 
 ## Results
 Baselines (step 3) and the fine-tuned model (step 4) on the synthetic test split, 4,200
 documents in French, English and mixed: grid generator, gretel and WikiNER. The test split was
-read once by the chosen model, after the choice was made on the validation split. Real annotated sets come later; these numbers measure
-the baselines on our labels, not on real documents.
+read once by the chosen model, after the choice was made on the validation split. Real annotated
+sets come later; these numbers measure the methods on our labels, not on real documents.
 
 | Method | Precision | Recall | Leak rate | ms / 1,000 chars (CPU) |
 |---|---|---|---|---|
