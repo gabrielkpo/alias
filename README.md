@@ -82,7 +82,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 | 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best: mmBERT-small | done |
 | 5 | Rules + model, leak rate | planned |
 | 6 | `alias-pii mask` CLI, JSON report, local API, Docker; CPU latency and memory | planned |
-| 7 | Held-out test, results | planned |
+| 7 | Held-out real test sets (French and English, annotated by hand), final results | planned |
 | 8 | Phase 2: `alias-pii run --llm mistral`, end-to-end restoring | planned |
 
 **Evaluation plan.** Every method runs on the same data: a synthetic validation set (Faker
