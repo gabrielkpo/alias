@@ -7,8 +7,11 @@ Alias masks the personal data in a French or English document **on your own mach
 text can go to an LLM without the names, IBANs or social security numbers, then puts the real
 values back into the answer.
 
-> **Status:** work in progress, step 2 of 7 (see [Roadmap](#status-and-roadmap)). The rule layer,
-> masking and restoring work; the trained model is not there yet. Expect breaking changes.
+> **Status:** work in progress (see [Roadmap](#status-and-roadmap)). Rules, masking and restoring
+> work, and the trained model is chosen and measured (step 4, mmBERT-small fine-tuned): recall 0.98
+> and leak rate 1.1 % on the synthetic test split, recall 0.93 and leak rate 3.5 % on documents
+> written by an LLM it never saw (see [Results](#results)). Not measured on real documents yet;
+> rules + model and the app come next. Expect breaking changes.
 
 ## Why
 Hospitals, banks and public bodies want to use LLMs on their documents, but cannot send a
@@ -41,7 +44,7 @@ The alias table (`[PERSON_1]` → "Jean Dupont") never leaves the machine; only 
 
 Choices and trade-offs:
 - **Rules first, model next.** Formats with a checksum (IBAN, NIR) are caught exactly by rules;
-  names, addresses and birth dates need context, so a trained model will handle them. Rules give
+  names, addresses and birth dates need context, so a trained model handles them. Rules give
   the low baseline the model has to beat.
 - **Stable aliases rather than generic placeholders.** The same value keeps the same alias across
   a document (`01 99 00…` and `+33 1 99 00…` are one phone), so the LLM can follow who is who. The
@@ -118,6 +121,10 @@ sets come later; these numbers measure the methods on our labels, not on real do
 - The fine-tuned mmBERT-small leaks ten times less than the best baseline. It was chosen among
   three candidates (docs/TRAINING.md); int8 quantisation destroyed its precision, so it runs
   unquantised, at about one second per page on 4 CPU cores.
+- Out of distribution: on 200 documents written by Mistral, a generator absent from training, the
+  model keeps recall 0.93, precision 0.94 and leak rate 3.5 %, against 0.91, 0.90 and 8.1 % for
+  rules + GLiNER. Its weak spots there are birth dates (14 % leaked) and national IDs (recall
+  0.76), which the rules catch: the case for rules + model (step 5).
 
 Full tables per label, language and source: `uv run python -m alias_pii.benchmark` (see Run it).
 
