@@ -73,13 +73,16 @@ SETTINGS = frozenset(
 MESSAGE_KEYS = frozenset({"role", "content", "prefix"})
 ROLES = frozenset({"system", "user", "assistant"})
 # Where answer text may become a request of the client's own: a markdown link or image target
-# (`](`), a reference definition (`]:`), an HTML tag or autolink (`<`), a URL (`//`, `www.`).
+# (`](`), a reference definition (`]:`), an HTML tag or an autolink (`<`), a URL (`//`, `www.`).
 # Markdown and HTML have too many forms (nested parentheses, escapes, targets on the next line,
 # definitions in quotes) for a pattern to follow, so from such a mark to the end of the
 # paragraph aliases stay masked: inline markdown never crosses a blank line.
-LINK_MARK = re.compile(r"(?<=\])[(:]|<[a-z/!?]|//|\bwww\.", re.IGNORECASE)
+# A `<` counts as a tag unless a space, `=` or digit follows (`a < b`, `<=`, `<3`): `<[PERSON_1]`
+# becomes a tag once the name is put back, and `<a:b/title="...` is a tag to a browser even
+# though it looks like an autolink.
+TAG = r"<(?![\s=\d])"
+LINK_MARK = re.compile(rf"(?<=\])[(:]|{TAG}|//|\bwww\.", re.IGNORECASE)
 PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
-AUTOLINK = re.compile(r"<[a-z][a-z0-9+.-]{1,31}:[^\s<>]*>", re.IGNORECASE)  # inline, not a tag
 log = logging.getLogger("alias.bridge")
 
 
@@ -191,16 +194,10 @@ def check_masked(results: list[MaskResult]) -> None:
 
 def link_spans(text: str, to_end: bool = False) -> list[tuple[int, int]]:
     """The parts of the text where aliases stay masked: from each link mark (`LINK_MARK`) to
-    the end of its paragraph. From an HTML tag, or with `to_end`, to the end of the text: an
-    HTML block can run across blank lines, and a `>` in an attribute defeats any counting."""
-    first_tag = next(
-        (
-            m.start()
-            for m in LINK_MARK.finditer(text)
-            if m.group().startswith("<") and not AUTOLINK.match(text, m.start())
-        ),
-        len(text),
-    )
+    the end of its paragraph. From the first `<` (`TAG`), or with `to_end`, to the end of the
+    text: an HTML block can run across blank lines, and a `>` in an attribute defeats counting."""
+    tag = re.search(TAG, text)
+    first_tag = tag.start() if tag else len(text)
     spans: list[tuple[int, int]] = []
     position = 0
     while (mark := LINK_MARK.search(text, position)) and mark.start() < first_tag:

