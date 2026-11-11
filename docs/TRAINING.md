@@ -96,7 +96,7 @@ known. No model trained on real data is ever published.
 It runs on GitHub's CPU machines, not on a laptop: `gh workflow run compute.yml -f
 task=smoke-train`, or the `compute` label on a pull request.
 
-## ONNX Runtime (step 6, draft: no gain measured)
+## ONNX Runtime (step 6)
 
 The checkpoint exported to ONNX (`alias_pii.onnx_export`, float weights, opset 17, full graph
 optimisations) gives **the same predictions** as PyTorch on the validation splits (200
@@ -104,6 +104,9 @@ LLM-written documents and the first 1,000 synthetic ones: identical precision, r
 rate), but **no speed-up** on a 4-core Kaggle CPU: 1.16 s per 3,000-character page on average
 (p95 1.46 s) against 1.14 s (p95 1.40 s) for PyTorch. Both stay under the application's 2 s p95.
 
-Not adopted. Leads for later, each to be checked against the same predictions: ONNX int8 with
+Not adopted for the Python detector, which stays on PyTorch. The export is what the public
+demo runs in the browser (`onnx/model.onnx` of the published model, tag `v1.0`, read by
+transformers.js; docs/DEMO.md), checked against PyTorch by the Demo workflow's parity test.
+Leads for a faster CPU path, each to be checked against the same predictions: ONNX int8 with
 the classification head and attention kept in float, shorter windows for short texts (most
 pasted texts are far below 512 tokens), and batching windows of several requests.

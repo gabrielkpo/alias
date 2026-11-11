@@ -11,9 +11,9 @@ page, not even to a demo server.
 
 - **Model**: [`Gabrielkph/alias-mmbert-small`](https://huggingface.co/Gabrielkph/alias-mmbert-small),
   the checkpoint chosen at step 4, trained on synthetic and public data only (card:
-  docs/MODEL_CARD.md). The repository also holds `onnx/model.onnx`, its float export, made on
-  Kaggle with the export of the ONNX draft branch (`feat/onnx`, opset 17), which gave the same
-  predictions as PyTorch on the validation splits. Not quantised: int8 destroys this model's
+  docs/MODEL_CARD.md). The repository also holds `onnx/model.onnx`, its float export
+  (`alias_pii.onnx_export`, opset 17, run on Kaggle), which gave the same predictions as
+  PyTorch on the validation splits. Not quantised: int8 destroys this model's
   precision.
 - **Runtime**: transformers.js 4.3.2 (ONNX Runtime Web, WebAssembly), loaded from jsDelivr.
 - **Detector**: `demo/alias.js` ports the Python detector (rules of the proven types, token
