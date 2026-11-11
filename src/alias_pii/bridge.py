@@ -87,6 +87,7 @@ ROLES = frozenset({"system", "user", "assistant"})
 FAR = re.compile(r"!\[|(?<=\]):|<(?![\s=\d])|\\")
 NEAR = re.compile(r"(?<=\])\(|//|www\.", re.IGNORECASE)
 LINK_MARK = re.compile(f"{FAR.pattern}|{NEAR.pattern}", re.IGNORECASE)
+DEFINITION = re.compile(r"(?<=\]):")
 PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
 log = logging.getLogger("alias.bridge")
 
@@ -201,12 +202,10 @@ def link_spans(text: str) -> list[tuple[int, int]]:
     """The parts of the text where aliases stay masked: from each link or URL mark (`NEAR`) to
     the end of its paragraph, and from the first image, tag or escape (`FAR`) to the end of the
     text, or all of it with a definition."""
+    if DEFINITION.search(text):  # its label may hold an alias, even across a blank line a
+        return [(0, len(text))]  # YAML decoder folds away: nothing is restored
     far = FAR.search(text)
-    first_far = len(text)
-    if far:
-        first_far = far.start()
-        if far.group() == ":":  # a definition: its label may hold an alias across a blank
-            first_far = 0  # line that a YAML decoder folds away, so nothing is restored
+    first_far = far.start() if far else len(text)
     spans: list[tuple[int, int]] = []
     position = 0
     while (mark := NEAR.search(text, position)) and mark.start() < first_far:
@@ -241,9 +240,13 @@ def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
 
 
 def _document(text: str) -> dict | list | None:
-    """The answer as a JSON object or array, if it is one."""
+    """The answer as a JSON object or array, if it is one, read as leniently as a browser does
+    (numbers of any length, kept as text). One too deeply nested to read counts as holding a
+    link mark, so nothing is restored in it."""
     try:
-        value = json.loads(text)
+        value = json.loads(text, parse_int=str, parse_float=str)
+    except RecursionError:
+        return ["<"]
     except ValueError:
         return None
     return value if isinstance(value, dict | list) else None
@@ -264,7 +267,10 @@ def _linked(document: dict | list) -> bool:
     """Whether a link mark appears in a JSON document taken as a whole: a client may join its
     strings (a mark split as `"!"`, `"[x]"`, `"(url"`), show them in another order (JavaScript
     puts integer keys first) or render the JSON text as markdown."""
-    return LINK_MARK.search("".join(_strings(document))) is not None
+    try:
+        return LINK_MARK.search("".join(_strings(document))) is not None
+    except RecursionError:
+        return True
 
 
 def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> str | None:
@@ -276,6 +282,10 @@ def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> s
     if document is None:
         return None
     if _linked(document):
+        return text
+    try:
+        document = json.loads(text)
+    except (ValueError, RecursionError):  # an integer too long for Python: left as it is
         return text
 
     def walk(node):
