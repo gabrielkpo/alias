@@ -237,7 +237,7 @@ def main() -> None:
         epochs=args.epochs,
         batch_size=args.batch_size,
         grad_accum=args.grad_accum,
-        extra_data=str(args.extra_data) if args.extra_data else None,
+        extra_data=args.extra_data.name if args.extra_data else None,  # name only, no local path
         extra_repeat=args.extra_repeat,
     )
     train_docs = load(args.data / "train.jsonl")
