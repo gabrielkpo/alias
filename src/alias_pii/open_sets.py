@@ -26,14 +26,16 @@ import json
 import re
 from pathlib import Path
 
-# TAB PERSON spans keep the honorific ("Mr C. Whomersley"); Alias labels the name only.
+# TAB PERSON spans keep the honorific ("Mr C. Whomersley"); Alias labels the name only, initials
+# included ("M. Ugrekhelidze" keeps its "M."), so a lone letter is never taken for an honorific.
 _HONORIFIC = re.compile(
-    r"^(?:(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof|Sir|Dame|Lord|Lady|Judge|Justice|Mme|Mlle|M)\.?\s+)+"
+    r"^(?:(?:Mr|Mrs|Ms|Miss|Mx|Dr|Prof|Sir|Dame|Lord|Lady|Judge|Justice)\.?\s+)+"
 )
 # An application number to the Court ("40593/04") identifies the applicant's file.
 _APPLICATION = re.compile(r"^\d{1,6}/\d{2}$")
-# A date is a birth date when "born" announces it ("was born in 1965", "born on 13 February 1980").
-_BORN = re.compile(r"\bborn\s+(?:in|on)\s+$", re.IGNORECASE)
+# A date is a birth date when "born" announces it in the same clause ("was born in 1965", "born on
+# 13 February 1980", "born in Istanbul in 1965").
+_BORN = re.compile(r"\bborn\b[^.;\n]{0,40}$", re.IGNORECASE)
 TAB_LABELS = ["PERSON", "IDENTIFIER", "BIRTH_DATE"]
 
 
@@ -53,19 +55,18 @@ def tab_document(document: dict) -> dict:
         value = text[start:end]
         kind = mention["entity_type"]
         if kind == "PERSON":
-            if not _is_name(value):
+            honorific = _HONORIFIC.match(value)
+            name_start = start + (honorific.end() if honorific else 0)
+            if not _is_name(text[name_start:end]):  # "Mr A" is a lone initial too
                 ignore.append([start, end])
                 continue
-            honorific = _HONORIFIC.match(value)
-            if honorific:
-                start += honorific.end()
-            spans.append({"start": start, "end": end, "label": "PERSON"})
+            spans.append({"start": name_start, "end": end, "label": "PERSON"})
         elif kind == "CODE":
             if _APPLICATION.match(value.strip()):
                 spans.append({"start": start, "end": end, "label": "IDENTIFIER"})
             else:
                 ignore.append([start, end])
-        elif kind == "DATETIME" and _BORN.search(text[max(0, start - 20) : start]):
+        elif kind == "DATETIME" and _BORN.search(text[max(0, start - 60) : start]):
             spans.append({"start": start, "end": end, "label": "BIRTH_DATE"})
     # One annotator may label the same span twice (two mentions of one entity): keep it once.
     unique = {(s["start"], s["end"], s["label"]): s for s in spans}

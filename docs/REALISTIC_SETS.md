@@ -41,14 +41,14 @@ Converted by `python -m alias_pii.open_sets tab` from the first annotator of eac
 
 | TAB | Alias | Note |
 |---|---|---|
-| PERSON | PERSON | honorific left out ("Mr", "Judge"), as in Alias's own labels; a lone initial ("A") is ignored |
+| PERSON | PERSON | honorific left out ("Mr", "Judge"), initials kept, as in Alias's own labels; a lone initial ("A", "Mr A") is ignored |
 | CODE shaped like an application number ("40593/04") | IDENTIFIER | it identifies the applicant's file |
 | other CODE (an article reference, a plate number) | ignored | |
-| DATETIME announced by "born in/on" | BIRTH_DATE | mostly a year ("born in 1965"): Alias learnt full dates, so this is a hard case |
+| DATETIME announced by "born" in the same clause | BIRTH_DATE | mostly a year ("born in 1965"): Alias learnt full dates, so this is a hard case |
 | LOC, ORG, DEM, MISC, QUANTITY, other DATETIME | not scored | TAB's LOC are cities and countries, not postal addresses |
 
-Test split: 127 documents, 977 PERSON, 285 IDENTIFIER and 124 BIRTH_DATE spans (validation
-split: 127 documents, 1,098 / 427 / 120).
+Test split: 127 documents, 951 PERSON, 285 IDENTIFIER and 158 BIRTH_DATE spans (validation
+split: 127 documents, 1,051 / 427 / 159).
 
 ## A nod to Mistral (bonus)
 

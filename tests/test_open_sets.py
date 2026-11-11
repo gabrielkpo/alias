@@ -5,8 +5,8 @@ from alias_pii.open_sets import tab_document
 # A TAB-shaped document with fictitious values (tests/README.md).
 TEXT = (
     "The case originated in an application (no. 12345/06) lodged by Mr John Example. "
-    "The applicant was born in 1961. Judge A. Sample presided. See Article 29 § 3. "
-    "Applicant B lives in Exampletown."
+    "The applicant was born in Exampletown in 1961. Judge A. Sample and Mr M. Other sat. "
+    "See Article 29 § 3. Applicant B, or Mr C, lives in Exampletown."
 )
 
 
@@ -33,7 +33,9 @@ DOCUMENT = {
                 mention("DATETIME", "1961"),
                 mention("PERSON", "Judge A. Sample"),
                 mention("CODE", "29 § 3"),
+                mention("PERSON", "Mr M. Other"),
                 mention("PERSON", "B", TEXT.index("Applicant B")),
+                mention("PERSON", "Mr C"),
                 mention("LOC", "Exampletown"),
             ]
         },
@@ -47,11 +49,12 @@ def test_tab_labels_become_alias_labels():
     assert found == [
         ("12345/06", "IDENTIFIER"),
         ("John Example", "PERSON"),  # honorific left out, as in Alias's own labels
-        ("1961", "BIRTH_DATE"),  # a date announced by "born in"
+        ("1961", "BIRTH_DATE"),  # a date announced by "born", a place in between
         ("A. Sample", "PERSON"),
+        ("M. Other", "PERSON"),  # the initial "M." is part of the name, not an honorific
     ]
     ignored = [TEXT[s:e] for s, e in converted["ignore"]]
-    assert ignored == ["29 § 3", "B"]  # a case-law reference and a lone initial
+    assert ignored == ["29 § 3", "B", "Mr C"]  # a case-law reference and lone initials
     assert converted["labels"] == ["PERSON", "IDENTIFIER", "BIRTH_DATE"]
     assert converted["source"] == "tab:001-00000"
 
