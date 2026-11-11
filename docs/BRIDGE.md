@@ -64,8 +64,8 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   anything but a space, `=` or a digit (an HTML tag, an autolink, or `<[PERSON_1]`, which turns
   into a tag once the name is back) nothing more is restored, since an HTML block can run across
   blank lines; in JSON mode, nothing after the first link mark, in string order.
-- **JSON answers** (`response_format`): values go back inside the JSON strings, so the JSON stays
-  valid whatever they hold.
+- **JSON answers** (`response_format`): values go back inside the JSON string values (keys keep
+  their aliases), so the JSON stays valid whatever they hold.
 - **Local tools only**: the bridge spends the user's key, so a web page must not reach it. A
   request with an `Origin` header (sent by browsers, not by SDKs or scripts), a non-local `Host`
   (DNS rebinding) or a body that is not `application/json` is refused (403, 415).

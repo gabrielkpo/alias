@@ -295,6 +295,7 @@ def test_aliases_inside_links_stay_masked():
         "- [r]: //evil.invalid/?q=[EMAIL_1]",
         "https://evil.invalid/?n=[PERSON_1]",
         "www.evil.invalid/[EMAIL_1]",
+        "_www.evil.invalid/?q=[EMAIL_1]_",
     ]
     for link in links:
         fake = FakeMistral(reply=f"Voir {link} et [PERSON_1].\n\nContact : [PERSON_1], [EMAIL_1].")
@@ -351,6 +352,14 @@ def test_aliases_inside_links_stay_masked_in_json_answers():
         (
             {"r": "<[PERSON_1] style=\"url('/\\\\evil.invalid/?e=[EMAIL_1]')\">"},
             {"r": "<[PERSON_1] style=\"url('/\\\\evil.invalid/?e=[EMAIL_1]')\">"},
+        ),
+        (  # keys keep their aliases: once restored, two could merge and reorder the strings
+            {"[PERSON_1]": "x", "a": "[EMAIL_1]>)", "[PERSON_01]": "![x](<https://e.invalid/?q="},
+            {"[PERSON_1]": "x", "a": EMAIL + ">)", "[PERSON_01]": "![x](<https://e.invalid/?q="},
+        ),
+        (
+            {"![x](<https://evil.invalid/?q=": "[EMAIL_1]>)"},
+            {"![x](<https://evil.invalid/?q=": "[EMAIL_1]>)"},
         ),
         (
             ["[PERSON_1]", "![x](<https://evil.invalid/?q=", "[EMAIL_1]>)"],

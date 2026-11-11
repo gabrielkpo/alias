@@ -81,7 +81,7 @@ ROLES = frozenset({"system", "user", "assistant"})
 # becomes a tag once the name is put back, and `<a:b/title="...` is a tag to a browser even
 # though it looks like an autolink.
 TAG = r"<(?![\s=\d])"
-LINK_MARK = re.compile(rf"(?<=\])[(:]|{TAG}|//|\bwww\.", re.IGNORECASE)
+LINK_MARK = re.compile(rf"(?<=\])[(:]|{TAG}|//|www\.", re.IGNORECASE)
 PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
 log = logging.getLogger("alias.bridge")
 
@@ -253,7 +253,13 @@ def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> s
         if isinstance(node, list):
             return [walk(item) for item in node]
         if isinstance(node, dict):
-            return {walk(k): walk(v) for k, v in node.items()}
+            # Keys stay as they are: two keys that become equal once restored
+            # (`[PERSON_1]`, `[PERSON_01]`) would merge and reorder the strings.
+            out = {}
+            for k, v in node.items():
+                marked = marked or LINK_MARK.search(k) is not None
+                out[k] = walk(v)
+            return out
         return node
 
     return json.dumps(walk(value), ensure_ascii=False)
@@ -263,7 +269,8 @@ def restore_answer(
     data: dict, results: list[MaskResult], json_mode: bool = False
 ) -> tuple[dict, int]:
     """The provider's answer with the values back in each choice's message text; the number of
-    aliases restored. In JSON mode (`response_format`), values go back inside the JSON strings."""
+    aliases restored. In JSON mode (`response_format`), values go back inside the JSON string
+    values, not in the keys."""
     if not results:
         return data, 0
     restored: set[str] = set()
