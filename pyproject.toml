@@ -15,7 +15,7 @@ dependencies = [
 # The local web API (`python -m alias_pii.app`); the model itself also needs torch and
 # transformers (`model` extra), which the rules-only mode and the tests do without.
 app = ["fastapi>=0.115", "uvicorn>=0.30"]
-model = ["torch>=2.3", "transformers>=4.51,<5"]
+model = ["torch>=2.3", "transformers>=5.10,<6"]
 
 [dependency-groups]
 bench = [
@@ -23,7 +23,7 @@ bench = [
     "presidio-analyzer>=2.2",
     "protobuf>=4",
     "sentencepiece>=0.2",
-    "transformers>=4.51,<5",
+    "transformers>=5.10,<6",
 ]
 data = [
     "faker>=30",
@@ -35,7 +35,7 @@ train = [
     "accelerate>=0.30",
     "datasets>=2.19",
     "torch>=2.3",
-    "transformers>=4.51,<5",
+    "transformers>=5.10,<6",
 ]
 
 [build-system]

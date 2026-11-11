@@ -5,10 +5,10 @@
 name: Demo
 on:
   pull_request:
-    paths: ["demo/**", "src/alias_pii/**", ".github/workflows/demo.yml"]
+    paths: ["demo/**", "src/alias_pii/**", pyproject.toml, ".github/workflows/demo.yml"]
   push:
     branches: [main]
-    paths: ["demo/**", "src/alias_pii/**", ".github/workflows/demo.yml"]
+    paths: ["demo/**", "src/alias_pii/**", pyproject.toml, ".github/workflows/demo.yml"]
   workflow_dispatch:
 permissions:
   contents: read
