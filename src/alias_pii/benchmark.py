@@ -180,10 +180,15 @@ def report(summaries: list[dict], split: str, n: int) -> str:
 
 
 def build(name: str, methods: dict[str, Callable[[], Detector]]) -> Detector:
-    """A named baseline, or a fine-tuned checkpoint: `model:<path>` (as trained) or
+    """A named baseline, or a fine-tuned checkpoint: `model:<path>` (as trained),
+    `rules+model:<path>` (the Alias detector, `detector.RulesAndModel`) or
     `model-int8[-<mode>]:<path>` (dynamic int8 quantisation for CPU; mode `all` by default,
     `no-head` or `mlp`, see `train.quantize_int8`)."""
     kind, _, path = name.partition(":")
+    if kind == "rules+model" and path:
+        from alias_pii.detector import RulesAndModel
+
+        return RulesAndModel.from_checkpoint(path)
     if kind == "model" and path:
         from alias_pii.train import TrainedDetector
 
