@@ -229,6 +229,7 @@ name masked by half does not count, which the overlap and strict recalls show in
 | `src/alias_pii/detector.py`, `app.py`, `static/` | rules + model detector; local web API (FastAPI) and its page |
 | `src/alias_pii/benchmark.py`, `baselines.py` | benchmark harness; rules, Presidio + spaCy and GLiNER baselines |
 | `src/alias_pii/llm_writer.py`, `sources.py` | LLM-written documents (Mistral, placeholders); public corpora converters |
+| `Dockerfile`, `space/` | CPU image; Hugging Face Space for the public demo (docs/DEMO.md) |
 | `tests/` | unit tests; `tests/README.md` lists allowed fixture values |
 
 ## Data and privacy
