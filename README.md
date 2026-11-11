@@ -191,6 +191,13 @@ report; it loads nothing from outside (no CDN, no font). The API answers with th
 each span's type, position and alias, and a count per type; never the values themselves.
 Without `--model` only the rules run (no names or addresses): enough to try it on a laptop.
 
+With Docker (CPU image; the checkpoint is mounted read-only, nothing is downloaded at run time):
+
+```
+docker build -t alias .
+docker run --rm -p 127.0.0.1:8000:8000 -v "$PWD/models/mmbert-small/final:/model:ro" alias
+```
+
 Benchmark (step 3), on the generated dataset (see Data and privacy):
 
 ```

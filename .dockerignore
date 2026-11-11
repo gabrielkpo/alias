@@ -1,0 +1,7 @@
+# Allowlist: only what the image needs. Secrets (.env), data, weights and caches never go in.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!src/
+**/__pycache__
