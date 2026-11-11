@@ -72,18 +72,21 @@ SETTINGS = frozenset(
 )
 MESSAGE_KEYS = frozenset({"role", "content", "prefix"})
 ROLES = frozenset({"system", "user", "assistant"})
-# Where answer text may become a request of the client's own: a markdown link or image target
-# (`](`), a reference definition (`]:`), an HTML tag or an autolink (`<`), a URL (`//`, `www.`).
-# Markdown and HTML have too many forms (nested parentheses, escapes, targets on the next line,
-# definitions in quotes) for a pattern to follow, so from such a mark to the end of the
-# paragraph aliases stay masked: inline markdown never crosses a blank line.
-# A `<` counts as a tag unless a space, `=` or digit follows (`a < b`, `<=`, `<3`): `<[PERSON_1]`
-# becomes a tag once the name is put back, and `<a:b/title="...` is a tag to a browser even
-# though it looks like an autolink.
-# A backslash before a character counts too: a client that decodes the answer as JSON (or
-# twice) turns `\u003c` into `<` and `\/\/` into `//`, marks the text here does not show.
-TAG = r"<(?![\s=\d])|\\(?=\S)"
-LINK_MARK = re.compile(rf"(?<=\])[(:]|{TAG}|//|www\.", re.IGNORECASE)
+# Where answer text may become a request of the client's own. A link (`](`) or a bare URL (`//`,
+# `www.`) only works inside its paragraph (inline markdown never crosses a blank line) and needs
+# a click, so from such a mark to the end of the paragraph aliases stay masked. From any of these
+# to the end of the text, nothing more is restored (`FAR`):
+# - an image (`![`): it is fetched as soon as it is shown;
+# - a reference definition (`]:`), counted from the start of its paragraph: an image anywhere
+#   in the answer can use it, and its label may hold an alias;
+# - a `<` not followed by a space, `=` or digit (`a < b`, `<=`, `<3` are text): an HTML block can
+#   run across blank lines, `<[PERSON_1]` becomes a tag once the name is back, and
+#   `<a:b/title="...` is a tag to a browser even though it looks like an autolink;
+# - a backslash: a client decoding the answer as JSON, JSON5 or YAML turns `\u003c` into `<`,
+#   `\/\/` into `//`, and drops a backslash before a line break, all marks hidden here.
+FAR = re.compile(r"!\[|(?<=\]):|<(?![\s=\d])|\\")
+NEAR = re.compile(r"(?<=\])\(|//|www\.", re.IGNORECASE)
+LINK_MARK = re.compile(f"{FAR.pattern}|{NEAR.pattern}", re.IGNORECASE)
 PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
 log = logging.getLogger("alias.bridge")
 
@@ -195,22 +198,26 @@ def check_masked(results: list[MaskResult]) -> None:
 
 
 def link_spans(text: str, to_end: bool = False) -> list[tuple[int, int]]:
-    """The parts of the text where aliases stay masked: from each link mark (`LINK_MARK`) to
-    the end of its paragraph. From the first `<` or escape (`TAG`), or with `to_end`, to the end
-    of the text: an HTML block can run across blank lines, a `>` in an attribute defeats
-    counting, and an escape can hide any mark, a blank line included."""
-    tag = re.search(TAG, text)
-    first_tag = tag.start() if tag else len(text)
+    """The parts of the text where aliases stay masked: from each link or URL mark (`NEAR`) to
+    the end of its paragraph, and from the first image, definition, tag or escape (`FAR`) to the
+    end of the text; with `to_end`, from the first mark of any kind to the end of the text."""
+    far = FAR.search(text)
+    first_far = len(text)
+    if far:
+        first_far = far.start()
+        if far.group() == ":":  # a definition: from the start of its paragraph, label included
+            breaks = [m.end() for m in PARAGRAPH_END.finditer(text, 0, far.start())]
+            first_far = breaks[-1] if breaks else 0
     spans: list[tuple[int, int]] = []
     position = 0
-    while (mark := LINK_MARK.search(text, position)) and mark.start() < first_tag:
+    while (mark := NEAR.search(text, position)) and mark.start() < first_far:
         end_of_paragraph = PARAGRAPH_END.search(text, mark.start())
-        if to_end or not end_of_paragraph or end_of_paragraph.start() > first_tag:
+        if to_end or not end_of_paragraph or end_of_paragraph.start() > first_far:
             return [*spans, (mark.start(), len(text))]
         spans.append((mark.start(), end_of_paragraph.start()))
         position = end_of_paragraph.start()
-    if first_tag < len(text):
-        spans.append((first_tag, len(text)))
+    if first_far < len(text):
+        spans.append((first_far, len(text)))
     return spans
 
 

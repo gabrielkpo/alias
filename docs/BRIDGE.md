@@ -55,17 +55,18 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   the request is refused (422) and nothing is sent.
 - **Restoring**: only the aliases of this request get their value back; an alias the answer
   invents is left as it is. Headers `X-Alias-Masked` and `X-Alias-Restored` give the counts.
-- **Links stay masked**: from a link mark (`](`, `]:`, `<`, `//`, `www.`) to the end of its
-  paragraph, aliases keep their alias form. Restored inside a link or an image target, a value
-  would leave the machine as soon as the tool loads the image, for example if the answer follows
-  instructions hidden in a pasted document. Markdown and HTML have too many link forms to follow
-  them one by one, so the whole rest of the paragraph stays masked; the text before the mark
-  (link text included) and the other paragraphs get the values back. After a `<` followed by
-  anything but a space, `=` or a digit (an HTML tag, an autolink, or `<[PERSON_1]`, which turns
-  into a tag once the name is back) or after a backslash escape (`\u003c` and `\/\/` become `<`
-  and `//` for a client that decodes the answer as JSON) nothing more is restored, since an HTML
-  block can run across blank lines; in JSON mode, nothing after the first link mark, in string
-  order.
+- **Links stay masked**: restored inside a link or an image, a value would leave the machine,
+  for example if the answer follows instructions hidden in a pasted document. Markdown and HTML
+  have too many forms to follow one by one, so the bridge errs on the side of masking:
+  - from a link or URL mark (`](`, `//`, `www.`) to the end of its paragraph, aliases keep their
+    alias form; the text before the mark (link text included) and other paragraphs get the
+    values back;
+  - from the first image (`![`), reference definition (`]:`, from the start of its paragraph),
+    `<` followed by anything but a space, `=` or a digit, or backslash, nothing more is restored:
+    an image is fetched as soon as it is shown and can use a definition anywhere, an HTML block
+    can run across blank lines, and a client decoding the answer as JSON, JSON5 or YAML turns
+    escapes into marks;
+  - in JSON mode, nothing after the first mark, in string order.
 - **JSON answers** (`response_format`): values go back inside the JSON string values (keys keep
   their aliases), so the JSON stays valid whatever they hold.
 - **Local tools only**: the bridge spends the user's key, so a web page must not reach it. A
