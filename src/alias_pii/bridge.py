@@ -72,19 +72,13 @@ SETTINGS = frozenset(
 )
 MESSAGE_KEYS = frozenset({"role", "content", "prefix"})
 ROLES = frozenset({"system", "user", "assistant"})
-# Where a client turns answer text into a request of its own: a markdown link or image target,
-# a reference definition, an autolink, a bare URL, an HTML src/href. An alias there stays
-# masked: put back, the value would leave the machine as soon as the client loads the image.
-LINKS = re.compile(
-    r"(?<=\]\()\s*<[^>\n]*>"  # ](<target with spaces>)
-    r"|(?<=\]\()[^)\s]*"  # ](target)
-    r"|^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*\S+"  # [ref]: target
-    r"|<[a-z][a-z0-9+.-]*:[^>\s]*>"  # <scheme:...>
-    r"|\b[a-z][a-z0-9+.-]*://\S+"  # https://...
-    r"|\bwww\.\S+"
-    r"""|\b(?:src|href|srcset|poster|action)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)""",
-    re.IGNORECASE | re.MULTILINE,
-)
+# Where answer text may become a request of the client's own: a markdown link or image target
+# (`](`), a reference definition (`]:`), an HTML tag or autolink (`<`), a URL (`//`, `www.`).
+# Markdown and HTML have too many forms (nested parentheses, escapes, targets on the next line,
+# definitions in quotes) for a pattern to follow, so from such a mark to the end of the
+# paragraph aliases stay masked: inline markdown never crosses a blank line.
+LINK_MARK = re.compile(r"(?<=\])[(:]|<[a-z/!?]|//|\bwww\.", re.IGNORECASE)
+PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
 log = logging.getLogger("alias.bridge")
 
 
@@ -160,7 +154,7 @@ def unmaskable(body: dict) -> str | None:
         for key in message:
             if key not in MESSAGE_KEYS:
                 return f"{where}.{key}"
-        if message.get("role") not in ROLES:
+        if not isinstance(message.get("role"), str) or message["role"] not in ROLES:
             return f"{where}.role"
         if not isinstance(message.get("prefix", False), bool):
             return f"{where}.prefix"
@@ -194,9 +188,28 @@ def check_masked(results: list[MaskResult]) -> None:
             raise LeftInClear
 
 
+def link_spans(text: str) -> list[tuple[int, int]]:
+    """The parts of the text where aliases stay masked: from each link mark (`LINK_MARK`) to
+    the end of its paragraph, or of the paragraph where an HTML tag left open is closed."""
+    spans: list[tuple[int, int]] = []
+    position = 0
+    while mark := LINK_MARK.search(text, position):
+        end_of_paragraph = PARAGRAPH_END.search(text, mark.start())
+        end = end_of_paragraph.start() if end_of_paragraph else len(text)
+        span = text[mark.start() : end]
+        if span.count("<") > span.count(">"):  # an HTML tag may run across a blank line
+            close = text.find(">", end)
+            after = PARAGRAPH_END.search(text, close) if close != -1 else None
+            end = after.start() if after else len(text)
+        spans.append((mark.start(), end))
+        position = end
+    return spans
+
+
 def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
-    """The text with the values of this request's aliases put back, except inside links
-    (`LINKS`): an alias there stays masked, so a client loading the link sends no value."""
+    """The text with the values of this request's aliases put back, except in links and what
+    follows them in the paragraph (`link_spans`): an alias there stays masked, so a client
+    loading a link or an image sends no value."""
 
     def plain(segment: str) -> str:
         back = restore(segment, *results)
@@ -205,10 +218,10 @@ def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
 
     parts: list[str] = []
     cursor = 0
-    for link in LINKS.finditer(text):
-        parts.append(plain(text[cursor : link.start()]))
-        parts.append(link.group())
-        cursor = link.end()
+    for start, end in link_spans(text):
+        parts.append(plain(text[cursor:start]))
+        parts.append(text[start:end])
+        cursor = end
     parts.append(plain(text[cursor:]))
     return "".join(parts)
 

@@ -55,10 +55,12 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   the request is refused (422) and nothing is sent.
 - **Restoring**: only the aliases of this request get their value back; an alias the answer
   invents is left as it is. Headers `X-Alias-Masked` and `X-Alias-Restored` give the counts.
-- **Links stay masked**: an alias inside a link (markdown link or image target, autolink, bare
-  URL, HTML `src`/`href`) keeps its alias form. Restored there, a value would leave the machine
-  as soon as the tool loads the image, for example if the answer follows instructions hidden in
-  a pasted document. Link text and the rest of the answer get the values back.
+- **Links stay masked**: from a link mark (`](`, `]:`, `<`, `//`, `www.`) to the end of its
+  paragraph, aliases keep their alias form. Restored inside a link or an image target, a value
+  would leave the machine as soon as the tool loads the image, for example if the answer follows
+  instructions hidden in a pasted document. Markdown and HTML have too many link forms to follow
+  them one by one, so the whole rest of the paragraph stays masked; the text before the mark
+  (link text included) and the other paragraphs get the values back.
 - **JSON answers** (`response_format`): values go back inside the JSON strings, so the JSON stays
   valid whatever they hold.
 - **Local tools only**: the bridge spends the user's key, so a web page must not reach it. A

