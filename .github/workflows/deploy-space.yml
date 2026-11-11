@@ -66,18 +66,39 @@ jobs:
       - name: Wait until the Space serves this version of every page file
         if: steps.token.outputs.present == 'true'
         run: |
-          base=https://gabrielkph-alias.static.hf.space
-          for i in $(seq 1 36); do
-            stale=""
-            for f in index.html app.js alias.js style.css; do
-              want=$(sha256sum "demo/$f" | cut -d' ' -f1)
-              got=$(curl -sSf "$base/$f?v=$GITHUB_SHA" | sha256sum | cut -d' ' -f1 || true)
-              [ "$got" = "$want" ] || stale="$stale $f"
-            done
-            if [ -z "$stale" ]; then echo "served after ~$((i * 5)) s"; exit 0; fi
-            sleep 5
-          done
-          echo "::error::the Space still serves an older$stale after 3 minutes"; exit 1
+          python - <<'PY'
+          import hashlib, re, sys, time, urllib.request
+
+          base = "https://gabrielkph-alias.static.hf.space"
+          files = ["index.html", "app.js", "alias.js", "style.css"]
+          # Hugging Face adds to index.html when serving it: a script with the Space variables and
+          # the social-preview meta tags. They are taken out before comparing.
+          added = re.compile(
+              r"<script>window\.huggingface=.*?</script>|<meta (?:property=\"og:|name=\"twitter:)[^>]*>"
+          )
+
+          def digest(text, name):
+              text = added.sub("", text) if name == "index.html" else text
+              return hashlib.sha256(text.encode()).hexdigest()
+
+          want = {f: digest(open(f"demo/{f}", encoding="utf-8").read(), f) for f in files}
+          for attempt in range(36):
+              stale = []
+              for f in files:
+                  try:
+                      with urllib.request.urlopen(f"{base}/{f}?v={attempt}") as r:
+                          served = r.read().decode()
+                  except OSError:
+                      served = ""
+                  if digest(served, f) != want[f]:
+                      stale.append(f)
+              if not stale:
+                  print(f"served after ~{attempt * 5} s")
+                  sys.exit(0)
+              time.sleep(5)
+          print(f"::error::the Space still serves an older {', '.join(stale)} after 3 minutes")
+          sys.exit(1)
+          PY
   e2e:
     needs: deploy
     if: needs.deploy.outputs.deployed == 'true'
