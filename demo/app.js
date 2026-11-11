@@ -14,7 +14,7 @@ const MODEL = "Gabrielkph/alias-mmbert-small";
 // The model version the demo was tested with: a tag on the model repository, so a later upload
 // of new weights cannot change the demo without a new release of it.
 const MODEL_REVISION = "v1.0";
-const VERSION = "0.1.0"; // x-release-please-version
+const VERSION = "0.2.0"; // x-release-please-version
 // What the first visit downloads: the ONNX model (563 MB) and the tokenizer (34 MB).
 const EXPECTED_BYTES = 597e6;
 
