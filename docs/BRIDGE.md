@@ -61,14 +61,20 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   - from a link or URL mark (`](`, `//`, `www.`) to the end of its paragraph, aliases keep their
     alias form; the text before the mark (link text included) and other paragraphs get the
     values back;
-  - from the first image (`![`), reference definition (`]:`, from the start of its paragraph),
-    `<` followed by anything but a space, `=` or a digit, or backslash, nothing more is restored:
-    an image is fetched as soon as it is shown and can use a definition anywhere, an HTML block
-    can run across blank lines, and a client decoding the answer as JSON, JSON5 or YAML turns
-    escapes into marks;
-  - in JSON mode, nothing after the first mark, in string order.
-- **JSON answers** (`response_format`): values go back inside the JSON string values (keys keep
-  their aliases), so the JSON stays valid whatever they hold.
+  - from the first image (`![`), `<` followed by anything but a space, `=` or a digit, or
+    backslash, nothing more is restored: an image is fetched as soon as it is shown, an HTML
+    block can run across blank lines, and a client decoding the answer as JSON, JSON5 or YAML
+    turns escapes into marks;
+  - with a reference definition (`]:`) anywhere, nothing is restored: an image anywhere can use
+    it, and its label may hold an alias;
+  - a JSON document (in JSON mode, or an answer that is a JSON object or array) holding a mark
+    anywhere, once its strings are joined, gets nothing back: a client may join its strings or
+    show them in another order.
+
+  The bridge cannot follow every transformation a tool applies before display (joining the items
+  of a YAML list, for example); it protects the answer as returned and its JSON strings.
+- **JSON answers** (`response_format`): values go back inside the JSON string values, so the
+  JSON stays valid whatever they hold; keys keep their aliases.
 - **Local tools only**: the bridge spends the user's key, so a web page must not reach it. A
   request with an `Origin` header (sent by browsers, not by SDKs or scripts), a non-local `Host`
   (DNS rebinding) or a body that is not `application/json` is refused (403, 415).

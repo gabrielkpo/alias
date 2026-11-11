@@ -77,8 +77,8 @@ ROLES = frozenset({"system", "user", "assistant"})
 # a click, so from such a mark to the end of the paragraph aliases stay masked. From any of these
 # to the end of the text, nothing more is restored (`FAR`):
 # - an image (`![`): it is fetched as soon as it is shown;
-# - a reference definition (`]:`), counted from the start of its paragraph: an image anywhere
-#   in the answer can use it, and its label may hold an alias;
+# - a reference definition (`]:`), from the start of the text: an image anywhere in the answer
+#   can use it, and its label may hold an alias, across a blank line a YAML decoder removes;
 # - a `<` not followed by a space, `=` or digit (`a < b`, `<=`, `<3` are text): an HTML block can
 #   run across blank lines, `<[PERSON_1]` becomes a tag once the name is back, and
 #   `<a:b/title="...` is a tag to a browser even though it looks like an autolink;
@@ -197,22 +197,21 @@ def check_masked(results: list[MaskResult]) -> None:
             raise LeftInClear
 
 
-def link_spans(text: str, to_end: bool = False) -> list[tuple[int, int]]:
+def link_spans(text: str) -> list[tuple[int, int]]:
     """The parts of the text where aliases stay masked: from each link or URL mark (`NEAR`) to
-    the end of its paragraph, and from the first image, definition, tag or escape (`FAR`) to the
-    end of the text; with `to_end`, from the first mark of any kind to the end of the text."""
+    the end of its paragraph, and from the first image, tag or escape (`FAR`) to the end of the
+    text, or all of it with a definition."""
     far = FAR.search(text)
     first_far = len(text)
     if far:
         first_far = far.start()
-        if far.group() == ":":  # a definition: from the start of its paragraph, label included
-            breaks = [m.end() for m in PARAGRAPH_END.finditer(text, 0, far.start())]
-            first_far = breaks[-1] if breaks else 0
+        if far.group() == ":":  # a definition: its label may hold an alias across a blank
+            first_far = 0  # line that a YAML decoder folds away, so nothing is restored
     spans: list[tuple[int, int]] = []
     position = 0
     while (mark := NEAR.search(text, position)) and mark.start() < first_far:
         end_of_paragraph = PARAGRAPH_END.search(text, mark.start())
-        if to_end or not end_of_paragraph or end_of_paragraph.start() > first_far:
+        if not end_of_paragraph or end_of_paragraph.start() > first_far:
             return [*spans, (mark.start(), len(text))]
         spans.append((mark.start(), end_of_paragraph.start()))
         position = end_of_paragraph.start()
@@ -221,7 +220,7 @@ def link_spans(text: str, to_end: bool = False) -> list[tuple[int, int]]:
     return spans
 
 
-def put_back(text: str, results: list[MaskResult], restored: set[str], to_end: bool = False) -> str:
+def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
     """The text with the values of this request's aliases put back, except in links and what
     follows them (`link_spans`): an alias there stays masked, so a client loading a link or an
     image sends no value."""
@@ -233,7 +232,7 @@ def put_back(text: str, results: list[MaskResult], restored: set[str], to_end: b
 
     parts: list[str] = []
     cursor = 0
-    for start, end in link_spans(text, to_end):
+    for start, end in link_spans(text):
         parts.append(plain(text[cursor:start]))
         parts.append(text[start:end])
         cursor = end
@@ -241,38 +240,54 @@ def put_back(text: str, results: list[MaskResult], restored: set[str], to_end: b
     return "".join(parts)
 
 
-def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> str | None:
-    """A JSON answer with the values put back inside each string, so the JSON stays valid
-    whatever the values hold (quotes, backslashes); None if the text is not JSON. A client may
-    show the JSON text as markdown, where an escaped blank line is no paragraph break and a
-    link can start in one string and end in the next: from the first link mark on, in string
-    order, nothing more is restored."""
+def _document(text: str) -> dict | list | None:
+    """The answer as a JSON object or array, if it is one."""
     try:
         value = json.loads(text)
     except ValueError:
         return None
-    marked = False
+    return value if isinstance(value, dict | list) else None
+
+
+def _strings(node) -> list[str]:
+    """Every string of a JSON document, keys included, in document order."""
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, list):
+        return [s for item in node for s in _strings(item)]
+    if isinstance(node, dict):
+        return [s for k, v in node.items() for s in (k, *_strings(v))]
+    return []
+
+
+def _linked(document: dict | list) -> bool:
+    """Whether a link mark appears in a JSON document taken as a whole: a client may join its
+    strings (a mark split as `"!"`, `"[x]"`, `"(url"`), show them in another order (JavaScript
+    puts integer keys first) or render the JSON text as markdown."""
+    return LINK_MARK.search("".join(_strings(document))) is not None
+
+
+def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> str | None:
+    """A JSON answer with the values put back inside each string value, so the JSON stays valid
+    whatever the values hold (quotes, backslashes); None if the text is not JSON. Keys keep their
+    aliases (two keys equal once restored would merge), and a document holding a link mark
+    anywhere (`_linked`) gets nothing back."""
+    document = _document(text)
+    if document is None:
+        return None
+    if _linked(document):
+        return text
 
     def walk(node):
-        nonlocal marked
         if isinstance(node, str):
-            if marked:
-                return node
-            marked = LINK_MARK.search(node) is not None
-            return put_back(node, results, restored, to_end=True)
+            return put_back(node, results, restored)
         if isinstance(node, list):
             return [walk(item) for item in node]
         if isinstance(node, dict):
-            # Keys stay as they are: two keys that become equal once restored
-            # (`[PERSON_1]`, `[PERSON_01]`) would merge and reorder the strings.
-            out = {}
-            for k, v in node.items():
-                marked = marked or LINK_MARK.search(k) is not None
-                out[k] = walk(v)
-            return out
+            return {k: walk(v) for k, v in node.items()}
         return node
 
-    return json.dumps(walk(value), ensure_ascii=False)
+    return json.dumps(walk(document), ensure_ascii=False)
 
 
 def restore_answer(
@@ -280,7 +295,8 @@ def restore_answer(
 ) -> tuple[dict, int]:
     """The provider's answer with the values back in each choice's message text; the number of
     aliases restored. In JSON mode (`response_format`), values go back inside the JSON string
-    values, not in the keys."""
+    values, not in the keys. A JSON document holding a link mark anywhere, in JSON mode or not,
+    gets nothing back (`_linked`)."""
     if not results:
         return data, 0
     restored: set[str] = set()
@@ -288,9 +304,12 @@ def restore_answer(
         message = choice.get("message") if isinstance(choice, dict) else None
         if not (isinstance(message, dict) and isinstance(message.get("content"), str)):
             continue
-        text = _restore_json(message["content"], results, restored) if json_mode else None
+        content = message["content"]
+        text = _restore_json(content, results, restored) if json_mode else None
         if text is None:
-            text = put_back(message["content"], results, restored)
+            document = _document(content)
+            linked = document is not None and _linked(document)
+            text = content if linked else put_back(content, results, restored)
         message["content"] = text
     return data, len(restored)
 
