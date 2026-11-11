@@ -79,6 +79,7 @@ ROLES = frozenset({"system", "user", "assistant"})
 # paragraph aliases stay masked: inline markdown never crosses a blank line.
 LINK_MARK = re.compile(r"(?<=\])[(:]|<[a-z/!?]|//|\bwww\.", re.IGNORECASE)
 PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
+AUTOLINK = re.compile(r"<[a-z][a-z0-9+.-]{1,31}:[^\s<>]*>", re.IGNORECASE)  # inline, not a tag
 log = logging.getLogger("alias.bridge")
 
 
@@ -188,28 +189,35 @@ def check_masked(results: list[MaskResult]) -> None:
             raise LeftInClear
 
 
-def link_spans(text: str) -> list[tuple[int, int]]:
+def link_spans(text: str, to_end: bool = False) -> list[tuple[int, int]]:
     """The parts of the text where aliases stay masked: from each link mark (`LINK_MARK`) to
-    the end of its paragraph, or of the paragraph where an HTML tag left open is closed."""
+    the end of its paragraph. From an HTML tag, or with `to_end`, to the end of the text: an
+    HTML block can run across blank lines, and a `>` in an attribute defeats any counting."""
+    first_tag = next(
+        (
+            m.start()
+            for m in LINK_MARK.finditer(text)
+            if m.group().startswith("<") and not AUTOLINK.match(text, m.start())
+        ),
+        len(text),
+    )
     spans: list[tuple[int, int]] = []
     position = 0
-    while mark := LINK_MARK.search(text, position):
+    while (mark := LINK_MARK.search(text, position)) and mark.start() < first_tag:
         end_of_paragraph = PARAGRAPH_END.search(text, mark.start())
-        end = end_of_paragraph.start() if end_of_paragraph else len(text)
-        span = text[mark.start() : end]
-        if span.count("<") > span.count(">"):  # an HTML tag may run across a blank line
-            close = text.find(">", end)
-            after = PARAGRAPH_END.search(text, close) if close != -1 else None
-            end = after.start() if after else len(text)
-        spans.append((mark.start(), end))
-        position = end
+        if to_end or not end_of_paragraph or end_of_paragraph.start() > first_tag:
+            return [*spans, (mark.start(), len(text))]
+        spans.append((mark.start(), end_of_paragraph.start()))
+        position = end_of_paragraph.start()
+    if first_tag < len(text):
+        spans.append((first_tag, len(text)))
     return spans
 
 
-def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
+def put_back(text: str, results: list[MaskResult], restored: set[str], to_end: bool = False) -> str:
     """The text with the values of this request's aliases put back, except in links and what
-    follows them in the paragraph (`link_spans`): an alias there stays masked, so a client
-    loading a link or an image sends no value."""
+    follows them (`link_spans`): an alias there stays masked, so a client loading a link or an
+    image sends no value."""
 
     def plain(segment: str) -> str:
         back = restore(segment, *results)
@@ -218,7 +226,7 @@ def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
 
     parts: list[str] = []
     cursor = 0
-    for start, end in link_spans(text):
+    for start, end in link_spans(text, to_end):
         parts.append(plain(text[cursor:start]))
         parts.append(text[start:end])
         cursor = end
@@ -228,15 +236,23 @@ def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
 
 def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> str | None:
     """A JSON answer with the values put back inside each string, so the JSON stays valid
-    whatever the values hold (quotes, backslashes); None if the text is not JSON."""
+    whatever the values hold (quotes, backslashes); None if the text is not JSON. A client may
+    show the JSON text as markdown, where an escaped blank line is no paragraph break and a
+    link can start in one string and end in the next: from the first link mark on, in string
+    order, nothing more is restored."""
     try:
         value = json.loads(text)
     except ValueError:
         return None
+    marked = False
 
     def walk(node):
+        nonlocal marked
         if isinstance(node, str):
-            return put_back(node, results, restored)
+            if marked:
+                return node
+            marked = LINK_MARK.search(node) is not None
+            return put_back(node, results, restored, to_end=True)
         if isinstance(node, list):
             return [walk(item) for item in node]
         if isinstance(node, dict):
