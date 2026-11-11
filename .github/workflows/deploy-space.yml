@@ -26,12 +26,14 @@ jobs:
     outputs:
       deployed: ${{ steps.upload.outputs.deployed }}
     env:
-      HF_TOKEN: ${{ secrets.HF_TOKEN }}
       SPACE: Gabrielkph/alias
     steps:
       - uses: actions/checkout@v7
+      # The token is given to the two steps that need it only, never to the actions.
       - name: Check the token
         id: token
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           if [ -z "$HF_TOKEN" ]; then
             echo "::warning::HF_TOKEN secret not set: nothing deployed (docs/DEMO.md)."
@@ -46,6 +48,8 @@ jobs:
       - name: Upload the page to the Space
         id: upload
         if: steps.token.outputs.present == 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           pip install -q "huggingface_hub==2.3.0"
           python - <<'PY'
@@ -59,16 +63,21 @@ jobs:
           print(commit)
           PY
           echo "deployed=true" >> "$GITHUB_OUTPUT"
-      - name: Wait until the Space serves this version
+      - name: Wait until the Space serves this version of every page file
         if: steps.token.outputs.present == 'true'
         run: |
-          want=$(sha256sum demo/alias.js | cut -d' ' -f1)
+          base=https://gabrielkph-alias.static.hf.space
           for i in $(seq 1 36); do
-            got=$(curl -sSf "https://gabrielkph-alias.static.hf.space/alias.js" | sha256sum | cut -d' ' -f1 || true)
-            if [ "$got" = "$want" ]; then echo "served after ~$((i * 5)) s"; exit 0; fi
+            stale=""
+            for f in index.html app.js alias.js style.css; do
+              want=$(sha256sum "demo/$f" | cut -d' ' -f1)
+              got=$(curl -sSf "$base/$f?v=$GITHUB_SHA" | sha256sum | cut -d' ' -f1 || true)
+              [ "$got" = "$want" ] || stale="$stale $f"
+            done
+            if [ -z "$stale" ]; then echo "served after ~$((i * 5)) s"; exit 0; fi
             sleep 5
           done
-          echo "::error::the Space still serves an older alias.js after 3 minutes"; exit 1
+          echo "::error::the Space still serves an older$stale after 3 minutes"; exit 1
   e2e:
     needs: deploy
     if: needs.deploy.outputs.deployed == 'true'
