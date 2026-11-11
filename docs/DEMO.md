@@ -15,7 +15,7 @@ page, not even to a demo server.
   Kaggle with the export of the ONNX draft branch (`feat/onnx`, opset 17), which gave the same
   predictions as PyTorch on the validation splits. Not quantised: int8 destroys this model's
   precision.
-- **Runtime**: transformers.js 4.3.1 (ONNX Runtime Web, WebAssembly), loaded from jsDelivr.
+- **Runtime**: transformers.js 4.3.2 (ONNX Runtime Web, WebAssembly), loaded from jsDelivr.
 - **Detector**: `demo/alias.js` ports the Python detector (rules of the proven types, token
   windows of 512 with a stride of 128, overlap merging, masking with stable aliases).
 - **Privacy**: the page's content security policy allows requests to Hugging Face and jsDelivr
