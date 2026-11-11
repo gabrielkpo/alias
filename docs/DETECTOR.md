@@ -81,3 +81,34 @@ small and said as such: the model already finds most of what the rules prove. Bi
 leak 11 % on the LLM-written documents: the dates missed carry no keyword, and some of their gold
 labels are doubtful (a contract or meeting date labelled as a birth date by the LLM writer). The
 rules matter most where the model has not been measured yet: real documents (step 7).
+
+### Third variant: identifiers announced by a person's-file keyword
+
+Written down here before its measure. The public demo's own example left its file number in
+clear ("dossier n° 2024/00421"): identifiers are the model's call since the second variant, and
+it misses this one. The identifier rule was left out as a whole because of its precision (0.38 on
+the synthetic split), but that precision depends on the keyword. Measured with the rules alone
+on the validation splits (exact span = true positive):
+
+| Keyword (normalised) | Synthetic: rule spans, precision | LLM-written: rule spans, precision |
+|---|---|---|
+| file, dossier, adherent, matricule, contrat, sinistre, licence, license | 475, 1.00 | 9, 1.00 |
+| claim, customer, passport, passeport, employee | 125, 0.94 | 6, 1.00 |
+| client, patient | absent | 12, 1.00 |
+| order, commande, facture, invoice, ticket, reference | 2,460, 0.00 | 24, 0.46 |
+| account, compte, id, policy, police | 412, 0.22 | 33, 0.15 |
+
+The first rows name a person's file; the others are mostly orders, invoices and bank accounts
+(an account number next to "compte" is usually the IBAN, already proven by its checksum).
+
+**Variant 3**: the second variant plus the rule's identifiers whose keyword names a person's file:
+dossier, contrat, client, patient, adhérent, matricule, sinistre, passeport, permis, file,
+claim, customer, passport, licence (license), employee, member (membership). `ref`, although
+precise on the synthetic split (0.97), is left out: on real documents it announces invoices as
+often as files.
+
+**Decision rule.** Variant 3 replaces the second variant if, on both validation splits, its
+leak rate is not higher and its strict precision is no more than 0.5 point lower. Caveat written
+now: the keywords were chosen by looking at the validation splits (the test splits stay unread),
+so the measured gain will be optimistic; the list was chosen on the synthetic split and only
+checked on the LLM-written one. Real documents (step 7) are the honest measure.
