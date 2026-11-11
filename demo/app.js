@@ -7,7 +7,7 @@ import {
   AutoTokenizer,
   Tensor,
   env,
-} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1/dist/transformers.min.js";
+} from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2/dist/transformers.min.js";
 import { TAGS, detect, mask, restore } from "./alias.js";
 
 const MODEL = "Gabrielkph/alias-mmbert-small";
