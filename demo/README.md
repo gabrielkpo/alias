@@ -30,7 +30,7 @@ ported to JavaScript and checked against it on GitHub Actions. Code, results and
 
 ## Files
 
-- `index.html`, `app.js`, `style.css`: the page; `app.js` loads transformers.js 4.3.1.
+- `index.html`, `app.js`, `style.css`: the page; `app.js` loads transformers.js 4.3.2.
 - `alias.js`: the detector's logic (rules, token windows, masking), ported from `src/alias_pii`.
 - `test/`: unit tests (`npm test`) and the parity check against Python (`.github/workflows/demo.yml`);
   not uploaded to the Space.
