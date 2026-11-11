@@ -22,7 +22,7 @@ def test_french_letter():
         (EntityType.PHONE, "01 99 00 12 34", "FR"),
         (EntityType.IBAN, "FR76 3000 6000 0112 3456 7890 189", "FR"),
         (EntityType.NATIONAL_ID, "1 85 05 78 006 084 91", "FR_NIR"),
-        (EntityType.IDENTIFIER, "2024/00421", None),
+        (EntityType.IDENTIFIER, "2024/00421", "dossier"),
     ]
 
 
@@ -39,7 +39,7 @@ def test_english_letter():
         (EntityType.NATIONAL_ID, "123-45-6789", "US_SSN"),
         (EntityType.NATIONAL_ID, "AB 12 34 56 C", "UK_NINO"),
         (EntityType.IBAN, "GB82 WEST 1234 5698 7654 32", "GB"),
-        (EntityType.IDENTIFIER, "AC-559102", None),
+        (EntityType.IDENTIFIER, "AC-559102", "customer"),
     ]
 
 
@@ -62,16 +62,18 @@ def test_nino_with_forbidden_prefix_is_ignored():
 
 
 @pytest.mark.parametrize(
-    ("text", "value"),
+    ("text", "value", "keyword"),
     [
-        ("Numéro de contrat : C-88123", "C-88123"),
-        ("réf. FAC2024-77", "FAC2024-77"),
-        ("Policy number 88-1234-X", "88-1234-X"),
-        ("claim #CLM00912", "CLM00912"),
+        ("Numéro de contrat : C-88123", "C-88123", "contrat"),
+        ("réf. FAC2024-77", "FAC2024-77", "ref"),
+        ("Policy number 88-1234-X", "88-1234-X", "policy"),
+        ("claim #CLM00912", "CLM00912", "claim"),
+        ("N° d'adhérent : 77-1234", "77-1234", "adherent"),
+        ("ID client : CL-2024-09", "CL-2024-09", "client"),
     ],
 )
-def test_identifiers_after_a_keyword(text, value):
-    assert found(text) == [(EntityType.IDENTIFIER, value, None)]
+def test_identifiers_after_a_keyword(text, value, keyword):
+    assert found(text) == [(EntityType.IDENTIFIER, value, keyword)]
 
 
 def test_keyword_without_identifier():

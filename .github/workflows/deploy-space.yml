@@ -1,0 +1,129 @@
+# Deploys the browser demo (demo/) to the Hugging Face Space Gabrielkph/alias, then checks the
+# deployed page end to end in headless Chromium. It runs when a release is published (called by
+# release-please.yml: the public demo changes only with a version Gabriel releases), or by hand
+# with a tag or branch, e.g. to roll back: gh workflow run deploy-space.yml -f ref=v0.2.0
+# The job runs in the GitHub environment "huggingface" (deployment history and the Space URL in
+# the repository's Deployments) and needs the secret HF_TOKEN: a fine-grained Hugging Face token
+# with write access to that Space only. Without it the job says so and deploys nothing.
+name: Deploy Space
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Tag or branch to deploy
+        type: string
+        required: true
+    secrets:
+      HF_TOKEN:
+        required: false
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or branch to deploy (a release tag such as v0.2.0, or main)
+        default: main
+permissions:
+  contents: read
+concurrency:
+  group: deploy-space
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: huggingface
+      url: https://huggingface.co/spaces/Gabrielkph/alias
+    outputs:
+      deployed: ${{ steps.upload.outputs.deployed }}
+    env:
+      SPACE: Gabrielkph/alias
+      REF: ${{ inputs.ref }}
+    steps:
+      # Only a release tag, or main, may go live: never an unreviewed branch.
+      - name: Check the ref
+        run: |
+          if ! [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || "$REF" == "main" ]]; then
+            echo "::error::only a release tag (vX.Y.Z) or main can be deployed, not '$REF'"; exit 1
+          fi
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      # The token is given to the two steps that need it only, never to the actions.
+      - name: Check the token
+        id: token
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::warning::HF_TOKEN secret not set: nothing deployed (docs/DEMO.md)."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v7
+        if: steps.token.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+      - name: Upload the page to the Space
+        id: upload
+        if: steps.token.outputs.present == 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install -q "huggingface_hub==2.3.0"
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          api = HfApi()
+          ref = os.environ["REF"]
+          commit = api.upload_folder(
+              repo_id=os.environ["SPACE"], repo_type="space", folder_path="demo",
+              allow_patterns=["index.html", "app.js", "alias.js", "style.css", "README.md"],
+              commit_message=f"Deploy {ref} from gabrielkpo/alias",
+          )
+          print(commit)
+          if ref.startswith("v"):  # a release: the Space commit gets the same tag
+              api.create_tag(os.environ["SPACE"], repo_type="space", tag=ref, exist_ok=True)
+              print(f"Space tagged {ref}")
+          PY
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+      - name: Wait until the Space serves this version of every page file
+        if: steps.token.outputs.present == 'true'
+        run: |
+          python - <<'PY'
+          import hashlib, re, sys, time, urllib.request
+
+          base = "https://gabrielkph-alias.static.hf.space"
+          files = ["index.html", "app.js", "alias.js", "style.css"]
+          # Hugging Face adds to index.html when serving it: a script with the Space variables and
+          # the social-preview meta tags. They are taken out before comparing.
+          added = re.compile(
+              r"<script>window\.huggingface=.*?</script>|<meta (?:property=\"og:|name=\"twitter:)[^>]*>"
+          )
+
+          def digest(text, name):
+              text = added.sub("", text) if name == "index.html" else text
+              return hashlib.sha256(text.encode()).hexdigest()
+
+          want = {f: digest(open(f"demo/{f}", encoding="utf-8").read(), f) for f in files}
+          for attempt in range(36):
+              stale = []
+              for f in files:
+                  try:
+                      with urllib.request.urlopen(f"{base}/{f}?v={attempt}") as r:
+                          served = r.read().decode()
+                  except OSError:
+                      served = ""
+                  if digest(served, f) != want[f]:
+                      stale.append(f)
+              if not stale:
+                  print(f"served after ~{attempt * 5} s")
+                  sys.exit(0)
+              time.sleep(5)
+          print(f"::error::the Space still serves an older {', '.join(stale)} after 3 minutes")
+          sys.exit(1)
+          PY
+  e2e:
+    needs: deploy
+    if: needs.deploy.outputs.deployed == 'true'
+    uses: ./.github/workflows/space-e2e.yml

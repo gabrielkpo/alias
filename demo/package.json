@@ -1,0 +1,12 @@
+{
+  "name": "alias-demo",
+  "private": true,
+  "type": "module",
+  "description": "Alias in the browser: tests of the JavaScript port (the page itself needs no build)",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@huggingface/transformers": "4.3.2"
+  }
+}

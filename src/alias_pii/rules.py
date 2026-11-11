@@ -8,6 +8,7 @@ contract number announced by a keyword) and BIRTH_DATE when a keyword announces 
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterator
 
 import phonenumbers
@@ -53,7 +54,7 @@ _ID_KEYWORD = (
 _FILLER = r"(?:(?:is|was|est|était|=)\s+)?(?:(?:le|la|the)\s+)?"
 # "n° de dossier : 2024/0042", "Customer ID: AB-123456", "le numéro de dossier est le 2024/1234"
 _IDENTIFIER = re.compile(
-    rf"(?:\b{_NUMBER_WORD}\s*(?:de\s+|du\s+|d['’]\s*|of\s+)?)?\b{_ID_KEYWORD}(?!\w)"
+    rf"(?:\b{_NUMBER_WORD}\s*(?:de\s+|du\s+|d['’]\s*|of\s+)?)?\b(?P<keyword>{_ID_KEYWORD})(?!\w)"
     rf"(?:\s+{_NUMBER_WORD})?\s*(?:[:#]\s*)?{_FILLER}"
     r"(?P<value>[A-Z0-9](?:[A-Z0-9/_.\-]*[A-Z0-9])?)",
     re.IGNORECASE,
@@ -90,13 +91,26 @@ _BIRTH_DATE_BEFORE = re.compile(
 )
 
 
+def keyword_kind(keyword: str) -> str:
+    """The keyword that announced an identifier, as its `kind`: lower case, no accent, no final
+    dot ("Adhérent" -> "adherent", "réf." -> "ref"). The detector keeps an identifier from the
+    rules only when this keyword names a person's file (`detector.PERSON_FILE_KEYWORDS`)."""
+    decomposed = unicodedata.normalize("NFKD", keyword.casefold())
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).rstrip(".")
+
+
 class RuleDetector:
     """Deterministic detector. `detect` returns non-overlapping spans sorted by position."""
 
     name = "rules"
 
     def detect(self, text: str) -> list[Entity]:
-        found = [
+        return resolve_overlaps(self.find(text))
+
+    def find(self, text: str) -> list[Entity]:
+        """Every rule's spans, before overlaps are merged: a caller keeping only some types
+        (`detector.RulesAndModel`) filters first, so a type it drops cannot absorb one it keeps."""
+        return [
             *self._emails(text),
             *self._phones(text),
             *self._ibans(text),
@@ -104,7 +118,6 @@ class RuleDetector:
             *self._identifiers(text),
             *self._birth_dates(text),
         ]
-        return resolve_overlaps(found)
 
     def _entity(self, type_: EntityType, text: str, start: int, end: int, kind=None) -> Entity:
         return Entity(type_, start, end, text[start:end], source=self.name, kind=kind)
@@ -164,7 +177,13 @@ class RuleDetector:
             value = m.group("value")
             # A keyword followed by "3" or "of" is not an identifier: require a digit and length.
             if len(value) >= 4 and any(c.isdigit() for c in value):
-                yield self._entity(EntityType.IDENTIFIER, text, m.start("value"), m.end("value"))
+                yield self._entity(
+                    EntityType.IDENTIFIER,
+                    text,
+                    m.start("value"),
+                    m.end("value"),
+                    keyword_kind(m.group("keyword")),
+                )
 
     def _birth_dates(self, text: str) -> Iterator[Entity]:
         for m in [*_BIRTH_DATE.finditer(text), *_BIRTH_DATE_BEFORE.finditer(text)]:

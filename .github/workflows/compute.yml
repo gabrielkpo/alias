@@ -77,7 +77,7 @@ jobs:
           fi
           uv run --group data --group bench python -m alias_pii.benchmark \
             --data data/synthetic --split test --methods "$METHODS" --out reports
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: compute-${{ env.TASK }}-${{ github.run_id }}
