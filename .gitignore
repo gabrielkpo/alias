@@ -15,3 +15,6 @@ data/synthetic/
 data/cache/
 data/llm/
 reports/
+
+# demo tests (demo/package.json)
+node_modules/

@@ -7,11 +7,16 @@ Alias masks the personal data in a French or English document **on your own mach
 text can go to an LLM without the names, IBANs or social security numbers, then puts the real
 values back into the answer.
 
+**Try it:** [public demo](https://huggingface.co/spaces/Gabrielkph/alias), the detector running in
+your browser (the text never leaves the page; fictitious data only). Model:
+[Gabrielkph/alias-mmbert-small](https://huggingface.co/Gabrielkph/alias-mmbert-small).
+
 > **Status:** work in progress (see [Roadmap](#status-and-roadmap)). Rules, masking and restoring
 > work, and the trained model is chosen and measured (step 4, mmBERT-small fine-tuned): recall 0.98
 > and leak rate 1.1 % on the synthetic test split, recall 0.93 and leak rate 3.5 % on documents
 > written by an LLM it never saw (see [Results](#results)). Rules + model form the detector (step
-> 5). Not measured on real documents yet; the app comes next. Expect breaking changes.
+> 5), served by a local API and page, a Docker image and a public demo. Not measured on real
+> documents yet. Expect breaking changes.
 
 ## Why
 Hospitals, banks and public bodies want to use LLMs on their documents, but cannot send a
@@ -81,7 +86,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 | 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, rules + GLiNER (done); Mistral zero-shot (adapter ready, run pending the API key) | in progress |
 | 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best: mmBERT-small | done |
 | 5 | Rules + model: the rules add what they prove (IBAN, national ID, birth date after a keyword) to the model's spans | done |
-| 6 | `alias-pii mask` CLI, JSON report, local API, Docker; CPU latency and memory | planned |
+| 6 | Local API and web page, Docker CPU image, public demo in the browser (done); `alias-pii mask` CLI | in progress |
 | 7 | Held-out real test sets (French and English, annotated by hand), final results | planned |
 | 8 | Phase 2: `alias-pii run --llm mistral`, end-to-end restoring | planned |
 
@@ -229,7 +234,8 @@ name masked by half does not count, which the overlap and strict recalls show in
 | `src/alias_pii/detector.py`, `app.py`, `static/` | rules + model detector; local web API (FastAPI) and its page |
 | `src/alias_pii/benchmark.py`, `baselines.py` | benchmark harness; rules, Presidio + spaCy and GLiNER baselines |
 | `src/alias_pii/llm_writer.py`, `sources.py` | LLM-written documents (Mistral, placeholders); public corpora converters |
-| `Dockerfile`, `space/` | CPU image; Hugging Face Space for the public demo (docs/DEMO.md) |
+| `demo/` | Public demo: the detector ported to JavaScript, run in the browser (docs/DEMO.md) |
+| `Dockerfile`, `space/` | CPU image; Docker Space variant of the demo (paid Hugging Face plan) |
 | `tests/` | unit tests; `tests/README.md` lists allowed fixture values |
 
 ## Data and privacy

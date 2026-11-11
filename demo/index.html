@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- The page talks to two hosts only: Hugging Face for the model files and jsDelivr for the
+       ONNX runtime. The text is never part of a request: nothing could send it anywhere else. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; connect-src https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <title>Alias</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Alias</h1>
+    <p class="lead">Mask the personal data in a French or English text before it goes to an LLM.
+      The detector runs <strong>in this browser</strong>: the text never leaves the page.</p>
+    <p id="status" class="status" role="status">Loading…</p>
+    <progress id="progress" max="1" hidden></progress>
+    <p class="demo">Public demo: paste fictitious data only.</p>
+  </header>
+
+  <main>
+    <section aria-labelledby="input-title">
+      <h2 id="input-title">Text</h2>
+      <textarea id="input" rows="12" spellcheck="false" maxlength="20000"
+        placeholder="Paste a text: a letter, an e-mail, a record…"></textarea>
+      <div class="actions">
+        <button id="mask" type="button" disabled>Mask</button>
+        <button id="example" type="button" class="secondary">Try an example</button>
+        <span id="count" class="muted"></span>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+
+    <section id="results" aria-labelledby="found-title" hidden>
+      <h2 id="found-title">What was found</h2>
+      <div id="legend" class="legend"></div>
+      <div id="highlighted" class="highlighted"></div>
+
+      <h2>Masked text <span class="muted">(what can go to the LLM)</span></h2>
+      <textarea id="masked" rows="12" readonly spellcheck="false"></textarea>
+      <div class="actions">
+        <button id="copy" type="button">Copy the masked text</button>
+        <button id="download" type="button" class="secondary">Download the report (JSON)</button>
+        <span id="copied" class="muted" aria-live="polite"></span>
+      </div>
+
+      <h2>Report <span class="muted">(counts only, never the values)</span></h2>
+      <table id="report"><thead><tr><th>Type</th><th>Values</th></tr></thead><tbody></tbody></table>
+    </section>
+  </main>
+
+  <footer class="muted">Alias, open source (MIT):
+    <a href="https://github.com/gabrielkpo/alias" target="_blank" rel="noopener">code, results and limits</a>. Model:
+    <a href="https://huggingface.co/Gabrielkph/alias-mmbert-small" target="_blank" rel="noopener">mmBERT-small fine-tuned</a>,
+    plus checksum and keyword rules. No detector is perfect: read the masked text before sending
+    it.</footer>
+</body>
+</html>
