@@ -53,12 +53,18 @@ alias key is its digits rather than E.164.
 About 600 MB downloaded on the first visit (the browser keeps it). The time per page in a browser
 (single-threaded WebAssembly) is not measured yet; the page shows it after each run.
 
-## Updating the Space
+## Deploying the Space
 
-Upload `demo/index.html`, `app.js`, `alias.js`, `style.css` and `README.md` to the Space (the
-tests and `package.json` stay in the repository). A change of the model id or of the
-transformers.js version goes in `demo/app.js`; Dependabot proposes the npm version, and the CDN
-version in `app.js` must follow.
+Like a Vercel deployment: a merge to `main` that changes the page (`demo/index.html`, `app.js`,
+`alias.js`, `style.css`, `README.md`) runs `.github/workflows/deploy-space.yml`, which uploads
+these five files to the Space, waits until the Space serves the new `alias.js`, then runs the
+end-to-end check on it. The tests and `package.json` stay in the repository. It needs the
+repository secret `HF_TOKEN`, a fine-grained Hugging Face token with write access to the Space
+`Gabrielkph/alias` only; without it the workflow deploys nothing and says so. It can also be
+started by hand (`gh workflow run deploy-space.yml`).
+
+A change of the model id or of the transformers.js version goes in `demo/app.js`; Dependabot
+proposes the npm version, and the CDN version in `app.js` must follow.
 
 ## The Docker Space (`space/`)
 
