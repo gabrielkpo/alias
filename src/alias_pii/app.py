@@ -9,7 +9,8 @@ the page on a laptop, not to mask names or addresses.
 
 - `POST /api/mask` `{"text": "..."}` -> masked text, the spans found (type, position, alias)
   and a report counting values per type. The values themselves are never in the response: the
-  caller already has the text, and positions are enough to highlight it.
+  caller already has the text, and positions are enough to highlight it. Positions count
+  Unicode code points (Python string indices), not UTF-16 units as JavaScript strings do.
 - `GET /health` -> which detector is loaded.
 """
 
