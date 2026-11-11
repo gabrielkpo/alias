@@ -53,8 +53,8 @@ split: 127 documents, 1,051 / 427 / 159).
 ## TAB, how the test split is read (written before reading it)
 
 The validation split checked the chain and showed how to read the scores. On PERSON the model's
-span usually includes the English honorific ("Mr Cengiz Polat" where TAB, and Alias's written
-convention, label "Cengiz Polat"): Alias's own English training data is inconsistent on this
+span usually includes the English honorific ("Mr" followed by the name, where TAB and Alias's
+written convention label the name alone): Alias's own English training data is inconsistent on this
 (29 PERSON spans with the honorific inside, 10 without, on the synthetic validation split), so
 the strict score there measures that convention gap more than detection. Hence, for TAB:
 
@@ -91,9 +91,10 @@ measures (see above); strict scores in the last column.
 How to read it:
 
 - **Names hold up on real legal English**: 12.5 % of names still readable after masking, against
-  3 % on the synthetic validation split and 8 % on the LLM-written one (docs/DETECTOR.md). The misses seen on
-  the validation split are real-text cases: fragments of Turkish place names taken for names
-  ("Di", "ır" in "Diyarbakır"), a name cut ("eson" for "Gleeson"), initials ("G.D.").
+  3 % on the synthetic validation split and 8 % on the LLM-written one (docs/DETECTOR.md). The
+  misses seen on the validation split are real-text cases: fragments of Turkish place names
+  taken for names ("Di" and "ır" in "Diyarbakır"), a surname cut to its last letters, and
+  initials written with dots ("X.Y.").
 - **The two weak spots announced before reading are confirmed.** A year of birth alone is not
   masked (Alias learnt full dates), and a court application number is not taken for a person's
   file. Both are gaps of Alias's scope as much as of the model: a year alone or a case number is
