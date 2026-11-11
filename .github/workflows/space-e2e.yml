@@ -45,7 +45,7 @@ jobs:
           if [ -f e2e/report.json ]; then
             python -c "import json; r=json.load(open('e2e/report.json')); print('### Demo end-to-end'); print(); print('- model load:', r.get('load_seconds'), 's'); [print('-', s) for s in r.get('mask_status', [])]; print('- hosts:', ', '.join(r.get('hosts', []))); print('- problems:', r.get('problems') or 'none'); print('- known leaks:', r.get('known_leaks') or 'none'); print('- notes:', r.get('notes') or 'none')" >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: space-e2e
