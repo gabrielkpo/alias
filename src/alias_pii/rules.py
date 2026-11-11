@@ -105,7 +105,12 @@ class RuleDetector:
     name = "rules"
 
     def detect(self, text: str) -> list[Entity]:
-        found = [
+        return resolve_overlaps(self.find(text))
+
+    def find(self, text: str) -> list[Entity]:
+        """Every rule's spans, before overlaps are merged: a caller keeping only some types
+        (`detector.RulesAndModel`) filters first, so a type it drops cannot absorb one it keeps."""
+        return [
             *self._emails(text),
             *self._phones(text),
             *self._ibans(text),
@@ -113,7 +118,6 @@ class RuleDetector:
             *self._identifiers(text),
             *self._birth_dates(text),
         ]
-        return resolve_overlaps(found)
 
     def _entity(self, type_: EntityType, text: str, start: int, end: int, kind=None) -> Entity:
         return Entity(type_, start, end, text[start:end], source=self.name, kind=kind)

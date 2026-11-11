@@ -63,8 +63,21 @@ def test_person_file_identifiers_are_kept_other_identifiers_left_out():
     from alias_pii.detector import PERSON_FILE_KEYWORDS
 
     text = "Objet : dossier n° 2024/00421. Commande n° CMD-2024-118. Facture n° F-2024-07."
-    variant3 = RulesAndModel(Nothing(), id_keywords=PERSON_FILE_KEYWORDS)
-    assert [(e.type, e.text) for e in variant3.detect(text)] == [
+    assert RulesAndModel(Nothing()).id_keywords == PERSON_FILE_KEYWORDS  # the default
+    assert [(e.type, e.text) for e in RulesAndModel(Nothing()).detect(text)] == [
         (EntityType.IDENTIFIER, "2024/00421")
     ]
-    assert RulesAndModel(Nothing()).detect(text) == []  # the second variant: model only
+    assert RulesAndModel(Nothing(), id_keywords=()).detect(text) == []  # the second variant
+
+
+def test_a_dropped_rule_type_does_not_absorb_a_kept_one():
+    class Nothing:
+        def detect(self, text):
+            return []
+
+    # The rules' phone matcher also reads this claim number as a US phone; phones from the
+    # rules are dropped, so the identifier must survive instead of being merged into a phone.
+    text = "Déclaration de sinistre n° 8084501260"
+    assert [(e.type, e.text) for e in RulesAndModel(Nothing()).detect(text)] == [
+        (EntityType.IDENTIFIER, "8084501260")
+    ]

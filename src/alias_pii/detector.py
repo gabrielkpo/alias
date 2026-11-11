@@ -2,13 +2,15 @@
 
 Both run on the whole text; the model's spans are all kept, and the rules' spans of the types
 they prove (`RULE_TYPES`: a checksum for IBANs and national IDs, a keyword for a birth date) are
-added. Overlapping spans are merged into one, typed after the strongest
-(`entities.resolve_overlaps`, as in masking), so nothing of an overlapped value stays in clear.
+added, with the identifiers announced by a keyword naming a person's file
+(`PERSON_FILE_KEYWORDS`: "dossier n°", "contrat", "customer ID"...). Overlapping spans are merged
+into one, typed after the strongest (`entities.resolve_overlaps`, as in masking), so nothing of
+an overlapped value stays in clear.
 
-The rules' e-mails, phones and identifiers are left out: they also catch company mailboxes,
-switchboards and invoice numbers, which the model learnt to leave in clear. Adding them dropped
-the precision from 0.97 to 0.79 on the synthetic validation split for no leak gained there
-(docs/DETECTOR.md).
+The rules' e-mails, phones and other identifiers are left out: they also catch company
+mailboxes, switchboards, orders and invoice numbers, which the model learnt to leave in clear.
+Adding them all dropped the precision from 0.97 to 0.79 on the synthetic validation split for
+no leak gained there (docs/DETECTOR.md, variants 1 to 3).
 """
 
 from __future__ import annotations
@@ -44,7 +46,7 @@ class RulesAndModel:
         model: Detector,
         rules: Detector | None = None,
         rule_types: Iterable[EntityType] | None = RULE_TYPES,
-        id_keywords: Iterable[str] | None = None,
+        id_keywords: Iterable[str] | None = PERSON_FILE_KEYWORDS,
     ):
         self.model = model
         self.rules = rules if rules is not None else RuleDetector()
@@ -58,7 +60,7 @@ class RulesAndModel:
         from alias_pii.train import TrainedDetector
 
         rule_types = options.pop("rule_types", RULE_TYPES)
-        id_keywords = options.pop("id_keywords", None)
+        id_keywords = options.pop("id_keywords", PERSON_FILE_KEYWORDS)
         return cls(TrainedDetector(path, **options), rule_types=rule_types, id_keywords=id_keywords)
 
     def _kept(self, entity: Entity) -> bool:
@@ -67,5 +69,8 @@ class RulesAndModel:
         return entity.type is EntityType.IDENTIFIER and entity.kind in self.id_keywords
 
     def detect(self, text: str) -> list[Entity]:
-        rules = [e for e in self.rules.detect(text) if self._kept(e)]
+        # Filter the rules' raw spans before merging overlaps: a rule phone the detector drops
+        # must not absorb an identifier it keeps ("sinistre n° 8084501260" also reads as a phone).
+        find = getattr(self.rules, "find", self.rules.detect)
+        rules = [e for e in find(text) if self._kept(e)]
         return resolve_overlaps(rules + self.model.detect(text))
