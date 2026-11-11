@@ -60,13 +60,17 @@ async function checkHealth() {
 function highlight(text, entities) {
   const box = $("highlighted");
   box.replaceChildren();
+  // The API counts positions in code points; JavaScript strings count UTF-16 units, which
+  // differ after an emoji. Slice an array of code points instead.
+  const chars = Array.from(text);
+  const slice = (start, end) => chars.slice(start, end).join("");
   let cursor = 0;
   for (const entity of entities) {
-    box.append(document.createTextNode(text.slice(cursor, entity.start)));
+    box.append(document.createTextNode(slice(cursor, entity.start)));
     const mark = document.createElement("mark");
     mark.className = `t-${entity.type}`;
     mark.title = `${LABELS[entity.type] || entity.type} → ${entity.alias}`;
-    mark.append(document.createTextNode(text.slice(entity.start, entity.end)));
+    mark.append(document.createTextNode(slice(entity.start, entity.end)));
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.textContent = entity.alias;
@@ -74,7 +78,7 @@ function highlight(text, entities) {
     box.append(mark);
     cursor = entity.end;
   }
-  box.append(document.createTextNode(text.slice(cursor)));
+  box.append(document.createTextNode(slice(cursor)));
 }
 
 function legend(report) {
