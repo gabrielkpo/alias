@@ -27,7 +27,9 @@ jobs:
       - name: Install Playwright and Chromium
         run: |
           pip install playwright==1.64.1
-          playwright install --with-deps chromium
+          # The runner image already has Chromium's libraries; --with-deps would go through apt
+          # mirrors, which can be unreachable (seen on 11/11). The browser comes from Playwright's CDN.
+          playwright install chromium
       - name: Open the demo, load the model, mask the example
         env:
           URL: ${{ inputs.url || 'https://gabrielkph-alias.static.hf.space/index.html' }}
