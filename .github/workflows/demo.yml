@@ -1,0 +1,42 @@
+# The browser demo (demo/): unit tests of the JavaScript port, then its parity with the Python
+# detector on 300 generated validation documents and edge cases: token ids, offsets and rule
+# spans identical, full detector (ONNX model through transformers.js vs PyTorch) on at least
+# 99 % of the texts. The model runs here, on a GitHub CPU machine, never on a laptop.
+name: Demo
+on:
+  pull_request:
+    paths: ["demo/**", "src/alias_pii/**", ".github/workflows/demo.yml"]
+  push:
+    branches: [main]
+    paths: ["demo/**", "src/alias_pii/**", ".github/workflows/demo.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install Python
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3"
+          pip install -e ".[model]" faker "huggingface_hub>=0.24"
+      - name: Install Node
+        working-directory: demo
+        run: npm ci
+      - name: Unit tests
+        working-directory: demo
+        run: npm test
+      - name: Download the published model (weights, ONNX export, tokenizer)
+        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Gabrielkph/alias-mmbert-small', local_dir='model')"
+      - name: Python reference (rules, tokenizer, rules + model)
+        run: python demo/test/parity_cases.py --tokenizer model --model model --out cases.json
+      - name: Parity of the JavaScript port
+        run: node demo/test/parity.mjs --cases cases.json --tokenizer model --model model

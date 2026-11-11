@@ -55,9 +55,12 @@ second per 3,000-character page on 4 cores. Dynamic int8 quantisation destroys i
 ## Use
 
 ```python
+# pip install "alias-pii[model] @ git+https://github.com/gabrielkpo/alias"
+from huggingface_hub import snapshot_download
+
 from alias_pii.detector import RulesAndModel
 from alias_pii.masking import mask
 
-detector = RulesAndModel.from_checkpoint("<local folder of this model>")
+detector = RulesAndModel.from_checkpoint(snapshot_download("Gabrielkph/alias-mmbert-small"))
 print(mask("Écrire à Jean Dupont, 14 rue des Lilas, 69003 Lyon.", detector).text)
 ```
