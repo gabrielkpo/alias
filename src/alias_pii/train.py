@@ -253,7 +253,7 @@ def main() -> None:
         learning_rate=config.learning_rate,
         per_device_train_batch_size=config.batch_size // config.grad_accum,
         gradient_accumulation_steps=config.grad_accum,
-        warmup_ratio=config.warmup_ratio,
+        warmup_steps=config.warmup_ratio,  # transformers 5: a float below 1 is a ratio of steps
         weight_decay=config.weight_decay,
         seed=config.seed,
         save_strategy="epoch",
