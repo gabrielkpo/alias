@@ -44,7 +44,15 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   the request is refused (422) and nothing is sent.
 - **Restoring**: only the aliases of this request get their value back; an alias the answer
   invents is left as it is. Headers `X-Alias-Masked` and `X-Alias-Restored` give the counts.
+- **JSON answers** (`response_format`): values go back inside the JSON strings, so the JSON stays
+  valid whatever they hold.
+- **Local tools only**: the bridge spends the user's key, so a web page must not reach it. A
+  request with an `Origin` header (sent by browsers, not by SDKs or scripts), a non-local `Host`
+  (DNS rebinding) or a body that is not `application/json` is refused (403, 415).
 - **Not yet**: streaming answers (`"stream": true` is refused with 501 until the next version),
-  tool calls and embeddings.
+  tool calls (`tools`, `tool_calls`: refused with 501, since their arguments would go unmasked)
+  and embeddings.
+- **Edge case**: an alias-shaped token typed in a later message (`[PERSON_1]` written by hand
+  after the bridge gave that alias in an earlier message) is never restored, as in `restore`.
 - **Limits**: no detector is perfect; what the detector misses (a name it does not recognise)
   reaches Mistral in clear. The leak rates measured so far are in the README.

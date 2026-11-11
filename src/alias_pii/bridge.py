@@ -17,16 +17,20 @@ to `http://127.0.0.1:8001/v1`. For `POST /v1/chat/completions` the bridge:
    and returns it in the provider's format, with counts of what was masked in headers.
 
 Nothing is logged but counts; no text is written to disk. `GET /v1/models` is relayed as is.
-Streaming answers (`"stream": true`) come in the next version and are refused for now.
+Only local tools may call it: a request from a browser (an `Origin` header), with a non-local
+`Host` (DNS rebinding) or a non-JSON body is refused, so a web page cannot spend the user's key.
+Streaming answers (`"stream": true`) and tool calls come later and are refused for now.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import threading
 from collections import Counter
+from collections.abc import Awaitable, Callable
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -42,6 +46,7 @@ UPSTREAM = "https://api.mistral.ai"
 # Values the rules prove by a checksum: if one is still readable after masking, the request stops.
 CHECKED = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID})
 MAX_CHARS = 200_000  # the whole conversation of one request
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 log = logging.getLogger("alias.bridge")
 
 
@@ -91,19 +96,47 @@ def check_masked(results: list[MaskResult]) -> None:
             raise LeftInClear
 
 
-def restore_answer(data: dict, results: list[MaskResult]) -> tuple[dict, int]:
+def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> str | None:
+    """A JSON answer with the values put back inside each string, so the JSON stays valid
+    whatever the values hold (quotes, backslashes); None if the text is not JSON."""
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+
+    def walk(node):
+        if isinstance(node, str):
+            back = restore(node, *results)
+            restored.update(back.restored)
+            return back.text
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        if isinstance(node, dict):
+            return {walk(k): walk(v) for k, v in node.items()}
+        return node
+
+    return json.dumps(walk(value), ensure_ascii=False)
+
+
+def restore_answer(
+    data: dict, results: list[MaskResult], json_mode: bool = False
+) -> tuple[dict, int]:
     """The provider's answer with the values back in each choice's message text; the number of
-    aliases restored."""
+    aliases restored. In JSON mode (`response_format`), values go back inside the JSON strings."""
     if not results:
         return data, 0
-    restored = 0
+    restored: set[str] = set()
     for choice in data.get("choices") or []:
         message = choice.get("message") if isinstance(choice, dict) else None
-        if isinstance(message, dict) and isinstance(message.get("content"), str):
+        if not (isinstance(message, dict) and isinstance(message.get("content"), str)):
+            continue
+        text = _restore_json(message["content"], results, restored) if json_mode else None
+        if text is None:
             back = restore(message["content"], *results)
-            message["content"] = back.text
-            restored += len(back.restored)
-    return data, restored
+            restored.update(back.restored)
+            text = back.text
+        message["content"] = text
+    return data, len(restored)
 
 
 def create_bridge(
@@ -112,10 +145,30 @@ def create_bridge(
     upstream: str = UPSTREAM,
     transport: httpx.AsyncBaseTransport | None = None,
     max_chars: int = MAX_CHARS,
+    allowed_hosts: tuple[str, ...] = LOCAL_HOSTS,
 ) -> FastAPI:
     """The bridge around one detector, loaded once by the caller. `api_key`: the Mistral key
     (else the one the client sends); `transport`: for tests, a fake provider."""
     app = FastAPI(title="Alias Bridge", version=__version__, docs_url=None, redoc_url=None)
+    hosts = set(allowed_hosts)
+
+    @app.middleware("http")
+    async def local_tools_only(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        # The bridge spends the user's key: a web page must not be able to drive it. Browsers
+        # send Origin on cross-site requests (SDKs and scripts do not), a DNS-rebinding page
+        # arrives with its own host name, and a JSON content type forces a CORS preflight that
+        # the bridge never answers.
+        host = request.headers.get("host", "").rsplit(":", 1)[0].strip("[]")
+        if "origin" in request.headers or host not in hosts:
+            return JSONResponse({"detail": "only local tools may use the bridge"}, 403)
+        if request.method == "POST" and not request.headers.get("content-type", "").startswith(
+            "application/json"
+        ):
+            return JSONResponse({"detail": "the body must be application/json"}, 415)
+        return await call_next(request)
+
     lock = threading.Lock()  # one detection at a time: CPU-bound, and the model is shared
     client = httpx.AsyncClient(base_url=upstream, transport=transport, timeout=120)
 
@@ -160,6 +213,13 @@ def create_bridge(
             raise HTTPException(400, "the body must be a JSON object")
         if body.get("stream"):
             raise HTTPException(501, "streaming answers are not supported yet: set stream false")
+        messages = body.get("messages")
+        if body.get("tools") or (
+            isinstance(messages, list)
+            and any(isinstance(m, dict) and m.get("tool_calls") for m in messages)
+        ):
+            # Tool definitions and call arguments are not masked yet: refuse rather than leak.
+            raise HTTPException(501, "tool calls are not supported yet")
         token = key(request)
         outgoing, results, counts = await run_in_threadpool(masked_request, body)
         answer = await client.post(
@@ -169,7 +229,11 @@ def create_bridge(
             return Response(
                 answer.content, answer.status_code, media_type=answer.headers.get("content-type")
             )
-        data, restored = restore_answer(answer.json(), results)
+        response_format = body.get("response_format")
+        json_mode = isinstance(response_format, dict) and str(
+            response_format.get("type", "")
+        ).startswith("json")
+        data, restored = restore_answer(answer.json(), results, json_mode)
         log.info("masked %s; restored %d", dict(counts), restored)
         return JSONResponse(
             data,

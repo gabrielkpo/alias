@@ -11,6 +11,7 @@ from alias_pii.rules import RuleDetector
 NAME = "Jean Dupont"
 IBAN = "FR76 3000 6000 0112 3456 7890 189"
 EMAIL = "jean.dupont@example.com"
+LOCAL = "http://127.0.0.1:8001"
 
 
 class Names:
@@ -50,7 +51,7 @@ class FakeMistral:
 
 def bridge(fake, api_key="test-key"):
     app = create_bridge(Names(), api_key=api_key, transport=httpx.MockTransport(fake))
-    return TestClient(app)
+    return TestClient(app, base_url=LOCAL)
 
 
 def ask(client, *messages, **extra):
@@ -115,7 +116,7 @@ def test_a_checksummed_value_left_in_clear_stops_the_request():
 
     fake = FakeMistral()
     app = create_bridge(Nothing(), api_key="k", transport=httpx.MockTransport(fake))
-    response = ask(TestClient(app), {"role": "user", "content": f"IBAN {IBAN}"})
+    response = ask(TestClient(app, base_url=LOCAL), {"role": "user", "content": f"IBAN {IBAN}"})
     assert response.status_code == 422
     assert fake.received == []  # nothing was sent
 
@@ -157,7 +158,7 @@ def test_the_openai_sdk_works_by_changing_only_its_base_url():
 
     async def call():
         sdk = openai.AsyncOpenAI(
-            base_url="http://bridge/v1",
+            base_url=f"{LOCAL}/v1",
             api_key="unused",
             http_client=httpx.AsyncClient(transport=httpx.ASGITransport(app=app)),
         )
@@ -168,3 +169,61 @@ def test_the_openai_sdk_works_by_changing_only_its_base_url():
     answer = asyncio.run(call())
     assert answer.choices[0].message.content == f"Bien reçu : Salut {NAME}"
     assert NAME not in json.dumps(fake.received)
+
+
+def test_only_local_tools_may_use_the_bridge():
+    """A web page must not spend the user's key: browser origin, foreign host (DNS rebinding)
+    and non-JSON bodies (no CORS preflight) are refused before anything is sent."""
+    fake = FakeMistral(reply="ok")
+    client = bridge(fake)
+    body = {"model": "m", "messages": [{"role": "user", "content": "Bonjour"}]}
+    from_page = client.post(
+        "/v1/chat/completions", json=body, headers={"Origin": "https://evil.example"}
+    )
+    assert from_page.status_code == 403
+    rebinding = client.post(
+        "/v1/chat/completions", json=body, headers={"Host": "evil.example:8001"}
+    )
+    assert rebinding.status_code == 403
+    simple = client.post(
+        "/v1/chat/completions", content=json.dumps(body), headers={"Content-Type": "text/plain"}
+    )
+    assert simple.status_code == 415
+    assert fake.received == []
+    for host in ("localhost:8001", "[::1]:8001"):
+        assert (
+            client.post("/v1/chat/completions", json=body, headers={"Host": host}).status_code
+            == 200
+        )
+
+
+def test_tool_calls_are_refused_rather_than_sent_unmasked():
+    fake = FakeMistral(reply="ok")
+    client = bridge(fake)
+    tools = [{"type": "function", "function": {"name": "f", "parameters": {}}}]
+    assert ask(client, {"role": "user", "content": "x"}, tools=tools).status_code == 501
+    call = {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "type": "function",
+            "function": {"name": "f", "arguments": json.dumps({"name": NAME})}}]}  # fmt: skip
+    assert ask(client, {"role": "user", "content": "x"}, call).status_code == 501
+    assert fake.received == []
+
+
+def test_json_answers_stay_valid_when_values_hold_quotes():
+    value = 'Résidence "Les Lilas"'
+
+    class Quoted:
+        def detect(self, text):
+            start = text.find(value)
+            return (
+                [Entity(EntityType.ADDRESS, start, start + len(value), value)] if start >= 0 else []
+            )
+
+    fake = FakeMistral(reply='{"adresse": "[ADDRESS_1]"}')
+    app = create_bridge(Quoted(), api_key="k", transport=httpx.MockTransport(fake))
+    response = ask(
+        TestClient(app, base_url=LOCAL),
+        {"role": "user", "content": f"Adresse : {value}"},
+        response_format={"type": "json_object"},
+    )
+    content = response.json()["choices"][0]["message"]["content"]
+    assert json.loads(content) == {"adresse": value}
