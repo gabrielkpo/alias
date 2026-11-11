@@ -78,7 +78,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 |---|---|---|
 | 1 | Rules (FR + EN), masking, restoring, leak check | done |
 | 2 | File readers; dataset v0.2 (grid generator, gates, balancer, datasheet), v0.3 LLM writer and v0.4 public corpora done; full build, LLM run, real sets | in progress |
-| 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, rules + GLiNER (done); Mistral zero-shot (adapter ready, run pending the API key) | in progress |
+| 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, rules + GLiNER (done); Mistral zero-shot (done) | done |
 | 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best: mmBERT-small | done |
 | 5 | Rules + model: the rules add what they prove (IBAN, national ID, birth date after a keyword) to the model's spans | done |
 | 6 | `alias-pii mask` CLI, JSON report, local API, Docker; CPU latency and memory | planned |
@@ -106,6 +106,7 @@ sets come later; these numbers measure the methods on our labels, not on real do
 | Presidio + spaCy lg | 0.46 | 0.48 | 34.8 % | 40 |
 | GLiNER multi PII | 0.63 | 0.74 | 22.5 % | 374 |
 | rules + GLiNER (hybrid) | 0.63 | 0.85 | 12.6 % | about 375 |
+| Mistral zero-shot (`mistral-small-latest`, API; first 1,000 documents) | 0.82 | 0.87 | 10.1 % | about 1,870 (network) |
 | **Alias model: mmBERT-small fine-tuned (step 4)** | **0.97** | **0.98** | **1.1 %** | about 360 |
 
 - Rules find every e-mail, IBAN and phone number, and 89 % of national IDs, but nothing that needs
@@ -118,6 +119,11 @@ sets come later; these numbers measure the methods on our labels, not on real do
   identifiers (42 %): the targets for the trained model of step 4.
 - GLiNER takes about 1.1 s for a 3,000-character page: above the one-second budget set for the
   model choice.
+- Mistral asked to list the personal data, without training, leaks 10.1 % on the first 1,000
+  test documents: better than every local baseline, nine times more than the fine-tuned model,
+  and the text leaves the machine. On the 200 LLM-written test documents (written by Mistral
+  itself, which favours it) it reaches recall 0.93, precision 0.89 and leak rate 4.1 %, close
+  to the model's 0.93, 0.94 and 3.5 %.
 - The fine-tuned mmBERT-small leaks ten times less than the best baseline. It was chosen among
   three candidates (docs/TRAINING.md); int8 quantisation destroyed its precision, so it runs
   unquantised, at about one second per page on 4 CPU cores.
