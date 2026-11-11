@@ -11,6 +11,8 @@ import {
 import { TAGS, detect, mask } from "./alias.js";
 
 const MODEL = "Gabrielkph/alias-mmbert-small";
+// What the first visit downloads: the ONNX model (563 MB) and the tokenizer (34 MB).
+const EXPECTED_BYTES = 597e6;
 
 const LABELS = {
   PERSON: "Person",
@@ -56,16 +58,26 @@ function setStatus(message) {
 async function load() {
   env.allowLocalModels = false;
   const files = new Map(); // file -> [loaded, total]
+  let started = null;
   const progress = (info) => {
     if (info.status !== "progress" || !info.total) return;
     files.set(info.file, [info.loaded, info.total]);
-    const [loaded, total] = [...files.values()].reduce((a, b) => [a[0] + b[0], a[1] + b[1]]);
+    const [loaded, known] = [...files.values()].reduce((a, b) => [a[0] + b[0], a[1] + b[1]]);
+    // The tokenizer comes first: until the model file starts, its size is not known yet.
+    const total = Math.max(known, EXPECTED_BYTES);
+    started ??= performance.now();
+    const seconds = (performance.now() - started) / 1000;
     const bar = $("progress");
     show(bar, true);
     bar.value = loaded / total;
+    let left = "";
+    if (seconds > 3 && loaded > 0) {
+      const minutes = Math.ceil(((total - loaded) / (loaded / seconds)) / 60);
+      left = minutes <= 1 ? ", about a minute left" : `, about ${minutes} minutes left`;
+    }
     setStatus(
-      `Downloading the model once (${Math.round(loaded / 1e6)} / ${Math.round(total / 1e6)} MB); ` +
-        "the browser keeps it for the next visits.",
+      `Downloading the model, first visit only: ${Math.round(loaded / 1e6)} / ` +
+        `${Math.round(total / 1e6)} MB${left}. The browser keeps it: next visits start at once.`,
     );
   };
   setStatus("Loading the model…");
