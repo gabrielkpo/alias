@@ -21,6 +21,16 @@ page, not even to a demo server.
 - **Privacy**: the page's content security policy allows requests to Hugging Face and jsDelivr
   only; the text is never part of a request. No analytics, no cookie.
 
+## Putting the values back
+
+The page stops at the masked text: the visitor sends it to the LLM they use, with their own
+request, and pastes the answer back. `restore` in `demo/alias.js` (the port of
+`masking.restore`) replaces each alias of this exchange by its value, kept in the page's memory
+only; an alias already literal in the input or invented by the LLM is left as it is and listed,
+and an alias the answer dropped is listed too. "Try an example answer" fills in what an LLM could
+answer to "Summarise this document" about the example, so the step can be tried without an LLM.
+No API key, no credit, no server (Gabriel's choice of 11/11).
+
 ## Checks
 
 - `cd demo && npm test`: unit tests of the port, fictitious values only.

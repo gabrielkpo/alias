@@ -53,6 +53,25 @@
       <h2>Report <span class="muted">(counts only, never the values)</span></h2>
       <table id="report"><thead><tr><th>Type</th><th>Values</th></tr></thead><tbody></tbody></table>
     </section>
+
+    <section id="back" aria-labelledby="back-title" hidden>
+      <h2 id="back-title">Put the values back <span class="muted">(in this browser)</span></h2>
+      <p class="muted">Send the masked text to the LLM you use (Le Chat, ChatGPT…) with your
+        request, for instance "Summarise this document", then paste its answer here: the aliases
+        become the real values again, without the values ever leaving this page.</p>
+      <textarea id="answer" rows="8" spellcheck="false"
+        placeholder="Paste the LLM's answer, with its [PERSON_1], [IBAN_1]…"></textarea>
+      <div class="actions">
+        <button id="restore" type="button">Restore</button>
+        <button id="example-answer" type="button" class="secondary" hidden>Try an example answer</button>
+      </div>
+      <p id="restore-report" class="muted" role="status"></p>
+      <textarea id="restored" rows="8" readonly spellcheck="false" hidden></textarea>
+      <div class="actions">
+        <button id="copy-restored" type="button" hidden>Copy the restored answer</button>
+        <span id="copied-restored" class="muted" aria-live="polite"></span>
+      </div>
+    </section>
   </main>
 
   <footer class="muted">Alias, open source (MIT):

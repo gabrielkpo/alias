@@ -8,7 +8,7 @@ import {
   Tensor,
   env,
 } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1/dist/transformers.min.js";
-import { TAGS, detect, mask } from "./alias.js";
+import { TAGS, detect, mask, restore } from "./alias.js";
 
 const MODEL = "Gabrielkph/alias-mmbert-small";
 // What the first visit downloads: the ONNX model (563 MB) and the tokenizer (34 MB).
@@ -37,6 +37,14 @@ jean.dupont@example.com. Numéro de sécurité sociale : 1 85 05 78 006 084 91.
 Merci de verser la somme sur le compte FR76 3000 6000 0112 3456 7890 189.
 
 Jean Dupont`;
+
+// What an LLM could answer to "Summarise this document" about the masked example: written with
+// the aliases the example gets, so the restore step can be tried without an LLM.
+const EXAMPLE_ANSWER = `Résumé : [PERSON_1], né le [BIRTH_DATE_1] et domicilié [ADDRESS_1], demande le remboursement de ses frais pour le dossier n° [IDENTIFIER_1].
+
+- Versement demandé sur le compte [IBAN_1].
+- Numéro de sécurité sociale indiqué : [NATIONAL_ID_1].
+- Contact : [PHONE_1] ou [EMAIL_1].`;
 
 const $ = (id) => document.getElementById(id);
 let detector = null; // { tokenize, predict, bos, eos } once the model is loaded
@@ -196,6 +204,18 @@ async function maskText() {
     table(result.report);
     $("copied").textContent = "";
     show($("results"), true);
+    // A new masked text: the previous answer and its restored version no longer apply.
+    $("answer").value = "";
+    $("restored").value = "";
+    $("restore-report").textContent = "";
+    show($("restored"), false);
+    show($("copy-restored"), false);
+    show($("back"), true);
+    // The example answer only fits the example, and only if every alias it uses was given.
+    const fits = [...EXAMPLE_ANSWER.matchAll(/\[[A-Z_]+_\d+\]/g)].every((m) =>
+      result.aliases.includes(m[0]),
+    );
+    show($("example-answer"), text === EXAMPLE && fits);
     setStatus(`Masked in ${((performance.now() - started) / 1000).toFixed(1)} s, in this browser.`);
   } catch (error) {
     console.error(error);
@@ -204,6 +224,38 @@ async function maskText() {
     button.disabled = false;
     button.textContent = "Mask";
   }
+}
+
+function restoreAnswer() {
+  if (!last) return;
+  const answer = $("answer").value;
+  const report = $("restore-report");
+  if (!answer.trim()) {
+    report.textContent = "Paste the LLM's answer first.";
+    return;
+  }
+  const back = restore(answer, last);
+  $("restored").value = back.text;
+  show($("restored"), true);
+  show($("copy-restored"), true);
+  $("copied-restored").textContent = "";
+  const parts = [`${back.restored.length} alias(es) replaced by their value.`];
+  if (back.missing.length) parts.push(`Not in the answer: ${back.missing.join(", ")}.`);
+  if (back.unknown.length) {
+    parts.push(`Left as they are (not from this text): ${back.unknown.join(", ")}.`);
+  }
+  report.textContent = parts.join(" ");
+}
+
+async function copyRestored() {
+  let copied = true;
+  try {
+    await navigator.clipboard.writeText($("restored").value);
+  } catch {
+    $("restored").select();
+    copied = document.execCommand("copy");
+  }
+  $("copied-restored").textContent = copied ? "Copied." : "Not copied: select the text and copy it.";
 }
 
 async function copyMasked() {
@@ -249,6 +301,11 @@ $("input").addEventListener("keydown", (event) => {
 });
 $("copy").addEventListener("click", copyMasked);
 $("download").addEventListener("click", downloadReport);
+$("restore").addEventListener("click", restoreAnswer);
+$("example-answer").addEventListener("click", () => {
+  $("answer").value = EXAMPLE_ANSWER;
+});
+$("copy-restored").addEventListener("click", copyRestored);
 load().catch((error) => {
   console.error(error);
   show($("progress"), false);

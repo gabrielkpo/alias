@@ -15,6 +15,7 @@ import {
   mergeWindows,
   nirIsValid,
   resolveOverlaps,
+  restore,
   spansFromTokens,
   windows,
 } from "../alias.js";
@@ -170,4 +171,49 @@ test("identifiers keep their keyword; variant 3 keeps a person's file only", asy
   };
   const v3 = await detect(text, nothing, PERSON_FILE_KEYWORDS);
   assert.deepEqual(v3.map((e) => [e.type, e.text]), [["IDENTIFIER", "2024/00421"]]);
+});
+
+// masking.restore, the same cases as tests/test_masking.py.
+const found = (text, type, value) => {
+  const start = text.indexOf(value);
+  return { type, start, end: start + value.length, text: value, score: 1 };
+};
+
+test("round trip: the answer gets the original values back", () => {
+  const text = "Écrire à jean.dupont@example.com, IBAN FR76 3000 6000 0112 3456 7890 189.";
+  const result = mask(text, [
+    found(text, "EMAIL", "jean.dupont@example.com"),
+    found(text, "IBAN", "FR76 3000 6000 0112 3456 7890 189"),
+  ]);
+  assert.equal(result.masked, "Écrire à [EMAIL_1], IBAN [IBAN_1].");
+  const back = restore("Le virement vers [IBAN_1] est confirmé ; réponse envoyée à [EMAIL_1].", result);
+  assert.equal(
+    back.text,
+    "Le virement vers FR76 3000 6000 0112 3456 7890 189 est confirmé ; réponse envoyée à jean.dupont@example.com.",
+  );
+  assert.deepEqual([back.missing, back.unknown], [[], []]);
+});
+
+test("restore reports dropped and invented aliases, tolerates spaces", () => {
+  const text = "a.b@example.com et 01 99 00 12 34";
+  const result = mask(text, [found(text, "EMAIL", "a.b@example.com"), found(text, "PHONE", "01 99 00 12 34")]);
+  const back = restore("Contact [ EMAIL_1 ] and [PERSON_7].", result);
+  assert.equal(back.text, "Contact a.b@example.com and [PERSON_7].");
+  assert.deepEqual(back.missing, ["[PHONE_1]"]);
+  assert.deepEqual(back.unknown, ["[PERSON_7]"]);
+});
+
+test("an alias already literal in the input is never restored", () => {
+  const text = "Le gabarit utilise [EMAIL_1] ; écrire à a.b@example.com";
+  const result = mask(text, [found(text, "EMAIL", "a.b@example.com")]);
+  assert.equal(result.masked, "Le gabarit utilise [EMAIL_1] ; écrire à [EMAIL_2]");
+  const back = restore(result.masked, result);
+  assert.equal(back.text, "Le gabarit utilise [EMAIL_1] ; écrire à a.b@example.com");
+  assert.deepEqual(back.unknown, []);
+});
+
+test("the spans and the report never carry the values", () => {
+  const text = "a.b@example.com";
+  const result = mask(text, [found(text, "EMAIL", "a.b@example.com")]);
+  assert.ok(!JSON.stringify({ entities: result.entities, report: result.report }).includes("a.b@"));
 });

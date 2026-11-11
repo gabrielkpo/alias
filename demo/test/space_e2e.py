@@ -6,6 +6,8 @@ Opens the Space, waits for the model to load, masks the page's own fictitious ex
 - no personal value of the example is left in clear, apart from the detector's known
   leaks (`KNOWN_LEAKS`, reported); a value masked under another type is only noted;
 - the page made requests to Hugging Face and jsDelivr only, and none of them carried the text;
+- putting the values back: the masked text restored gives the original, an invented alias
+  is left as it is, and the example answer comes back with no alias;
 - no error in the console and no content security policy violation.
 
 It writes a screenshot and a JSON report (timings, aliases, hosts) for the workflow artifact.
@@ -19,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -113,6 +116,11 @@ def main() -> int:
         for r in requests
         if probe and probe in r["sent"]
     ]
+    if masked and report.get("restore_round_trip") is not True:
+        problems.append("restoring the masked text did not give the original text back")
+    if masked and report.get("example_answer_aliases_left") != []:
+        left = report.get("example_answer_aliases_left")
+        problems.append(f"example answer: not offered or aliases left after restoring ({left})")
     problems += [f"CSP violation: {v}" for v in report["csp_violations"]]
     problems += [f"console error: {e}" for e in console_errors]
     report["problems"] = problems
@@ -150,6 +158,19 @@ def run(page, args, report: dict) -> tuple[str, str]:
     report["mask_status"] = timings
     masked = page.input_value("#masked")
     report["masked"] = masked
+    # Put the values back: the masked text pasted as the "answer", plus an alias no text gave,
+    # must give the original text back with that alias left as it is.
+    page.fill("#answer", masked + "\n[PERSON_99]")
+    page.click("#restore")
+    report["restore_round_trip"] = page.input_value("#restored") == text + "\n[PERSON_99]"
+    report["restore_report"] = page.text_content("#restore-report")
+    if page.is_visible("#example-answer"):  # the example's summary, restored: no alias left
+        page.click("#example-answer")
+        page.click("#restore")
+        restored = page.input_value("#restored")
+        report["example_answer_aliases_left"] = re.findall(r"\[[A-Z_]+_\d+\]", restored)
+    else:
+        report["example_answer_aliases_left"] = None
     report["counts"] = {
         cells[0].text_content(): cells[1].text_content()
         for cells in (
