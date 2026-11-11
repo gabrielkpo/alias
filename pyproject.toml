@@ -31,6 +31,7 @@ data = [
     "pyarrow>=15",
 ]
 dev = ["httpx>=0.27", "pytest>=8", "ruff>=0.6"]
+onnx = ["onnx>=1.16", "onnxruntime>=1.18"]
 train = [
     "accelerate>=0.30",
     "datasets>=2.19",
