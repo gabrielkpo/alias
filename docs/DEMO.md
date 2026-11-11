@@ -10,7 +10,8 @@ public on Hugging Face, which cannot really be undone. Nothing below has been ru
 ## Steps (once agreed)
 
 1. Check the model can be published: trained on synthetic and public data only (never
-   `data/real/`), base model licence compatible (`jhu-clsp/mmBERT-small`: MIT, checked 11/11), WikiNER attribution in the card.
+   `data/real/`), base model licence compatible (`jhu-clsp/mmBERT-small`: MIT, checked 11/11),
+   WikiNER attribution in the card.
 2. Create the model repository on Hugging Face and upload the checkpoint (`final/` from the
    `alias-train-mmbert-small` Kaggle kernel) with `docs/MODEL_CARD.md` as its `README.md`.
 3. Create a Docker Space and push the two files of `space/` (`README.md`, `Dockerfile`).
