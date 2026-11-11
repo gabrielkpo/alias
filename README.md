@@ -85,7 +85,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 | 2 | File readers; dataset v0.2 (grid generator, gates, balancer, datasheet), v0.3 LLM writer and v0.4 public corpora done; full build, LLM run, real sets | in progress |
 | 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, rules + GLiNER (done); Mistral zero-shot (adapter ready, run pending the API key) | in progress |
 | 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best: mmBERT-small | done |
-| 5 | Rules + model: the rules add what they prove (IBAN, national ID, birth date after a keyword) to the model's spans | done |
+| 5 | Rules + model: the rules add what they prove (IBAN, national ID, birth date after a keyword, identifier after a person's-file keyword) to the model's spans | done |
 | 6 | Local API and web page, Docker CPU image, public demo in the browser (done); `alias-pii mask` CLI | in progress |
 | 7 | Held-out real test sets (French and English, annotated by hand), final results | planned |
 | 8 | Phase 2: `alias-pii run --llm mistral`, end-to-end restoring | planned |

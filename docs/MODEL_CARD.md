@@ -48,8 +48,9 @@ second per 3,000-character page on 4 cores. Dynamic int8 quantisation destroys i
 
 - Measured on synthetic and LLM-written text only: real documents may hold forms it never saw.
 - Out of distribution its weak spots are birth dates and national IDs. The Alias rules add
-  national IDs (checksum) and birth dates announced by a keyword; a birth date with no keyword
-  can still be missed (11 % leaked on LLM-written validation text, docs/DETECTOR.md).
+  national IDs (checksum), birth dates announced by a keyword and file numbers announced by a
+  person's-file keyword ("dossier n°", "customer ID"); a birth date with no keyword can still be
+  missed (11 % leaked on LLM-written validation text, docs/DETECTOR.md).
 - No detector has perfect recall: Alias is a component, not an anonymity guarantee.
 
 ## Use

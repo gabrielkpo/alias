@@ -11,7 +11,7 @@ import { parseArgs } from "node:util";
 
 import { AutoModelForTokenClassification, AutoTokenizer, Tensor, env } from "@huggingface/transformers";
 
-import { RULE_TYPES, TAGS, alignTokens, detect, detectRules } from "../alias.js";
+import { TAGS, alignTokens, detect, findRules, keptRule, resolveOverlaps } from "../alias.js";
 
 const { values: args } = parseArgs({
   options: {
@@ -80,9 +80,11 @@ for (const [index, c] of cases.entries()) {
     offsets = String(error);
   }
   if (!same(offsets, c.offsets)) failures.offsets.push(index);
-  const rules = detectRules(c.text)
-    .filter((e) => RULE_TYPES.has(e.type))
-    .map((e) => [e.type, e.start, e.end]);
+  const rules = resolveOverlaps(findRules(c.text).filter((e) => keptRule(e))).map((e) => [
+    e.type,
+    e.start,
+    e.end,
+  ]);
   if (!same(rules, c.rules)) failures.rules.push({ index, js: rules, python: c.rules });
   if (detector && c.detector) {
     const found = (await detect(c.text, detector)).map((e) => [e.type, e.start, e.end]);

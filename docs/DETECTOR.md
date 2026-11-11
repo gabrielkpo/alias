@@ -81,3 +81,50 @@ small and said as such: the model already finds most of what the rules prove. Bi
 leak 11 % on the LLM-written documents: the dates missed carry no keyword, and some of their gold
 labels are doubtful (a contract or meeting date labelled as a birth date by the LLM writer). The
 rules matter most where the model has not been measured yet: real documents (step 7).
+
+### Third variant: identifiers announced by a person's-file keyword
+
+Written down here before its measure. The public demo's own example left its file number in
+clear ("dossier n° 2024/00421"): identifiers are the model's call since the second variant, and
+it misses this one. The identifier rule was left out as a whole because of its precision (0.38 on
+the synthetic split), but that precision depends on the keyword. Measured with the rules alone
+on the validation splits (exact span = true positive):
+
+| Keyword (normalised) | Synthetic: rule spans, precision | LLM-written: rule spans, precision |
+|---|---|---|
+| file, dossier, adherent, matricule, contrat, sinistre, licence, license | 475, 1.00 | 9, 1.00 |
+| claim, customer, passport, passeport, employee | 125, 0.94 | 6, 1.00 |
+| client, patient | absent | 12, 1.00 |
+| order, commande, facture, invoice, ticket, reference | 2,460, 0.00 | 24, 0.46 |
+| account, compte, id, policy, police | 412, 0.22 | 33, 0.15 |
+
+The first rows name a person's file; the others are mostly orders, invoices and bank accounts
+(an account number next to "compte" is usually the IBAN, already proven by its checksum).
+
+**Variant 3**: the second variant plus the rule's identifiers whose keyword names a person's file:
+dossier, contrat, client, patient, adhérent, matricule, sinistre, passeport, permis, file,
+claim, customer, passport, licence (license), employee, member (membership). `ref`, although
+precise on the synthetic split (0.97), is left out: on real documents it announces invoices as
+often as files.
+
+**Decision rule.** Variant 3 replaces the second variant if, on both validation splits, its
+leak rate is not higher and its strict precision is no more than 0.5 point lower. Caveat written
+now: the keywords were chosen by looking at the validation splits (the test splits stay unread),
+so the measured gain will be optimistic; the list was chosen on the synthetic split and only
+checked on the LLM-written one. Real documents (step 7) are the honest measure.
+
+Results (Kaggle CPU session, code `5f6b725`, same validation splits). Before this run the
+detector was also changed to filter the rules' raw spans before merging overlaps: the rules'
+phone matcher reads some 10-digit claim numbers as US phones, and a dropped phone must not absorb
+a kept identifier. The first run, before that change (code `884b11e`), gave the same numbers.
+
+| Method | Synthetic: P / R / leak | LLM-written: P / R / leak |
+|---|---|---|
+| second variant | 0.9739 / 0.9773 / 1.40 % | 0.9332 / 0.9342 / 5.10 % |
+| **third variant** | **0.9735 / 0.9773 / 1.40 %** | **0.9332 / 0.9342 / 5.10 %** |
+
+It passes (leak unchanged on both splits, precision 0.04 point lower on the synthetic one, where
+identifier precision goes from 0.988 to 0.985) and **is now the Alias detector**. The gain on the
+validation splits is nil: the model already finds these identifiers there. What it fixes are
+the ones the model misses, such as the demo's "dossier n° 2024/00421"; how often that happens on
+real documents is for step 7 to say.

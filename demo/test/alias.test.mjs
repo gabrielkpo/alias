@@ -4,11 +4,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  PERSON_FILE_KEYWORDS,
   TAGS,
   alignTokens,
   detect,
   detectRules,
   ibanIsValid,
+  keywordKind,
   mask,
   mergeWindows,
   nirIsValid,
@@ -153,4 +155,19 @@ test("an alias already in the text is never handed out", () => {
   const text = "[PERSON_1] a écrit à Jean Dupont.";
   const result = mask(text, [{ type: "PERSON", start: 21, end: 32, text: "Jean Dupont", score: 1 }]);
   assert.equal(result.masked, "[PERSON_1] a écrit à [PERSON_2].");
+});
+
+test("identifiers keep their keyword; variant 3 keeps a person's file only", async () => {
+  assert.equal(keywordKind("Adhérent"), "adherent");
+  assert.equal(keywordKind("réf."), "ref");
+  const text = "Objet : dossier n° 2024/00421. Commande n° CMD-2024-118.";
+  // A model that finds nothing: one token for the whole text, tagged O.
+  const nothing = {
+    tokenize: (t) => ({ ids: [10], tokens: [`▁${t.replaceAll(" ", "▁")}`] }),
+    predict: async (ids) => ids.map(() => 0),
+    bos: 1,
+    eos: 2,
+  };
+  const v3 = await detect(text, nothing, PERSON_FILE_KEYWORDS);
+  assert.deepEqual(v3.map((e) => [e.type, e.text]), [["IDENTIFIER", "2024/00421"]]);
 });

@@ -8,8 +8,9 @@
 //
 // Known differences, kept small on purpose and checked by the parity test:
 // - offsets count UTF-16 units, as JavaScript strings do (Python counts code points);
-// - the rules' phone matcher (libphonenumber) is not ported: phones come from the model only,
-//   and a phone is keyed for its alias by its digits ("+33" for a leading 0) instead of E.164;
+// - the rules' phone matcher (libphonenumber) is not ported: the detector drops the rules' phones
+//   before merging overlaps anyway; a phone is keyed for its alias by its digits ("+33" for a
+//   leading 0) instead of E.164;
 // - digits are ASCII digits.
 
 export const TYPES = [
@@ -39,6 +40,21 @@ const PRIORITY = {
 
 // The rules' types the detector keeps (detector.RULE_TYPES): proven by a checksum or a keyword.
 export const RULE_TYPES = new Set(["IBAN", "NATIONAL_ID", "BIRTH_DATE"]);
+
+// detector.PERSON_FILE_KEYWORDS: the rules' identifiers kept by variant 3 (docs/DETECTOR.md).
+export const PERSON_FILE_KEYWORDS = new Set([
+  "dossier", "contrat", "client", "patient", "adherent", "matricule", "sinistre", "passeport",
+  "permis", "file", "claim", "customer", "passport", "licence", "license", "employee", "member",
+  "membership",
+]); // prettier-ignore
+
+// The keywords the detector uses by default (detector.RulesAndModel's id_keywords).
+export const ID_KEYWORDS = PERSON_FILE_KEYWORDS;
+
+/** detector.RulesAndModel._kept: a rule span the detector adds to the model's. */
+export function keptRule(e, idKeywords = ID_KEYWORDS) {
+  return RULE_TYPES.has(e.type) || (e.type === "IDENTIFIER" && idKeywords.has(e.kind));
+}
 
 function entity(type, text, start, end, source = "rules", kind = null) {
   return { type, start, end, text: text.slice(start, end), score: 1.0, source, kind };
@@ -151,7 +167,7 @@ const ID_KEYWORD =
   "|claim|order|ticket|passport|licen[cs]e|id)";
 const FILLER = "(?:(?:is|was|est|était|=)\\s+)?(?:(?:le|la|the)\\s+)?";
 const IDENTIFIER = new RegExp(
-  `(?:${B}${NUMBER_WORD}\\s*(?:de\\s+|du\\s+|d['’]\\s*|of\\s+)?)?${B}${ID_KEYWORD}(?!${W})` +
+  `(?:${B}${NUMBER_WORD}\\s*(?:de\\s+|du\\s+|d['’]\\s*|of\\s+)?)?${B}(?<keyword>${ID_KEYWORD})(?!${W})` +
     `(?:\\s+${NUMBER_WORD})?\\s*(?:[:#]\\s*)?${FILLER}` +
     "(?<value>[A-Z0-9](?:[A-Z0-9/_.\\-]*[A-Z0-9])?)",
   "giud",
@@ -241,9 +257,14 @@ function* identifiers(text) {
     const value = m.groups.value;
     if (value.length >= 4 && /[0-9]/.test(value)) {
       const [start, end] = m.indices.groups.value;
-      yield entity("IDENTIFIER", text, start, end);
+      yield entity("IDENTIFIER", text, start, end, "rules", keywordKind(m.groups.keyword));
     }
   }
+}
+
+/** rules.keyword_kind: "Adhérent" -> "adherent", "réf." -> "ref". */
+export function keywordKind(keyword) {
+  return keyword.toLowerCase().normalize("NFKD").replace(/\p{Mn}/gu, "").replace(/\.+$/u, "");
 }
 
 function* birthDates(text) {
@@ -255,15 +276,14 @@ function* birthDates(text) {
   }
 }
 
+/** rules.RuleDetector.find, without the phone matcher: every rule's spans, not merged yet. */
+export function findRules(text) {
+  return [...emails(text), ...ibans(text), ...nationalIds(text), ...identifiers(text), ...birthDates(text)];
+}
+
 /** rules.RuleDetector.detect, without the phone matcher. */
 export function detectRules(text) {
-  return resolveOverlaps([
-    ...emails(text),
-    ...ibans(text),
-    ...nationalIds(text),
-    ...identifiers(text),
-    ...birthDates(text),
-  ]);
+  return resolveOverlaps(findRules(text));
 }
 
 // ---------------------------------------------------------------- tokens and windows
@@ -414,9 +434,10 @@ export async function detectModel(text, { tokenize, predict, bos, eos }) {
   return spansFromTokens(text, mergeWindows(predicted));
 }
 
-/** detector.RulesAndModel.detect: the model's spans plus the rules' proven types. */
-export async function detect(text, model) {
-  const rules = detectRules(text).filter((e) => RULE_TYPES.has(e.type));
+/** detector.RulesAndModel.detect: the model's spans plus the rules' kept spans. */
+export async function detect(text, model, idKeywords = ID_KEYWORDS) {
+  // Raw rule spans filtered before merging, as in Python: a dropped type cannot absorb a kept one.
+  const rules = findRules(text).filter((e) => keptRule(e, idKeywords));
   return resolveOverlaps([...rules, ...(await detectModel(text, model))]);
 }
 

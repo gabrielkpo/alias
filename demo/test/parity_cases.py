@@ -2,7 +2,7 @@
 
 Texts: generated validation documents (fictitious identities, `synthetic.generate`) plus edge
 cases (accents, emoji, tabs, non-breaking spaces, a text starting with a newline, a long text read
-in several windows). For each text it writes the rules' spans of the detector's types, the
+in several windows). For each text it writes the rule spans the detector keeps, the
 tokenizer's ids and offsets and, with `--model`, the full detector's spans (rules + model).
 Offsets are converted to UTF-16 units, as JavaScript counts them.
 
@@ -18,7 +18,8 @@ import argparse
 import json
 from pathlib import Path
 
-from alias_pii.detector import RULE_TYPES, RulesAndModel
+from alias_pii.detector import RulesAndModel
+from alias_pii.entities import resolve_overlaps
 from alias_pii.rules import RuleDetector
 from alias_pii.synthetic import generate
 
@@ -29,6 +30,8 @@ EDGE_CASES = [
     "Émoji 👩🏽‍💻 and CJK 東京 near jean.dupont@example.com, DOB: 2 novembre 1956.",
     "Customer ID: AB-123456, SSN 123-45-6789, NINO AB 12 34 56 C, date of birth as July 2, 1969",
     "15/04/1965 : date de naissance de Paul Martin ; GB82 WEST 1234 5698 7654 32",
+    "Objet : dossier n° 2024/00421. Commande n° CMD-2024-118. N° d'adhérent : 77-1234. "
+    "ID client : CL-2024-09. Claim #CLM00912, invoice INV-2024-77, Customer ID: AC-559102.",
     "Écrire à Jean Dupont, 14 rue des Lilas, 69003 Lyon. " * 120,  # several windows
 ]
 
@@ -59,6 +62,7 @@ def main() -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     rules = RuleDetector()
+    kept = RulesAndModel(model=None)._kept  # the rule spans the default detector adds
     detector = RulesAndModel.from_checkpoint(args.model) if args.model else None
     texts = [e.text for e in generate(args.documents, split="validation", seed=0)] + EDGE_CASES
     cases = []
@@ -69,7 +73,7 @@ def main() -> None:
             "text": text,
             "ids": encoded["input_ids"],
             "offsets": [[to16[s], to16[e]] for s, e in encoded["offset_mapping"]],
-            "rules": spans(text, [e for e in rules.detect(text) if e.type in RULE_TYPES]),
+            "rules": spans(text, resolve_overlaps([e for e in rules.find(text) if kept(e)])),
         }
         if detector is not None:
             case["detector"] = spans(text, detector.detect(text))
