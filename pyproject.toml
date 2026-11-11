@@ -11,6 +11,12 @@ dependencies = [
     "python-docx>=1.1",
 ]
 
+[project.optional-dependencies]
+# The local web API (`python -m alias_pii.app`); the model itself also needs torch and
+# transformers (`model` extra), which the rules-only mode and the tests do without.
+app = ["fastapi>=0.115", "uvicorn>=0.30"]
+model = ["torch>=2.3", "transformers>=4.51,<5"]
+
 [dependency-groups]
 bench = [
     "gliner>=0.2",
@@ -24,7 +30,7 @@ data = [
     "httpx>=0.27",
     "pyarrow>=15",
 ]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["httpx>=0.27", "pytest>=8", "ruff>=0.6"]
 train = [
     "accelerate>=0.30",
     "datasets>=2.19",

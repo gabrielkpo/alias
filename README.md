@@ -177,6 +177,19 @@ uv sync --group dev
 uv run pytest
 ```
 
+Local API (masks a pasted text; nothing leaves the machine, nothing is logged or stored):
+
+```
+uv sync --extra app --extra model
+uv run python -m alias_pii.app --model <checkpoint folder>   # http://127.0.0.1:8000
+curl -s localhost:8000/api/mask -H 'content-type: application/json' \
+  -d '{"text": "Écrire à jean.dupont@example.com"}'
+```
+
+It answers with the masked text, each span's type, position and alias, and a count per type;
+never the values themselves. Without `--model` only the rules run (no names or addresses):
+enough to try the API on a laptop.
+
 Benchmark (step 3), on the generated dataset (see Data and privacy):
 
 ```
@@ -205,6 +218,7 @@ name masked by half does not count, which the overlap and strict recalls show in
 | `src/alias_pii/readers.py` | `read_document`: .txt, .md, .docx, text PDFs to plain text |
 | `src/alias_pii/identities.py`, `documents.py` | fake identities; grid document generator |
 | `src/alias_pii/quality.py`, `build_dataset.py` | quality gates; dataset build and datasheet |
+| `src/alias_pii/detector.py`, `app.py` | rules + model detector; local web API (FastAPI) |
 | `src/alias_pii/benchmark.py`, `baselines.py` | benchmark harness; rules, Presidio + spaCy and GLiNER baselines |
 | `src/alias_pii/llm_writer.py`, `sources.py` | LLM-written documents (Mistral, placeholders); public corpora converters |
 | `tests/` | unit tests; `tests/README.md` lists allowed fixture values |
