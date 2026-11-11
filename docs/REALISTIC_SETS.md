@@ -25,7 +25,7 @@ draft `feat/real-sets` stays for later).
 
 | Set | Language, sector | What it brings | State |
 |---|---|---|---|
-| TAB, Text Anonymization Benchmark (Pilán et al., 2022), MIT | EN, legal (European Court of Human Rights judgments) | real judgments, hand-annotated for anonymisation | converted |
+| TAB, Text Anonymization Benchmark (Pilán et al., 2022), MIT | EN, legal (European Court of Human Rights judgments) | real judgments, hand-annotated for anonymisation | measured |
 | French court decisions, DILA open data (CASS, CAPP, JADE), Licence Ouverte | FR, labour, banking, insurance, health, administration | real prose; the court's placeholders ("M. [C] [I]", "[Adresse 1]") refilled with fake identities give exact labels | planned |
 | Official templates (service-public.fr letters, CERFA forms, payslip, RIB) filled with fake identities | FR, administration, banking, HR, tax; defence only this way | real layouts with every hard type (IBAN, NIR, birth date) | planned |
 | CFPB consumer complaint narratives | EN, banking | real complaints, scrubbed to "XXXX": slots typed by hand then refilled | planned |
@@ -75,4 +75,29 @@ script that downloads them and prints the masked text: their texts are not commi
 
 ## Results
 
-Not measured yet.
+### TAB, test split (read once, 11/11)
+
+127 English judgments of the European Court of Human Rights, code `99f533c` (variant 3 detector),
+published model, GitHub CPU machine (run 43064671338). Overlap scores and leak rate are the main
+measures (see above); strict scores in the last column.
+
+| Label | Gold spans | Overlap precision | Overlap recall | Leak rate | Strict P / R |
+|---|---|---|---|---|---|
+| PERSON | 951 | 0.894 | 0.925 | **12.5 %** | 0.117 / 0.121 |
+| BIRTH_DATE (mostly a year) | 158 | 0.935 | 0.259 | 74.7 % | 0.065 / 0.019 |
+| IDENTIFIER (application numbers) | 285 | 1.000 | 0.053 | 94.7 % | 0 / 0 |
+| all | 1,394 | 0.899 | 0.671 | 36.4 % | 0.112 / 0.085 |
+
+How to read it:
+
+- **Names hold up on real legal English**: 12.5 % of names still readable after masking, against
+  3 % on the synthetic validation split and 8 % on the LLM-written one (docs/DETECTOR.md). The misses seen on
+  the validation split are real-text cases: fragments of Turkish place names taken for names
+  ("Di", "ır" in "Diyarbakır"), a name cut ("eson" for "Gleeson"), initials ("G.D.").
+- **The two weak spots announced before reading are confirmed.** A year of birth alone is not
+  masked (Alias learnt full dates), and a court application number is not taken for a person's
+  file. Both are gaps of Alias's scope as much as of the model: a year alone or a case number is
+  a quasi-identifier, which Alias does not claim to cover yet.
+- The rules add nothing here (no IBAN, national ID or keyword birth date in these judgments).
+- Strict scores are low because the model includes "Mr" in names (the training-data
+  inconsistency above), not because names are missed.
