@@ -1,7 +1,8 @@
 """Rule layer: regular expressions plus checksums for strict formats, French and English.
 
-Covers EMAIL, PHONE, IBAN, NATIONAL_ID (FR NIR, US SSN, UK NINO) and IDENTIFIER (a file or
-contract number announced by a keyword). PERSON, ADDRESS and BIRTH_DATE are left to the model.
+Covers EMAIL, PHONE, IBAN, NATIONAL_ID (FR NIR, US SSN, UK NINO), IDENTIFIER (a file or
+contract number announced by a keyword) and BIRTH_DATE when a keyword announces it ("né(e) le",
+"date of birth", "DOB"): a date alone may be any date. PERSON and ADDRESS are left to the model.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from alias_pii.validators import IBAN_LENGTHS, iban_is_valid, nir_is_valid
 PHONE_REGIONS = ("FR", "GB", "US")
 
 # Unicode domains too (jean@société.fr): \w is Unicode-aware; the TLD is letters only.
-_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{2,}\b")
+_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]++@[\w-]++(?:\.[\w-]++)*\.[^\W\d_]{2,}\b")
 
 # 15 characters with optional single separators (space, dot or dash): sex, year, month,
 # department (or 2A/2B), commune, order number, key. The checksum decides; the pattern only
@@ -59,6 +60,36 @@ _IDENTIFIER = re.compile(
 )
 
 
+_MONTHS = (
+    r"(?:janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[ûu]t|septembre|octobre|novembre"
+    r"|d[ée]cembre|january|february|march|april|may|june|july|august|september|october"
+    r"|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\.?"
+)
+_DATE = (
+    r"(?:\d{1,2}[/.\-]\d{1,2}[/.\-](?:\d{4}|\d{2})"  # 16/11/1955, 01.12.1986, 07-16-51
+    r"|\d{4}-\d{2}-\d{2}"  # 1955-11-16
+    rf"|\d{{1,2}}(?:er|st|nd|rd|th)?\s+(?:of\s+)?{_MONTHS}\s+\d{{4}}"  # 2 novembre 1956
+    rf"|{_MONTHS}\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+\d{{4}})"  # July 2, 1969
+)
+_BIRTH_KEYWORD = (
+    r"(?:\bn[ée]e?(?:\(e\))?\s+le"  # né le, née le, né(e) le
+    r"|\b(?:date\s+de\s+)?naiss(?:ance|\.)(?:\s+d[ée]clar[ée]e)?"
+    r"|\bdate\s+of\s+birth|\bbirth\s*date|\bd\.?o\.?b\b\.?|\bborn(?:\s+on)?)"
+)
+# Keyword, then punctuation or a short verb before the date: "Date of birth: ", "DOB - ",
+# "date of birth as ", "né(e) le : ".
+_BIRTH_DATE = re.compile(
+    rf"{_BIRTH_KEYWORD}[\s:(|\-–—]*(?:(?:is|was|as|est|le|on)\s+)?"
+    rf"(?P<value>(?<!\d){_DATE})(?![\d\w])",
+    re.IGNORECASE,
+)
+# The same, keyword after the date: "15/04/1965 : date de naissance", "8 July 1943: date of birth".
+_BIRTH_DATE_BEFORE = re.compile(
+    rf"(?<![\d\w])(?P<value>{_DATE})\s*[:\-–—]\s*{_BIRTH_KEYWORD}",
+    re.IGNORECASE,
+)
+
+
 class RuleDetector:
     """Deterministic detector. `detect` returns non-overlapping spans sorted by position."""
 
@@ -71,6 +102,7 @@ class RuleDetector:
             *self._ibans(text),
             *self._national_ids(text),
             *self._identifiers(text),
+            *self._birth_dates(text),
         ]
         return resolve_overlaps(found)
 
@@ -133,3 +165,7 @@ class RuleDetector:
             # A keyword followed by "3" or "of" is not an identifier: require a digit and length.
             if len(value) >= 4 and any(c.isdigit() for c in value):
                 yield self._entity(EntityType.IDENTIFIER, text, m.start("value"), m.end("value"))
+
+    def _birth_dates(self, text: str) -> Iterator[Entity]:
+        for m in [*_BIRTH_DATE.finditer(text), *_BIRTH_DATE_BEFORE.finditer(text)]:
+            yield self._entity(EntityType.BIRTH_DATE, text, m.start("value"), m.end("value"))

@@ -102,3 +102,44 @@ def test_nir_beats_phone_on_overlap():
 )
 def test_formats_that_used_to_leak(text, masked):
     assert mask(text, detector).text == masked
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ("Karim El Amrani, né le 2 novembre 1956, demeurant à Lyon.", "2 novembre 1956"),
+        ("Je suis née le 01.12.1986.", "01.12.1986"),
+        ("Köster, né(e) le 16/01/1994.", "16/01/1994"),
+        ("Date de naissance déclarée : 16 décembre 1985", "16 décembre 1985"),
+        ("Naissance : 25/07/1986", "25/07/1986"),
+        ("Name: Tran Thi Lan Date of Birth: July 2, 1969", "July 2, 1969"),
+        ("DOB : 07/11/1947.", "07/11/1947"),
+        ("They confirmed their date of birth as 07/16/1951.", "07/16/1951"),
+        ("I was born on 18 July 2001 in Leeds.", "18 July 2001"),
+        ("Date of Birth: 1981-11-30", "1981-11-30"),
+        ("15/04/1965 : date de naissance de l'assuré.", "15/04/1965"),
+    ],
+)
+def test_birth_date_announced_by_a_keyword(text, value):
+    assert (EntityType.BIRTH_DATE, value, None) in found(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Le contrat est signé le 12/03/2020.",
+        "The meeting is on July 2, 2024.",
+        "Il ne le savait pas le 3 mars.",
+    ],
+)
+def test_other_dates_are_left_to_the_model(text):
+    assert not [f for f in found(text) if f[0] is EntityType.BIRTH_DATE]
+
+
+@pytest.mark.parametrize("text", ["+" * 50_000, "a@" + "a." * 25_000 + "1", "+@" * 25_000])
+def test_rules_stay_fast_on_hostile_input(text):
+    import time
+
+    start = time.perf_counter()
+    detector.detect(text)
+    assert time.perf_counter() - start < 2.0
