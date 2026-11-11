@@ -18,7 +18,7 @@ Paste a French or English text: Alias highlights the personal data it finds (nam
 e-mails, phones, IBANs, national IDs, birth dates, file numbers) and gives the text back with
 stable aliases (`[PERSON_1]`, `[IBAN_1]`), ready to send to an LLM.
 
-**The detector runs in your browser.** The page downloads the model once (about 570 MB, kept by
+**The detector runs in your browser.** The page downloads the model once (about 600 MB, kept by
 the browser for later visits) and the ONNX runtime, then masks the text locally: the text is never
 sent anywhere, and the page's content security policy allows no host but Hugging Face (model
 files) and jsDelivr (runtime). Still, use fictitious data: this is a demo.

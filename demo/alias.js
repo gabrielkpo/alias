@@ -435,7 +435,8 @@ export function normalize(e) {
     return `+33${digits}`;
   }
   if (STRICT.has(e.type)) return compact(e.text);
-  const folded = e.text.toLowerCase().normalize("NFKD").replace(/\p{Mn}/gu, "");
+  // Upper then lower case is closer to Python's casefold than lower case alone (ß -> ss).
+  const folded = e.text.toUpperCase().toLowerCase().normalize("NFKD").replace(/\p{Mn}/gu, "");
   return folded.split(/\s+/u).filter(Boolean).join(" ");
 }
 

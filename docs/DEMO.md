@@ -35,8 +35,8 @@ alias key is its digits rather than E.164.
 
 ## Cost for a visitor
 
-About 570 MB downloaded on the first visit (the browser keeps it), then roughly one to a few
-seconds per page of text on a recent laptop, single-threaded WebAssembly.
+About 600 MB downloaded on the first visit (the browser keeps it). The time per page in a browser
+(single-threaded WebAssembly) is not measured yet; the page shows it after each run.
 
 ## Updating the Space
 
