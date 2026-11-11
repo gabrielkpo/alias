@@ -43,9 +43,8 @@ EXPECTED = {
 }
 
 # Leaks of the detector itself, the same in the Python package: they are reported, not failed on.
-# The rules' identifiers were left out at step 5 (they cut the precision from 0.97 to 0.79,
-# docs/DETECTOR.md), so a file number is the model's call, and it misses this one.
-KNOWN_LEAKS = {"2024/00421": "file number after 'dossier n°': identifiers are left to the model"}
+# None on this example since variant 3 (docs/DETECTOR.md) masks the file number after "dossier n°".
+KNOWN_LEAKS: dict[str, str] = {}
 
 
 def allowed(host: str) -> bool:

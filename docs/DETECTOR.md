@@ -112,3 +112,19 @@ leak rate is not higher and its strict precision is no more than 0.5 point lower
 now: the keywords were chosen by looking at the validation splits (the test splits stay unread),
 so the measured gain will be optimistic; the list was chosen on the synthetic split and only
 checked on the LLM-written one. Real documents (step 7) are the honest measure.
+
+Results (Kaggle CPU session, code `5f6b725`, same validation splits). Before this run the
+detector was also changed to filter the rules' raw spans before merging overlaps: the rules'
+phone matcher reads some 10-digit claim numbers as US phones, and a dropped phone must not absorb
+a kept identifier. The first run, before that change (code `884b11e`), gave the same numbers.
+
+| Method | Synthetic: P / R / leak | LLM-written: P / R / leak |
+|---|---|---|
+| second variant | 0.9739 / 0.9773 / 1.40 % | 0.9332 / 0.9342 / 5.10 % |
+| **third variant** | **0.9735 / 0.9773 / 1.40 %** | **0.9332 / 0.9342 / 5.10 %** |
+
+It passes (leak unchanged on both splits, precision 0.04 point lower on the synthetic one, where
+identifier precision goes from 0.988 to 0.985) and **is now the Alias detector**. The gain on the
+validation splits is nil: the model already finds these identifiers there. What it fixes are
+the ones the model misses, such as the demo's "dossier n° 2024/00421"; how often that happens on
+real documents is for step 7 to say.
