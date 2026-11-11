@@ -8,7 +8,8 @@ text can go to an LLM without the names, IBANs or social security numbers, then 
 values back into the answer.
 
 **Try it:** [public demo](https://huggingface.co/spaces/Gabrielkph/alias), the detector running in
-your browser (the text never leaves the page; fictitious data only). Model:
+your browser (the text never leaves the page; fictitious data only): mask a text, send it to the
+LLM you use, paste its answer back and get the real values again. Model:
 [Gabrielkph/alias-mmbert-small](https://huggingface.co/Gabrielkph/alias-mmbert-small).
 
 > **Status:** work in progress (see [Roadmap](#status-and-roadmap)). Rules, masking and restoring

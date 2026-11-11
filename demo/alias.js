@@ -461,12 +461,17 @@ export function normalize(e) {
   return folded.split(/\s+/u).filter(Boolean).join(" ");
 }
 
-/** masking.mask with a fresh alias table: masked text, spans with their alias, counts. */
+const canonical = (m) => `[${m[1]}_${parseInt(m[2], 10)}]`;
+
+/**
+ * masking.mask with a fresh alias table: masked text, spans with their alias, counts, and what
+ * `restore` needs. `values` (alias -> the value it hides) stays in the page's memory only: it
+ * is never part of the report, the spans or a request.
+ */
 export function mask(text, entities) {
-  const reserved = new Set(
-    [...text.matchAll(ALIAS)].map((m) => `[${m[1]}_${parseInt(m[2], 10)}]`),
-  );
+  const literals = new Set([...text.matchAll(ALIAS)].map(canonical));
   const byKey = new Map();
+  const values = new Map();
   const counters = {};
   const aliasFor = (e) => {
     const key = `${e.type}\u0000${normalize(e)}`;
@@ -475,23 +480,50 @@ export function mask(text, entities) {
       do {
         counters[e.type] = (counters[e.type] || 0) + 1;
         alias = `[${e.type}_${counters[e.type]}]`;
-      } while (reserved.has(alias));
+      } while (literals.has(alias));
       byKey.set(key, alias);
+      values.set(alias, e.text);
     }
     return byKey.get(key);
   };
   const parts = [];
   const spans = [];
+  const aliases = [];
   let cursor = 0;
   for (const e of resolveOverlaps(entities)) {
     const alias = aliasFor(e);
     parts.push(text.slice(cursor, e.start), alias);
     spans.push({ type: e.type, start: e.start, end: e.end, alias });
+    if (!aliases.includes(alias)) aliases.push(alias);
     cursor = e.end;
   }
   parts.push(text.slice(cursor));
   const report = {};
   for (const s of spans) report[s.type] = (report[s.type] || 0) + 1;
   report.total = spans.length;
-  return { masked: parts.join(""), entities: spans, report };
+  return { masked: parts.join(""), entities: spans, report, values, aliases, literals };
+}
+
+/**
+ * masking.restore for one exchange: puts back the values of the aliases `mask` wrote into the
+ * text sent to the LLM. An alias that was already literal in the input is never restored (it
+ * cannot be told apart from a real one); an alias the answer invents stays as it is. Returns
+ * the text, the aliases restored, those sent but absent from the answer (`missing`) and the
+ * alias-shaped tokens left as they are (`unknown`).
+ */
+export function restore(answer, result) {
+  const allowed = new Set(result.aliases.filter((a) => !result.literals.has(a)));
+  const restored = [];
+  const unknown = [];
+  const text = answer.replace(ALIAS, (...m) => {
+    const alias = canonical(m);
+    if (!allowed.has(alias)) {
+      if (!result.literals.has(alias) && !unknown.includes(alias)) unknown.push(alias);
+      return m[0];
+    }
+    if (!restored.includes(alias)) restored.push(alias);
+    return result.values.get(alias);
+  });
+  const missing = [...allowed].filter((a) => !restored.includes(a));
+  return { text, restored, missing, unknown };
 }
