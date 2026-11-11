@@ -146,13 +146,14 @@ async function maskText() {
 }
 
 async function copyMasked() {
+  let copied = true;
   try {
     await navigator.clipboard.writeText($("masked").value);
   } catch {
     $("masked").select();
-    document.execCommand("copy");
+    copied = document.execCommand("copy");
   }
-  $("copied").textContent = "Copied.";
+  $("copied").textContent = copied ? "Copied." : "Not copied: select the text and copy it.";
 }
 
 function downloadReport() {

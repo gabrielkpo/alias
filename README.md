@@ -188,8 +188,8 @@ curl -s localhost:8000/api/mask -H 'content-type: application/json' \
 
 The page highlights what was found by type, shows the masked text to copy and downloads a JSON
 report; it loads nothing from outside (no CDN, no font). The API answers with the masked text,
-each span's type, position and alias, and a count per type; never the values themselves. Without `--model` only the rules run (no names or addresses):
-enough to try the API on a laptop.
+each span's type, position and alias, and a count per type; never the values themselves.
+Without `--model` only the rules run (no names or addresses): enough to try it on a laptop.
 
 Benchmark (step 3), on the generated dataset (see Data and privacy):
 
