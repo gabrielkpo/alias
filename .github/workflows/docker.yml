@@ -39,7 +39,8 @@ jobs:
           from alias_pii.tagging import TAG_ID, TAGS
           name = 'hf-internal-testing/tiny-random-bert'
           model = AutoModelForTokenClassification.from_pretrained(
-              name, num_labels=len(TAGS), id2label=dict(enumerate(TAGS)), label2id=TAG_ID)
+              name, num_labels=len(TAGS), id2label=dict(enumerate(TAGS)), label2id=TAG_ID,
+              ignore_mismatched_sizes=True)
           model.save_pretrained('/out'); AutoTokenizer.from_pretrained(name).save_pretrained('/out')
           "
       - name: Rules + model, without any network
