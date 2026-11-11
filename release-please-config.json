@@ -9,6 +9,7 @@
       "bump-minor-pre-major": true,
       "extra-files": [
         "src/alias_pii/__init__.py",
+        "demo/app.js",
         {
           "type": "toml",
           "path": "uv.lock",

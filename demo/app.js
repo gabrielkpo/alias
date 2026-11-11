@@ -11,6 +11,10 @@ import {
 import { TAGS, detect, mask, restore } from "./alias.js";
 
 const MODEL = "Gabrielkph/alias-mmbert-small";
+// The model version the demo was tested with: a tag on the model repository, so a later upload
+// of new weights cannot change the demo without a new release of it.
+const MODEL_REVISION = "v1.0";
+const VERSION = "0.1.0"; // x-release-please-version
 // What the first visit downloads: the ONNX model (563 MB) and the tokenizer (34 MB).
 const EXPECTED_BYTES = 597e6;
 
@@ -89,8 +93,12 @@ async function load() {
     );
   };
   setStatus("Loading the model…");
-  const tokenizer = await AutoTokenizer.from_pretrained(MODEL, { progress_callback: progress });
+  const tokenizer = await AutoTokenizer.from_pretrained(MODEL, {
+    revision: MODEL_REVISION,
+    progress_callback: progress,
+  });
   const model = await AutoModelForTokenClassification.from_pretrained(MODEL, {
+    revision: MODEL_REVISION,
     dtype: "fp32", // int8 destroys this model's precision (docs/TRAINING.md)
     device: "wasm",
     progress_callback: progress,
@@ -290,6 +298,7 @@ function updateCount() {
   $("count").textContent = n ? `${n.toLocaleString()} characters` : "";
 }
 
+$("version").textContent = `Alias v${VERSION}, model ${MODEL_REVISION}.`;
 $("mask").addEventListener("click", maskText);
 $("example").addEventListener("click", () => {
   $("input").value = EXAMPLE;

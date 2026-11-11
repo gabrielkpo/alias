@@ -35,7 +35,7 @@ jobs:
         working-directory: demo
         run: npm test
       - name: Download the published model (weights, ONNX export, tokenizer)
-        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Gabrielkph/alias-mmbert-small', local_dir='model')"
+        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Gabrielkph/alias-mmbert-small', revision='v1.0', local_dir='model')"
       - name: Python reference (rules, tokenizer, rules + model)
         run: python demo/test/parity_cases.py --tokenizer model --model model --out cases.json
       - name: Parity of the JavaScript port

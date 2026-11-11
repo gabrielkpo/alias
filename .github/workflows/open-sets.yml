@@ -43,7 +43,7 @@ jobs:
             https://github.com/NorskRegnesentral/text-anonymization-benchmark "$TAB_COMMIT"
           git -C data/raw/tab checkout -q FETCH_HEAD
       - name: Download the published model
-        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Gabrielkph/alias-mmbert-small', local_dir='model')"
+        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Gabrielkph/alias-mmbert-small', revision='v1.0', local_dir='model')"
       - name: Convert
         run: |
           tab_split=$([ "$SPLIT" = validation ] && echo dev || echo test)
