@@ -10,8 +10,8 @@ values back into the answer.
 > **Status:** work in progress (see [Roadmap](#status-and-roadmap)). Rules, masking and restoring
 > work, and the trained model is chosen and measured (step 4, mmBERT-small fine-tuned): recall 0.98
 > and leak rate 1.1 % on the synthetic test split, recall 0.93 and leak rate 3.5 % on documents
-> written by an LLM it never saw (see [Results](#results)). Not measured on real documents yet;
-> rules + model and the app come next. Expect breaking changes.
+> written by an LLM it never saw (see [Results](#results)). Rules + model form the detector (step
+> 5). Not measured on real documents yet; the app comes next. Expect breaking changes.
 
 ## Why
 Hospitals, banks and public bodies want to use LLMs on their documents, but cannot send a
@@ -80,7 +80,7 @@ restore(answer, result).text  # real IBAN back, only for aliases sent in this ex
 | 2 | File readers; dataset v0.2 (grid generator, gates, balancer, datasheet), v0.3 LLM writer and v0.4 public corpora done; full build, LLM run, real sets | in progress |
 | 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, rules + GLiNER (done); Mistral zero-shot (adapter ready, run pending the API key) | in progress |
 | 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best: mmBERT-small | done |
-| 5 | Rules + model, leak rate | planned |
+| 5 | Rules + model: the rules add what they prove (IBAN, national ID, birth date after a keyword) to the model's spans | done |
 | 6 | `alias-pii mask` CLI, JSON report, local API, Docker; CPU latency and memory | planned |
 | 7 | Held-out real test sets (French and English, annotated by hand), final results | planned |
 | 8 | Phase 2: `alias-pii run --llm mistral`, end-to-end restoring | planned |
@@ -124,7 +124,12 @@ sets come later; these numbers measure the methods on our labels, not on real do
 - Out of distribution: on 200 documents written by Mistral, a generator absent from training, the
   model keeps recall 0.93, precision 0.94 and leak rate 3.5 %, against 0.91, 0.90 and 8.1 % for
   rules + GLiNER. Its weak spots there are birth dates (14 % leaked) and national IDs (recall
-  0.76), which the rules catch: the case for rules + model (step 5).
+  0.76).
+- Rules + model (step 5, docs/DETECTOR.md): the rules add IBANs and national IDs (checksum) and
+  birth dates announced by a keyword to the model's spans. On the validation splits it equals the
+  model on synthetic text and leaks a little less on LLM-written text (5.1 % against 5.2 %;
+  national IDs 4 % against 6 %). Adding every rule type cost 18 points of precision (company
+  mailboxes, switchboards, invoice numbers) for no leak gained: rejected.
 
 Full tables per label, language and source: `uv run python -m alias_pii.benchmark` (see Run it).
 
@@ -160,7 +165,8 @@ Known limits of the readers:
 | `IBAN` | any country | rules (mod 97, length per country) |
 | `NATIONAL_ID` | `FR_NIR` (key, Corsica), `US_SSN`, `UK_NINO` | rules |
 | `IDENTIFIER` | file, contract or customer number after a keyword | rules |
-| `PERSON`, `ADDRESS`, `BIRTH_DATE` | need context | trained model (step 4) |
+| `BIRTH_DATE` | date of birth | rules when a keyword announces it ("né(e) le", "date of birth", "DOB"), model otherwise |
+| `PERSON`, `ADDRESS` | need context | trained model (step 4) |
 
 ## Run it
 Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
@@ -223,7 +229,7 @@ still identify a person after masking (a job title, a rare event), and no detect
 recall.
 
 ## Limitations
-- `PERSON`, `ADDRESS` and `BIRTH_DATE` are not detected until the model exists (step 4).
+- The rules alone (no checkpoint) find no names or addresses, and a birth date only after a keyword.
 - A 4-digit year after a keyword (`compte 2024`) is flagged as an identifier (recall first).
 - An SSN needs its dashes or spaces; a NIR without its key is missed.
 - Name variants ("M. Dupont" and "Jean Dupont") do not share an alias yet.

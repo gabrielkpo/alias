@@ -68,4 +68,16 @@ It becomes the Alias detector if, on both validation splits, its leak rate is no
 the model's alone and lower on at least one, with strict precision no more than 2 points lower.
 Because it was designed after seeing the validation numbers, Gabriel may still choose otherwise.
 
-Results: pending, from the second Kaggle run.
+Results (code `2bbb262`, same validation splits):
+
+| Method | Synthetic: P / R / leak | LLM-written: P / R / leak |
+|---|---|---|
+| model (mmBERT-small) | 0.974 / 0.977 / 1.4 % | 0.932 / 0.932 / 5.2 % |
+| **rules (IBAN, national ID, birth date) + model** | **0.974 / 0.977 / 1.4 %** | **0.933 / 0.934 / 5.1 %** |
+
+It passes: identical to the model on the synthetic split, a little better on the LLM-written one
+(national IDs leak 4 % instead of 6 %, precision 1.00). **It is the Alias detector.** The gain is
+small and said as such: the model already finds most of what the rules prove. Birth dates still
+leak 11 % on the LLM-written documents: the dates missed carry no keyword, and some of their gold
+labels are doubtful (a contract or meeting date labelled as a birth date by the LLM writer). The
+rules matter most where the model has not been measured yet: real documents (step 7).
