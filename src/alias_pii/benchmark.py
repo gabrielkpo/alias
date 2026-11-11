@@ -96,13 +96,32 @@ def _mask(text: str, entities: Iterable[Entity]) -> str:
     return "".join(out) + text[cursor:]
 
 
-def score_document(text: str, gold: list[Entity], predicted: list[Entity]) -> dict[str, Counts]:
-    """Counts per label for one document (key `ALL` holds the total)."""
+def score_document(
+    text: str,
+    gold: list[Entity],
+    predicted: list[Entity],
+    labels: Iterable[str] | None = None,
+    ignore: Iterable[tuple[int, int]] = (),
+) -> dict[str, Counts]:
+    """Counts per label for one document (key `ALL` holds the total).
+
+    `labels`: the labels the source annotates (open sets, alias_pii.open_sets); predictions of
+    other labels are not scored. `ignore`: regions the source annotates but Alias is not scored
+    on; a prediction overlapping one is not scored either. Masking, hence the leak rate, always
+    uses every prediction."""
     counts: dict[str, Counts] = defaultdict(Counts)
     # the same label on the same span counts once (Presidio can return US_SSN and UK_NINO there)
     predicted = list({(p.type, p.start, p.end): p for p in predicted}.values())
     exact = {(e.type, e.start, e.end) for e in gold}
     leaks = {(e.start, e.end) for e in find_leaks(_mask(text, predicted), gold)}
+    scored = set(labels) if labels is not None else None
+    ignore = list(ignore)
+    predicted = [
+        p
+        for p in predicted
+        if (scored is None or p.type.value in scored)
+        and not any(p.start < end and start < p.end for start, end in ignore)
+    ]
     for g in gold:
         c = counts[g.type.value]
         c.gold += 1
@@ -142,7 +161,13 @@ def run(method: str, detector: Detector, documents: list[dict]) -> Result:
         result.seconds += time.perf_counter() - start
         result.documents += 1
         result.characters += len(text)
-        counts = score_document(text, gold_entities(document), predicted)
+        counts = score_document(
+            text,
+            gold_entities(document),
+            predicted,
+            labels=document.get("labels"),
+            ignore=[tuple(r) for r in document.get("ignore", [])],
+        )
         source = document.get("source", "").split(":")[0]
         for axis, value in (("all", "all"), ("language", document["language"]), ("source", source)):
             for label, c in counts.items():

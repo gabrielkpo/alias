@@ -1,0 +1,59 @@
+# Realistic test sets from open sources (step 7, docs/REALISTIC_SETS.md), measured on a GitHub
+# CPU machine with the published model (no inference on a laptop). By hand only: a test split is
+# read once, after the detector is frozen, so this never runs on a push or a pull request.
+#   gh workflow run open-sets.yml -f set=tab -f split=validation   # check the chain on dev
+#   gh workflow run open-sets.yml -f set=tab -f split=test         # the one reading
+name: Open sets
+on:
+  workflow_dispatch:
+    inputs:
+      set:
+        description: Open set
+        type: choice
+        options: [tab]
+        default: tab
+      split:
+        description: Split (test is read once)
+        type: choice
+        options: [validation, test]
+        default: validation
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SPLIT: ${{ inputs.split }}
+      # TAB at a fixed commit (MIT licence, Norsk Regnesentral), so the set cannot change.
+      TAB_COMMIT: 558e09e26d6b36f5f78440074e6a233946d98bd9
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3"
+          pip install -e ".[model]" "huggingface_hub>=0.24"
+      - name: Download TAB
+        run: |
+          git init -q data/raw/tab
+          git -C data/raw/tab fetch -q --depth 1 \
+            https://github.com/NorskRegnesentral/text-anonymization-benchmark "$TAB_COMMIT"
+          git -C data/raw/tab checkout -q FETCH_HEAD
+      - name: Download the published model
+        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Gabrielkph/alias-mmbert-small', local_dir='model')"
+      - name: Convert
+        run: |
+          tab_split=$([ "$SPLIT" = validation ] && echo dev || echo test)
+          python -m alias_pii.open_sets tab --source data/raw/tab --split "$tab_split" --out data/open/tab
+      - name: Measure
+        run: |
+          python -m alias_pii.benchmark --data data/open/tab --split "$SPLIT" \
+            --methods "rules,model:model,rules+model:model" --out reports
+          cat "reports/benchmark-$SPLIT.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: open-sets-${{ inputs.set }}-${{ inputs.split }}-${{ github.run_id }}
+          path: reports/
