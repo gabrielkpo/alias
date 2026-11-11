@@ -11,13 +11,13 @@ def span(label, value, source="model", text=TEXT):
 
 
 class FakeModel:
-    """Stands in for the fine-tuned model: finds the name and a piece of the IBAN."""
+    """Stands in for the fine-tuned model: finds the name and, wrongly, a piece of the IBAN."""
 
     def detect(self, text):
         return [span("PERSON", "Jean Dupont", text=text), span("PHONE", "3000 6000", text=text)]
 
 
-def test_union_keeps_both_sources():
+def test_model_spans_plus_proven_rule_spans():
     found = RulesAndModel(FakeModel()).detect(TEXT)
     assert [(e.type, e.text) for e in found] == [
         (EntityType.PERSON, "Jean Dupont"),
