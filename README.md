@@ -120,8 +120,8 @@ sets come later; these numbers measure the methods on our labels, not on real do
 - GLiNER takes about 1.1 s for a 3,000-character page: above the one-second budget set for the
   model choice.
 - Mistral asked to list the personal data, without training, leaks 10.1 % on the first 1,000
-  test documents: better than every local baseline, nine times more than the fine-tuned model,
-  and the text leaves the machine. On the 200 LLM-written test documents (written by Mistral
+  test documents (a subset: the other rows read all 4,200, so the comparison is indicative). It
+  sits between the hybrid baseline and the fine-tuned model, and the text leaves the machine. On the 200 LLM-written test documents (written by Mistral
   itself, which favours it) it reaches recall 0.93, precision 0.89 and leak rate 4.1 %, close
   to the model's 0.93, 0.94 and 3.5 %.
 - The fine-tuned mmBERT-small leaks ten times less than the best baseline. It was chosen among
