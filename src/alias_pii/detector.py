@@ -21,6 +21,17 @@ from alias_pii.rules import RuleDetector
 
 RULE_TYPES = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID, EntityType.BIRTH_DATE})
 
+# Variant 3 (docs/DETECTOR.md): the rules' identifiers announced by a keyword naming a person's
+# file. Orders, invoices, tickets, references and accounts are left out: on the validation
+# splits the rule's precision after those keywords is near zero.
+PERSON_FILE_KEYWORDS = frozenset(
+    {
+        "dossier", "contrat", "client", "patient", "adherent", "matricule", "sinistre",
+        "passeport", "permis", "file", "claim", "customer", "passport", "licence", "license",
+        "employee", "member", "membership",
+    }
+)  # fmt: skip
+
 
 class RulesAndModel:
     """`detect(text)`: the model's spans plus the rules' spans of `rule_types` (all types when
@@ -33,10 +44,13 @@ class RulesAndModel:
         model: Detector,
         rules: Detector | None = None,
         rule_types: Iterable[EntityType] | None = RULE_TYPES,
+        id_keywords: Iterable[str] | None = None,
     ):
         self.model = model
         self.rules = rules if rules is not None else RuleDetector()
         self.rule_types = frozenset(rule_types) if rule_types is not None else None
+        # Identifiers from the rules are also kept when their keyword (`Entity.kind`) is here.
+        self.id_keywords = frozenset(id_keywords or ())
 
     @classmethod
     def from_checkpoint(cls, path: str, **options) -> RulesAndModel:
@@ -44,10 +58,14 @@ class RulesAndModel:
         from alias_pii.train import TrainedDetector
 
         rule_types = options.pop("rule_types", RULE_TYPES)
-        return cls(TrainedDetector(path, **options), rule_types=rule_types)
+        id_keywords = options.pop("id_keywords", None)
+        return cls(TrainedDetector(path, **options), rule_types=rule_types, id_keywords=id_keywords)
+
+    def _kept(self, entity: Entity) -> bool:
+        if self.rule_types is None or entity.type in self.rule_types:
+            return True
+        return entity.type is EntityType.IDENTIFIER and entity.kind in self.id_keywords
 
     def detect(self, text: str) -> list[Entity]:
-        rules = self.rules.detect(text)
-        if self.rule_types is not None:
-            rules = [e for e in rules if e.type in self.rule_types]
+        rules = [e for e in self.rules.detect(text) if self._kept(e)]
         return resolve_overlaps(rules + self.model.detect(text))

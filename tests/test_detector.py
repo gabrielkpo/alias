@@ -53,3 +53,18 @@ def test_rules_only_add_the_types_they_prove():
     assert [e.type for e in RulesAndModel(Nothing()).detect(text)] == [EntityType.IBAN]
     every = RulesAndModel(Nothing(), rule_types=None).detect(text)
     assert [e.type for e in every] == [EntityType.PHONE, EntityType.IDENTIFIER, EntityType.IBAN]
+
+
+def test_person_file_identifiers_are_kept_other_identifiers_left_out():
+    class Nothing:
+        def detect(self, text):
+            return []
+
+    from alias_pii.detector import PERSON_FILE_KEYWORDS
+
+    text = "Objet : dossier n° 2024/00421. Commande n° CMD-2024-118. Facture n° F-2024-07."
+    variant3 = RulesAndModel(Nothing(), id_keywords=PERSON_FILE_KEYWORDS)
+    assert [(e.type, e.text) for e in variant3.detect(text)] == [
+        (EntityType.IDENTIFIER, "2024/00421")
+    ]
+    assert RulesAndModel(Nothing()).detect(text) == []  # the second variant: model only
