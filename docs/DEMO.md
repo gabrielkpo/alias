@@ -28,6 +28,11 @@ page, not even to a demo server.
   generated validation documents plus edge cases (accents, emoji, tabs, non-breaking spaces,
   several windows). Token ids, token offsets and rule spans must be identical; the full detector
   must give the same spans on at least 99 % of the texts.
+- `.github/workflows/space-e2e.yml` (by hand, weekly, and on changes to the test): headless
+  Chromium opens the published Space, loads the model and masks the page's fictitious example
+  twice; it fails if a value stays in clear, if a request goes to a host other than Hugging Face
+  and jsDelivr or carries the text, or on a console error or CSP violation. Screenshot, timings
+  and report in the run's artifact (`demo/test/space_e2e.py`).
 
 Known differences with Python, documented in `demo/alias.js`: positions count UTF-16 units, the
 rules' phone matcher (libphonenumber) is not ported (phones come from the model), and a phone's
