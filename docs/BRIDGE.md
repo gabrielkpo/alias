@@ -62,8 +62,10 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   them one by one, so the whole rest of the paragraph stays masked; the text before the mark
   (link text included) and the other paragraphs get the values back. After a `<` followed by
   anything but a space, `=` or a digit (an HTML tag, an autolink, or `<[PERSON_1]`, which turns
-  into a tag once the name is back) nothing more is restored, since an HTML block can run across
-  blank lines; in JSON mode, nothing after the first link mark, in string order.
+  into a tag once the name is back) or after a backslash escape (`\u003c` and `\/\/` become `<`
+  and `//` for a client that decodes the answer as JSON) nothing more is restored, since an HTML
+  block can run across blank lines; in JSON mode, nothing after the first link mark, in string
+  order.
 - **JSON answers** (`response_format`): values go back inside the JSON string values (keys keep
   their aliases), so the JSON stays valid whatever they hold.
 - **Local tools only**: the bridge spends the user's key, so a web page must not reach it. A

