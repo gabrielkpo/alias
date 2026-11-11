@@ -1,6 +1,6 @@
 [project]
 name = "alias-pii"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local PII masking before an LLM call: detect, replace with stable aliases, restore in the answer."
 requires-python = ">=3.12"
 license = "MIT"
