@@ -56,7 +56,8 @@ jobs:
           request = u.Request("http://127.0.0.1:8000/api/mask", headers={"content-type": "application/json"},
                               data=json.dumps({"text": "IBAN FR76 3000 6000 0112 3456 7890 189"}).encode())
           answer = json.load(u.urlopen(request, timeout=60))
-          assert answer["masked"] == "IBAN [IBAN_1]", answer
+          # a random model labels random words: check the IBAN is masked and nothing of it leaks
+          assert "[IBAN_1]" in answer["masked"] and "3000" not in answer["masked"], answer
           print("ok", answer["report"])'
           docker exec model python -c "$check" || { docker logs model; exit 1; }
           docker rm -f model
