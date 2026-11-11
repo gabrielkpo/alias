@@ -50,6 +50,24 @@ Converted by `python -m alias_pii.open_sets tab` from the first annotator of eac
 Test split: 127 documents, 951 PERSON, 285 IDENTIFIER and 158 BIRTH_DATE spans (validation
 split: 127 documents, 1,051 / 427 / 159).
 
+## TAB, how the test split is read (written before reading it)
+
+The validation split checked the chain and showed how to read the scores. On PERSON the model's
+span usually includes the English honorific ("Mr Cengiz Polat" where TAB, and Alias's written
+convention, label "Cengiz Polat"): Alias's own English training data is inconsistent on this
+(29 PERSON spans with the honorific inside, 10 without, on the synthetic validation split), so
+the strict score there measures that convention gap more than detection. Hence, for TAB:
+
+- **Main measures: leak rate** (a value still readable in full after masking) **and overlap
+  precision and recall** (same label, any common character), per label and overall.
+- Strict precision and recall are reported too, with this caveat.
+- Expected weak spots, from the validation split: application numbers ("40593/04", IDENTIFIER)
+  leak almost always, since the model does not take a case number for a person's file; birth
+  dates are mostly a year alone ("born in 1965"), which it rarely masks.
+- The test split is read **once**, with the detector of `main` at `99f533c` and the published
+  model, by `gh workflow run open-sets.yml -f set=tab -f split=test`. Nothing in the detector is
+  changed after seeing it; what it shows goes to the next variant's validation, not back to TAB.
+
 ## A nod to Mistral (bonus)
 
 Masking Mistral AI's own public legal pages (legal notice, privacy policy) with Alias, by a
