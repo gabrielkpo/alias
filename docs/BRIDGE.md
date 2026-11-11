@@ -44,11 +44,21 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   resends the whole history at each turn, so a value keeps its alias from turn to turn and the
   bridge keeps no state.
 - **Message parts**: the text of `content`, or of its `{"type": "text"}` parts, is masked;
-  images and other parts pass as they are.
+  `image_url` parts pass as they are.
+- **Nothing unmasked goes through**: besides `messages` (keys `role`, `content`, `prefix`), a
+  request may only hold settings without text of their own (`model`, `temperature`, `top_p`,
+  `max_tokens`, `random_seed`, `n`, `presence_penalty`, `frequency_penalty`, `safe_prompt`,
+  `stream`, `stop`, `response_format` of type `text` or `json_object`). Anything else (a message
+  `name`, `prediction`, a JSON schema, `user`, another part type) is refused (400) rather than
+  sent unmasked. A `stop` sequence holding personal data is refused too (422).
 - **Check before sending**: if the rules still find an IBAN or a national ID in the masked text,
   the request is refused (422) and nothing is sent.
 - **Restoring**: only the aliases of this request get their value back; an alias the answer
   invents is left as it is. Headers `X-Alias-Masked` and `X-Alias-Restored` give the counts.
+- **Links stay masked**: an alias inside a link (markdown link or image target, autolink, bare
+  URL, HTML `src`/`href`) keeps its alias form. Restored there, a value would leave the machine
+  as soon as the tool loads the image, for example if the answer follows instructions hidden in
+  a pasted document. Link text and the rest of the answer get the values back.
 - **JSON answers** (`response_format`): values go back inside the JSON strings, so the JSON stays
   valid whatever they hold.
 - **Local tools only**: the bridge spends the user's key, so a web page must not reach it. A

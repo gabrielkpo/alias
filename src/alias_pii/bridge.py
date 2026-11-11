@@ -13,8 +13,11 @@ to `http://127.0.0.1:8001/v1`. For `POST /v1/chat/completions` the bridge:
    national ID) stops the request, since it would reach the provider in clear;
 3. forwards the request to Mistral with the user's key (the bridge's own key, else the key the
    tool sent);
-4. puts the values back in the answer, only for the aliases of this request (`masking.restore`),
-   and returns it in the provider's format, with counts of what was masked in headers.
+4. puts the values back in the answer, only for the aliases of this request (`masking.restore`)
+   and never inside a link, and returns it in the provider's format, with counts in headers.
+
+A request holding text the bridge does not mask (a field other than the settings, a message
+`name`, a JSON schema, `prediction`...) is refused rather than forwarded with it.
 
 Nothing is logged but counts; no text is written to disk. `GET /v1/models` is relayed as is.
 Only local tools may call it: a request from a browser (an `Origin` header), with a non-local
@@ -28,6 +31,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import threading
 from collections import Counter
 from collections.abc import Awaitable, Callable
@@ -47,6 +51,40 @@ UPSTREAM = "https://api.mistral.ai"
 CHECKED = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID})
 MAX_CHARS = 200_000  # the whole conversation of one request
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+# What a request may hold besides `messages`: settings with no text of their own. Any other
+# field (`prediction`, `user`, a JSON schema...) could carry personal data the bridge does not
+# mask, so the request is refused rather than forwarded with it.
+SETTINGS = frozenset(
+    {
+        "model",
+        "temperature",
+        "top_p",
+        "max_tokens",
+        "random_seed",
+        "n",
+        "presence_penalty",
+        "frequency_penalty",
+        "safe_prompt",
+        "stream",
+        "response_format",
+        "stop",
+    }
+)
+MESSAGE_KEYS = frozenset({"role", "content", "prefix"})
+ROLES = frozenset({"system", "user", "assistant"})
+# Where a client turns answer text into a request of its own: a markdown link or image target,
+# a reference definition, an autolink, a bare URL, an HTML src/href. An alias there stays
+# masked: put back, the value would leave the machine as soon as the client loads the image.
+LINKS = re.compile(
+    r"(?<=\]\()\s*<[^>\n]*>"  # ](<target with spaces>)
+    r"|(?<=\]\()[^)\s]*"  # ](target)
+    r"|^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*\S+"  # [ref]: target
+    r"|<[a-z][a-z0-9+.-]*:[^>\s]*>"  # <scheme:...>
+    r"|\b[a-z][a-z0-9+.-]*://\S+"  # https://...
+    r"|\bwww\.\S+"
+    r"""|\b(?:src|href|srcset|poster|action)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)""",
+    re.IGNORECASE | re.MULTILINE,
+)
 log = logging.getLogger("alias.bridge")
 
 
@@ -89,11 +127,90 @@ def mask_messages(
     return out, results, counts
 
 
+def unmaskable(body: dict) -> str | None:
+    """Where the request holds text the bridge would forward without masking it, else None: a
+    field that is not a setting, a message key other than role/content/prefix, a content that
+    is neither text nor text and image parts, a JSON schema, a setting that is not a number."""
+    for name in body:
+        if name != "messages" and name not in SETTINGS:
+            return f"'{name}'"
+    if not isinstance(body.get("model", ""), str):
+        return "'model'"
+    for name in SETTINGS - {"model", "response_format", "stop"}:
+        value = body.get(name)
+        if value is not None and not isinstance(value, int | float | bool):
+            return f"'{name}'"
+    response_format = body.get("response_format")
+    if response_format is not None and not (
+        isinstance(response_format, dict)
+        and set(response_format) <= {"type"}
+        and response_format.get("type") in ("text", "json_object")
+    ):
+        return "'response_format' other than text or json_object (a schema's text is not masked)"
+    stop = body.get("stop")
+    if stop is not None and not (
+        isinstance(stop, str) or (isinstance(stop, list) and all(isinstance(s, str) for s in stop))
+    ):
+        return "'stop'"
+    messages = body.get("messages")
+    for i, message in enumerate(messages if isinstance(messages, list) else []):
+        where = f"messages[{i}]"
+        if not isinstance(message, dict):
+            return where
+        for key in message:
+            if key not in MESSAGE_KEYS:
+                return f"{where}.{key}"
+        if message.get("role") not in ROLES:
+            return f"{where}.role"
+        if not isinstance(message.get("prefix", False), bool):
+            return f"{where}.prefix"
+        content = message.get("content")
+        if content is None or isinstance(content, str):
+            continue
+        if not isinstance(content, list):
+            return f"{where}.content"
+        for j, part in enumerate(content):
+            text = (
+                isinstance(part, dict)
+                and set(part) == {"type", "text"}
+                and part["type"] == "text"
+                and isinstance(part["text"], str)
+            )
+            image = isinstance(part, dict) and set(part) == {"type", "image_url"}
+            if not (text or (image and part["type"] == "image_url")):
+                return f"{where}.content[{j}]"
+    return None
+
+
+def stops(body: dict) -> list[str]:
+    stop = body.get("stop")
+    return [stop] if isinstance(stop, str) else list(stop or [])
+
+
 def check_masked(results: list[MaskResult]) -> None:
     rules = RuleDetector()
     for result in results:
         if any(e.type in CHECKED for e in rules.detect(result.text)):
             raise LeftInClear
+
+
+def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
+    """The text with the values of this request's aliases put back, except inside links
+    (`LINKS`): an alias there stays masked, so a client loading the link sends no value."""
+
+    def plain(segment: str) -> str:
+        back = restore(segment, *results)
+        restored.update(back.restored)
+        return back.text
+
+    parts: list[str] = []
+    cursor = 0
+    for link in LINKS.finditer(text):
+        parts.append(plain(text[cursor : link.start()]))
+        parts.append(link.group())
+        cursor = link.end()
+    parts.append(plain(text[cursor:]))
+    return "".join(parts)
 
 
 def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> str | None:
@@ -106,9 +223,7 @@ def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> s
 
     def walk(node):
         if isinstance(node, str):
-            back = restore(node, *results)
-            restored.update(back.restored)
-            return back.text
+            return put_back(node, results, restored)
         if isinstance(node, list):
             return [walk(item) for item in node]
         if isinstance(node, dict):
@@ -132,9 +247,7 @@ def restore_answer(
             continue
         text = _restore_json(message["content"], results, restored) if json_mode else None
         if text is None:
-            back = restore(message["content"], *results)
-            restored.update(back.restored)
-            text = back.text
+            text = put_back(message["content"], results, restored)
         message["content"] = text
     return data, len(restored)
 
@@ -188,6 +301,11 @@ def create_bridge(
         if size > max_chars:
             raise HTTPException(413, f"conversation too long: at most {max_chars} characters")
         with lock:
+            # A stop sequence cannot be masked without changing what it stops on.
+            if any(detector.detect(stop) for stop in stops(body)):
+                raise HTTPException(
+                    422, "a stop sequence holds personal data, which cannot be masked: not sent"
+                )
             masked, results, counts = mask_messages(messages, detector)
         try:
             check_masked(results)
@@ -220,6 +338,11 @@ def create_bridge(
         ):
             # Tool definitions and call arguments are not masked yet: refuse rather than leak.
             raise HTTPException(501, "tool calls are not supported yet")
+        where = unmaskable(body)
+        if where:
+            raise HTTPException(
+                400, f"{where} is not supported: its text would reach Mistral unmasked"
+            )
         token = key(request)
         outgoing, results, counts = await run_in_threadpool(masked_request, body)
         answer = await client.post(
