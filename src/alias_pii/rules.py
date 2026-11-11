@@ -18,7 +18,7 @@ from alias_pii.validators import IBAN_LENGTHS, iban_is_valid, nir_is_valid
 PHONE_REGIONS = ("FR", "GB", "US")
 
 # Unicode domains too (jean@société.fr): \w is Unicode-aware; the TLD is letters only.
-_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{2,}\b")
+_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]++@[\w-]++(?:\.[\w-]++)*\.[^\W\d_]{2,}\b")
 
 # 15 characters with optional single separators (space, dot or dash): sex, year, month,
 # department (or 2A/2B), commune, order number, key. The checksum decides; the pattern only

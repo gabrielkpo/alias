@@ -134,3 +134,12 @@ def test_birth_date_announced_by_a_keyword(text, value):
 )
 def test_other_dates_are_left_to_the_model(text):
     assert not [f for f in found(text) if f[0] is EntityType.BIRTH_DATE]
+
+
+@pytest.mark.parametrize("text", ["+" * 50_000, "a@" + "a." * 25_000 + "1", "+@" * 25_000])
+def test_rules_stay_fast_on_hostile_input(text):
+    import time
+
+    start = time.perf_counter()
+    detector.detect(text)
+    assert time.perf_counter() - start < 2.0
