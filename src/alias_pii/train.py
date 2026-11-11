@@ -40,6 +40,8 @@ class Config:
     warmup_ratio: float = 0.1
     weight_decay: float = 0.01
     seed: int = 0
+    extra_data: str | None = None  # second dataset whose train split is added (LLM-written)
+    extra_repeat: int = 1  # times its documents are repeated, to weigh more than their count
 
 
 def encode(tokenizer, document: dict, config: Config) -> list[dict]:
@@ -207,11 +209,16 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=16, help="lower it on a laptop")
     parser.add_argument("--grad-accum", type=int, default=1, help="passes per batch (same batch)")
+    parser.add_argument("--extra-data", type=Path, help="add this dataset's train split too")
+    parser.add_argument("--extra-repeat", type=int, default=1, help="repeat its documents N times")
     parser.add_argument("--limit", type=int, default=0, help="first N documents (smoke test)")
     parser.add_argument("--results", type=Path, default=Path("results/training.jsonl"))
     args = parser.parse_args()
-    if "real" in args.data.resolve().parts:
-        parser.error("training uses synthetic and public data only, never real documents")
+    for folder in (args.data, args.extra_data):
+        if folder and "real" in folder.resolve().parts:
+            parser.error("training uses synthetic and public data only, never real documents")
+    if args.extra_repeat < 1:
+        parser.error("--extra-repeat must be at least 1")
 
     import torch
     from datasets import Dataset
@@ -226,15 +233,24 @@ def main() -> None:
     if args.grad_accum < 1 or args.batch_size % args.grad_accum:
         parser.error("--grad-accum must be at least 1 and divide --batch-size")
     config = Config(
-        model=args.model, epochs=args.epochs, batch_size=args.batch_size, grad_accum=args.grad_accum
+        model=args.model,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        grad_accum=args.grad_accum,
+        extra_data=str(args.extra_data) if args.extra_data else None,
+        extra_repeat=args.extra_repeat,
     )
     train_docs = load(args.data / "train.jsonl")
     validation_docs = load(args.data / "validation.jsonl")
+    extra_train = load(args.extra_data / "train.jsonl") if args.extra_data else []
+    extra_validation = load(args.extra_data / "validation.jsonl") if args.extra_data else []
     if args.limit:
         train_docs, validation_docs = (
             train_docs[: args.limit],
             validation_docs[: args.limit // 10 + 1],
         )
+        extra_train, extra_validation = extra_train[: args.limit], extra_validation[:10]
+    train_docs = train_docs + extra_train * args.extra_repeat
     tokenizer = AutoTokenizer.from_pretrained(config.model)
     windows = [w for d in train_docs for w in encode(tokenizer, d, config)]
     model = AutoModelForTokenClassification.from_pretrained(
@@ -273,18 +289,20 @@ def main() -> None:
     tokenizer.save_pretrained(str(args.out / "final"))
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    scores = validation_scores(
-        TrainedDetector(str(args.out / "final"), device=device), validation_docs
-    )
+    detector = TrainedDetector(str(args.out / "final"), device=device)
+    scores = validation_scores(detector, validation_docs)
     record = {
         "date": f"{datetime.now(UTC):%Y-%m-%dT%H:%MZ}",
         "commit": _commit(),
-        "data": _version(args.data),
+        "data": _version(args.data)
+        + (f"+{_version(args.extra_data)}x{args.extra_repeat}" if args.extra_data else ""),
         "train_documents": len(train_docs),
         "train_windows": len(windows),
         "config": asdict(config),
         "validation": scores,
     }
+    if extra_validation:  # the second dataset's validation split, scored apart
+        record["validation_extra"] = validation_scores(detector, extra_validation)
     args.results.parent.mkdir(parents=True, exist_ok=True)
     with args.results.open("a", encoding="utf-8") as out:
         out.write(json.dumps(record) + "\n")

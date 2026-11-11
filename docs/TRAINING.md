@@ -95,3 +95,16 @@ known. No model trained on real data is ever published.
 `--limit 300 --epochs 1` trains on 300 documents to check the whole chain before using GPU time.
 It runs on GitHub's CPU machines, not on a laptop: `gh workflow run compute.yml -f
 task=smoke-train`, or the `compute` label on a pull request.
+
+## Retraining with the LLM-written documents (draft, not adopted)
+
+Out of distribution, on documents written by an LLM it never saw, the model fell from recall
+0.98 to 0.93 (leak rate 3.5 %). The 1,600 LLM-written training documents (docs/DATASET.md) are
+added to the synthetic train split, repeated three times so they weigh about 10 % of the
+documents (`--extra-data data/llm --extra-repeat 3`); the rest of the settings is unchanged.
+
+**Decision rule, written before the run.** The retrained model replaces the current one only if,
+on the LLM-written validation split, its leak rate is lower, and on the synthetic validation split
+its choice recall drops by less than one point. The LLM-written test split was already read once
+(step 4) and is not used to decide. The decision is Gabriel's: this branch is not merged without
+his agreement.
