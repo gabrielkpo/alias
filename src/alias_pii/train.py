@@ -147,12 +147,15 @@ def quantize_int8(model, mode: str):
 
 
 def _loading_options(model: str) -> dict:
-    """ModernBERT models (mmBERT) compile their MLP with torch.compile by default, which crashes
-    under the Trainer on Kaggle GPUs ("FX to symbolically trace a dynamo-optimized function",
-    then SIGSEGV). Turn it off; other architectures load unchanged."""
+    """In transformers 4, ModernBERT models (mmBERT) compile their MLP with torch.compile by
+    default, which crashes under the Trainer on Kaggle GPUs ("FX to symbolically trace a
+    dynamo-optimized function", then SIGSEGV): turn it off. Transformers 5 removed that
+    compilation and the option with it (passing it raises), so it is only given to a config that
+    still has it; other architectures load unchanged."""
     from transformers import AutoConfig
 
-    if AutoConfig.from_pretrained(model).model_type == "modernbert":
+    config = AutoConfig.from_pretrained(model)
+    if config.model_type == "modernbert" and hasattr(config, "reference_compile"):
         return {"reference_compile": False}
     return {}
 
@@ -250,7 +253,7 @@ def main() -> None:
         learning_rate=config.learning_rate,
         per_device_train_batch_size=config.batch_size // config.grad_accum,
         gradient_accumulation_steps=config.grad_accum,
-        warmup_ratio=config.warmup_ratio,
+        warmup_steps=config.warmup_ratio,  # transformers 5: a float below 1 is a ratio of steps
         weight_decay=config.weight_decay,
         seed=config.seed,
         save_strategy="epoch",
