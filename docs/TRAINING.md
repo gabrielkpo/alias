@@ -108,3 +108,18 @@ on the LLM-written validation split, its leak rate is lower, and on the syntheti
 its choice recall drops by less than one point. The LLM-written test split was already read once
 (step 4) and is not used to decide. The decision is Gabriel's: this branch is not merged without
 his agreement.
+
+**Result** (Kaggle T4, code `6dc08c9`, 46,795 training documents, line 4 of
+`results/training.jsonl`):
+
+| Validation split | Current model: P / R / leak | Retrained: P / R / leak |
+|---|---|---|
+| Synthetic (choice recall 0.976 / 0.975) | 0.974 / 0.977 / 1.4 % | 0.972 / 0.977 / 1.5 % |
+| LLM-written | 0.932 / 0.932 / 5.2 % | 0.979 / 0.985 / 0.8 % |
+
+The rule is met: the leak rate on the LLM-written validation split falls from 5.2 % to 0.8 %, and
+the synthetic choice recall loses 0.1 point. Read with care: those documents are no longer out of
+distribution for the retrained model (same generator, prompts and templates as its new training
+documents), so the gain measures learning that style, not robustness to unseen text. Unseen
+text is what the real sets (step 7) and a second LLM writer would test. Not adopted until
+Gabriel decides; the weights stay in the private Kaggle kernel `alias-retrain-mmbert-llm`.
