@@ -28,7 +28,12 @@ from openai import OpenAI
 client = OpenAI(base_url="http://127.0.0.1:8001/v1", api_key="unused-if-the-bridge-has-one")
 answer = client.chat.completions.create(
     model="mistral-small-latest",
-    messages=[{"role": "user", "content": "Résume la lettre de Jean Dupont, IBAN FR76 3000 6000 0112 3456 7890 189."}],
+    messages=[
+        {
+            "role": "user",
+            "content": "Résume la lettre de Jean Dupont, IBAN FR76 3000 6000 0112 3456 7890 189.",
+        }
+    ],
 )
 print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1]; you see the values
 ```
