@@ -181,7 +181,8 @@ def report(summaries: list[dict], split: str, n: int) -> str:
 
 def build(name: str, methods: dict[str, Callable[[], Detector]]) -> Detector:
     """A named baseline, or a fine-tuned checkpoint: `model:<path>` (as trained),
-    `rules+model:<path>` (the Alias detector, `detector.RulesAndModel`) or
+    `rules+model:<path>` (the Alias detector, `detector.RulesAndModel`), `rules-all+model:<path>`
+    (every rule type added, the first variant) or
     `model-int8[-<mode>]:<path>` (dynamic int8 quantisation for CPU; mode `all` by default,
     `no-head` or `mlp`, see `train.quantize_int8`)."""
     kind, _, path = name.partition(":")
@@ -189,6 +190,10 @@ def build(name: str, methods: dict[str, Callable[[], Detector]]) -> Detector:
         from alias_pii.detector import RulesAndModel
 
         return RulesAndModel.from_checkpoint(path)
+    if kind == "rules-all+model" and path:  # every rule type: the first variant measured
+        from alias_pii.detector import RulesAndModel
+
+        return RulesAndModel.from_checkpoint(path, rule_types=None)
     if kind == "model" and path:
         from alias_pii.train import TrainedDetector
 

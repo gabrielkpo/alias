@@ -1,9 +1,11 @@
 # The Alias detector: rules + model (step 5)
 
 `alias_pii.detector.RulesAndModel` runs the rule layer and the fine-tuned mmBERT-small on the
-whole text and keeps every span of both (union). Overlapping spans are merged into one, typed
-after the strongest (`entities.resolve_overlaps`, the same function masking uses), so a value
-either one finds is masked and nothing of an overlapped value is left in clear.
+whole text. All the model's spans are kept; the rules add the spans of the types they prove
+(a checksum for IBANs and national IDs, a keyword for a birth date). Overlapping spans are merged
+into one, typed after the strongest (`entities.resolve_overlaps`, the same function masking
+uses), so nothing of an overlapped value is left in clear. How this variant came after a first
+one that failed the decision rule is told below.
 
 Why both: on documents written by an LLM it never saw (step 4, out of distribution), the model
 alone leaked 14 % of birth dates and found 76 % of national IDs. The rules prove the formats with
@@ -36,4 +38,34 @@ python -m alias_pii.latency --model <checkpoint> --data <synthetic> --threads 4 
 
 ## Results
 
-Pending: filled in from the Kaggle run.
+Validation splits, Kaggle CPU session (4 cores), code `949db2d`. Strict precision and recall,
+leak rate (gold values still readable in full after masking):
+
+| Method | Synthetic: P / R / leak | LLM-written: P / R / leak |
+|---|---|---|
+| rules | 0.625 / 0.389 / 60.3 % | 0.928 / 0.395 / 59.4 % |
+| model (mmBERT-small) | 0.974 / 0.977 / 1.4 % | 0.932 / 0.932 / 5.2 % |
+| rules (every type) + model | 0.792 / 0.972 / 1.4 % | 0.928 / 0.934 / 4.9 % |
+
+**The first variant, every rule type added, fails the decision rule.** On the LLM-written
+documents it leaks less (4.9 % against 5.2 %: national IDs 4 % instead of 6 %, identifiers 3 %
+instead of 5 %) for 0.4 point of precision. On the synthetic split it leaks the same and loses 18
+points of precision: the rules' e-mails, phones and identifiers also catch company mailboxes,
+switchboards and invoice numbers (precision 0.62, 0.80 and 0.38 there), which the model had
+learnt to leave in clear.
+
+Speed, seconds per 3,000-character page on 4 CPU cores: model 1.41 mean, 1.72 p95; rules +
+model 1.42 mean, 1.74 p95. Both pass the application's 2 s p95; the rules cost almost nothing.
+
+### Second variant, defined after the first failed
+
+Written down here before its measure, and reported as a change made after seeing results (as
+the int8 rule in docs/TRAINING.md): the rules only add the types they **prove**, IBAN and
+national ID (checksum) and birth date (keyword), the types where the model is weakest out of
+distribution. E-mails, phones and identifiers are left to the model.
+
+It becomes the Alias detector if, on both validation splits, its leak rate is not higher than
+the model's alone and lower on at least one, with strict precision no more than 2 points lower.
+Because it was designed after seeing the validation numbers, Gabriel may still choose otherwise.
+
+Results: pending, from the second Kaggle run.

@@ -39,3 +39,17 @@ def test_overlap_is_merged_not_dropped():
 def test_masks_with_the_combined_detector():
     result = mask(TEXT, RulesAndModel(FakeModel()))
     assert result.text == "[PERSON_1], né le [BIRTH_DATE_1], IBAN [IBAN_1]."
+
+
+def test_rules_only_add_the_types_they_prove():
+    text = (
+        "Standard : 01 99 00 12 34, facture n° 2024/00421, IBAN FR76 3000 6000 0112 3456 7890 189."
+    )
+
+    class Nothing:
+        def detect(self, text):
+            return []
+
+    assert [e.type for e in RulesAndModel(Nothing()).detect(text)] == [EntityType.IBAN]
+    every = RulesAndModel(Nothing(), rule_types=None).detect(text)
+    assert [e.type for e in every] == [EntityType.PHONE, EntityType.IDENTIFIER, EntityType.IBAN]
