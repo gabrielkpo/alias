@@ -14,7 +14,7 @@ dependencies = [
 [project.optional-dependencies]
 # The local web API (`python -m alias_pii.app`); the model itself also needs torch and
 # transformers (`model` extra), which the rules-only mode and the tests do without.
-app = ["fastapi>=0.115", "uvicorn>=0.30"]
+app = ["fastapi>=0.115", "uvicorn>=0.30", "httpx>=0.27"]
 model = ["torch>=2.3", "transformers>=5.10,<6"]
 
 [dependency-groups]
@@ -30,7 +30,7 @@ data = [
     "httpx>=0.27",
     "pyarrow>=15",
 ]
-dev = ["httpx>=0.27", "pytest>=8", "ruff>=0.6"]
+dev = ["httpx>=0.27", "openai>=1.50", "pytest>=8", "ruff>=0.6"]
 onnx = ["onnx>=1.16", "onnxruntime>=1.18"]
 train = [
     "accelerate>=0.30",
