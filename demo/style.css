@@ -123,3 +123,5 @@ td:last-child, th:last-child { text-align: right; }
 footer { margin-top: 40px; }
 
 progress { width: 100%; max-width: 420px; height: 8px; margin-top: 6px; }
+
+.notice { margin: 8px 0 4px; font-size: 0.95rem; }
