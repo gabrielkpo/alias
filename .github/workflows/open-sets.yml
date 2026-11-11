@@ -53,7 +53,7 @@ jobs:
           python -m alias_pii.benchmark --data data/open/tab --split "$SPLIT" \
             --methods "rules,model:model,rules+model:model" --out reports
           cat "reports/benchmark-$SPLIT.md" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: open-sets-${{ inputs.set }}-${{ inputs.split }}-${{ github.run_id }}
           path: reports/
