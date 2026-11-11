@@ -1,0 +1,52 @@
+# The published demo in a real browser: headless Chromium opens the Space, loads the model,
+# masks the page's fictitious example and checks nothing is left in clear and nothing is sent
+# elsewhere (demo/test/space_e2e.py). Run after each deployment of the Space (deploy-space.yml),
+# by hand, weekly to notice a broken CDN or Hugging Face change, and on changes to the test itself.
+name: Space end-to-end
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Page to test
+        default: https://gabrielkph-alias.static.hf.space/index.html
+  workflow_call:
+    inputs:
+      url:
+        type: string
+        default: https://gabrielkph-alias.static.hf.space/index.html
+  schedule:
+    - cron: "17 6 * * 1"
+  pull_request:
+    paths: ["demo/test/space_e2e.py", ".github/workflows/space-e2e.yml"]
+permissions:
+  contents: read
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Playwright and Chromium
+        run: |
+          pip install playwright==1.64.1
+          # The runner image already has Chromium's libraries; --with-deps would go through apt
+          # mirrors, which can be unreachable (seen on 11/11). The browser comes from Playwright's CDN.
+          playwright install chromium
+      - name: Open the demo, load the model, mask the example
+        env:
+          URL: ${{ inputs.url || 'https://gabrielkph-alias.static.hf.space/index.html' }}
+        run: python demo/test/space_e2e.py --url "$URL" --out e2e
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f e2e/report.json ]; then
+            python -c "import json; r=json.load(open('e2e/report.json')); print('### Demo end-to-end'); print(); print('- model load:', r.get('load_seconds'), 's'); [print('-', s) for s in r.get('mask_status', [])]; print('- hosts:', ', '.join(r.get('hosts', []))); print('- problems:', r.get('problems') or 'none'); print('- known leaks:', r.get('known_leaks') or 'none'); print('- notes:', r.get('notes') or 'none')" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: space-e2e
+          path: e2e/

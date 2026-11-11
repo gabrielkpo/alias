@@ -8,8 +8,12 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        id: release
         with:
           # A PR opened with GITHUB_TOKEN triggers no workflow, so the required checks
           # would never run on the release PR. RELEASE_PLEASE_TOKEN is a fine-grained
@@ -17,3 +21,14 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+  # A published release deploys the demo at that tag (the public demo changes only with a release).
+  deploy-space:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy-space.yml
+    with:
+      ref: ${{ needs.release-please.outputs.tag_name }}
+    secrets:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}  # this one only, not the release token

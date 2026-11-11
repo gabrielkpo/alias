@@ -96,13 +96,32 @@ def _mask(text: str, entities: Iterable[Entity]) -> str:
     return "".join(out) + text[cursor:]
 
 
-def score_document(text: str, gold: list[Entity], predicted: list[Entity]) -> dict[str, Counts]:
-    """Counts per label for one document (key `ALL` holds the total)."""
+def score_document(
+    text: str,
+    gold: list[Entity],
+    predicted: list[Entity],
+    labels: Iterable[str] | None = None,
+    ignore: Iterable[tuple[int, int]] = (),
+) -> dict[str, Counts]:
+    """Counts per label for one document (key `ALL` holds the total).
+
+    `labels`: the labels the source annotates (open sets, alias_pii.open_sets); predictions of
+    other labels are not scored. `ignore`: regions the source annotates but Alias is not scored
+    on; a prediction overlapping one is not scored either. Masking, hence the leak rate, always
+    uses every prediction."""
     counts: dict[str, Counts] = defaultdict(Counts)
     # the same label on the same span counts once (Presidio can return US_SSN and UK_NINO there)
     predicted = list({(p.type, p.start, p.end): p for p in predicted}.values())
     exact = {(e.type, e.start, e.end) for e in gold}
     leaks = {(e.start, e.end) for e in find_leaks(_mask(text, predicted), gold)}
+    scored = set(labels) if labels is not None else None
+    ignore = list(ignore)
+    predicted = [
+        p
+        for p in predicted
+        if (scored is None or p.type.value in scored)
+        and not any(p.start < end and start < p.end for start, end in ignore)
+    ]
     for g in gold:
         c = counts[g.type.value]
         c.gold += 1
@@ -142,7 +161,13 @@ def run(method: str, detector: Detector, documents: list[dict]) -> Result:
         result.seconds += time.perf_counter() - start
         result.documents += 1
         result.characters += len(text)
-        counts = score_document(text, gold_entities(document), predicted)
+        counts = score_document(
+            text,
+            gold_entities(document),
+            predicted,
+            labels=document.get("labels"),
+            ignore=[tuple(r) for r in document.get("ignore", [])],
+        )
         source = document.get("source", "").split(":")[0]
         for axis, value in (("all", "all"), ("language", document["language"]), ("source", source)):
             for label, c in counts.items():
@@ -183,8 +208,9 @@ def build(name: str, methods: dict[str, Callable[[], Detector]]) -> Detector:
     """A named baseline, or a fine-tuned checkpoint: `model:<path>` (as trained), `onnx:<path>`
     (exported to ONNX, `onnx_export`), `rules+model:<path>` (the Alias detector,
     `detector.RulesAndModel`), `rules-all+model:<path>` (every rule type added, the first
-    variant) or `model-int8[-<mode>]:<path>` (dynamic int8 quantisation for CPU; mode `all` by
-    default, `no-head` or `mlp`, see `train.quantize_int8`)."""
+    variant), `rules-v2+model:<path>` (the second variant, without the person's-file identifiers
+    of the third) or `model-int8[-<mode>]:<path>` (dynamic int8 quantisation for CPU; mode `all`
+    by default, `no-head` or `mlp`, see `train.quantize_int8`)."""
     kind, _, path = name.partition(":")
     if kind == "onnx" and path:
         from alias_pii.onnx_export import OnnxDetector
@@ -194,6 +220,10 @@ def build(name: str, methods: dict[str, Callable[[], Detector]]) -> Detector:
         from alias_pii.detector import RulesAndModel
 
         return RulesAndModel.from_checkpoint(path)
+    if kind == "rules-v2+model" and path:  # the second variant: no identifier from the rules
+        from alias_pii.detector import RulesAndModel
+
+        return RulesAndModel.from_checkpoint(path, id_keywords=())
     if kind == "rules-all+model" and path:  # every rule type: the first variant measured
         from alias_pii.detector import RulesAndModel
 
