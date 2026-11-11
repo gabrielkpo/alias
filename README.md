@@ -103,8 +103,8 @@ Negative results will be published.
 ## Results
 Baselines (step 3) and the fine-tuned model (step 4) on the synthetic test split, 4,200
 documents in French, English and mixed: grid generator, gretel and WikiNER. The test split was
-read once by the chosen model, after the choice was made on the validation split. Real annotated
-sets come later; these numbers measure the methods on our labels, not on real documents.
+read once by the chosen model, after the choice was made on the validation split. These numbers
+measure the methods on our labels; the last bullet gives the first measure on real documents.
 
 | Method | Precision | Recall | Leak rate | ms / 1,000 chars (CPU) |
 |---|---|---|---|---|
@@ -136,6 +136,11 @@ sets come later; these numbers measure the methods on our labels, not on real do
   model on synthetic text and leaks a little less on LLM-written text (5.1 % against 5.2 %;
   national IDs 4 % against 6 %). Adding every rule type cost 18 points of precision (company
   mailboxes, switchboards, invoice numbers) for no leak gained: rejected.
+- **On real documents** (step 7, docs/REALISTIC_SETS.md): on the 127 English judgments of the
+  Text Anonymization Benchmark (European Court of Human Rights), read once, 12.5 % of names stay
+  readable after masking (overlap recall 0.93, precision 0.89). Years of birth alone and court
+  application numbers mostly stay in clear (75 % and 95 %): quasi-identifiers Alias does not
+  cover yet. French real-world sets come next.
 
 Full tables per label, language and source: `uv run python -m alias_pii.benchmark` (see Run it).
 
