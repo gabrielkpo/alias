@@ -5,7 +5,7 @@
 #
 # The fine-tuned checkpoint is mounted at /model (read-only); without it only the rules run.
 # Nothing is downloaded at run time: Hugging Face libraries are set offline.
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
