@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alias</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Alias</h1>
+    <p class="lead">Mask the personal data in a text before it goes to an LLM. Detection runs on
+      this server: the text is not sent anywhere else, not logged and not stored.</p>
+    <p id="status" class="status" role="status">Checking the detector…</p>
+    <p id="demo" class="demo" hidden>Public demo: paste fictitious data only.</p>
+  </header>
+
+  <main>
+    <section aria-labelledby="input-title">
+      <h2 id="input-title">Text</h2>
+      <textarea id="input" rows="12" spellcheck="false"
+        placeholder="Paste a text: a letter, an e-mail, a record…"></textarea>
+      <div class="actions">
+        <button id="mask" type="button">Mask</button>
+        <button id="example" type="button" class="secondary">Try an example</button>
+        <span id="count" class="muted"></span>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+    </section>
+
+    <section id="results" aria-labelledby="found-title" hidden>
+      <h2 id="found-title">What was found</h2>
+      <div id="legend" class="legend"></div>
+      <div id="highlighted" class="highlighted"></div>
+
+      <h2>Masked text <span class="muted">(what can go to the LLM)</span></h2>
+      <textarea id="masked" rows="12" readonly spellcheck="false"></textarea>
+      <div class="actions">
+        <button id="copy" type="button">Copy the masked text</button>
+        <button id="download" type="button" class="secondary">Download the report (JSON)</button>
+        <span id="copied" class="muted" aria-live="polite"></span>
+      </div>
+
+      <h2>Report <span class="muted">(counts only, never the values)</span></h2>
+      <table id="report"><thead><tr><th>Type</th><th>Values</th></tr></thead><tbody></tbody></table>
+    </section>
+  </main>
+
+  <footer class="muted">Alias, open source (MIT). No detector is perfect: read the masked text
+    before sending it.</footer>
+</body>
+</html>

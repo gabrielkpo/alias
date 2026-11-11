@@ -53,6 +53,7 @@ def main() -> None:
     parser.add_argument("--pages", type=int, default=53, help="3 warm-up pages + 50 timed")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--quantize", choices=["none", "all", "no-head", "mlp"], default="none")
+    parser.add_argument("--rules", action="store_true", help="rules + model (the Alias detector)")
     args = parser.parse_args()
 
     import torch
@@ -62,8 +63,12 @@ def main() -> None:
     torch.set_num_threads(args.threads)
     mode = None if args.quantize == "none" else args.quantize
     detector = TrainedDetector(args.model, quantize=mode)
+    if args.rules:
+        from alias_pii.detector import RulesAndModel
+
+        detector = RulesAndModel(detector)
     result = measure(detector, pages(load(args.data / "validation.jsonl"), args.pages))
-    result.update(model=args.model, threads=args.threads, quantize=args.quantize)
+    result.update(model=args.model, threads=args.threads, quantize=args.quantize, rules=args.rules)
     print(json.dumps(result))
 
 
