@@ -63,3 +63,20 @@ def test_health_and_security_headers(client):
 
 def test_no_docs_that_load_a_cdn(client):
     assert client.get("/docs").status_code == 404
+
+
+def test_page_and_its_files_are_served_locally(client):
+    page = client.get("/")
+    assert page.status_code == 200 and "text/html" in page.headers["content-type"]
+    assert "/static/app.js" in page.text and "http" not in page.text.split("<body>")[0]
+    script = client.get("/static/app.js")
+    assert script.status_code == 200 and "innerHTML" not in script.text
+    assert client.get("/static/style.css").status_code == 200
+    assert "default-src 'self'" in page.headers["content-security-policy"]
+
+
+def test_demo_flag_reaches_the_page(client):
+    assert client.get("/health").json()["demo"] is False
+    detector, name = load_detector(None)
+    demo = TestClient(create_app(detector, name, demo=True))
+    assert demo.get("/health").json()["demo"] is True
