@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/gabrielkpo/alias/compare/v0.2.0...v0.3.0) (2026-11-11)
+
+
+### Features
+
+* **onnx:** ONNX export and detector (the demo's model) ([#37](https://github.com/gabrielkpo/alias/issues/37)) ([79fbeff](https://github.com/gabrielkpo/alias/commit/79fbeff1c271cbf9e4263a6c245ecce3a4958be6))
+
+
+### Bug Fixes
+
+* **deps:** transformers 5 (&gt;=5.10), closing its security alerts ([#54](https://github.com/gabrielkpo/alias/issues/54)) ([fb34fe2](https://github.com/gabrielkpo/alias/commit/fb34fe2099f511d6b004090575ad77d7e58fafbf))
+
+
+### Documentation
+
+* **readme:** Mistral zero-shot baseline results ([#39](https://github.com/gabrielkpo/alias/issues/39)) ([1efe31e](https://github.com/gabrielkpo/alias/commit/1efe31ecf6fb62781c2c65bcb875c63b374d9dec))
+
 ## [0.2.0](https://github.com/gabrielkpo/alias/compare/v0.1.0...v0.2.0) (2026-11-11)
 
 
