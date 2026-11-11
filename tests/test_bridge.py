@@ -219,15 +219,17 @@ def test_json_answers_stay_valid_when_values_hold_quotes():
                 [Entity(EntityType.ADDRESS, start, start + len(value), value)] if start >= 0 else []
             )
 
-    fake = FakeMistral(reply='{"adresse": "[ADDRESS_1]"}')
-    app = create_bridge(Quoted(), api_key="k", transport=httpx.MockTransport(fake))
-    response = ask(
-        TestClient(app, base_url=LOCAL),
-        {"role": "user", "content": f"Adresse : {value}"},
-        response_format={"type": "json_object"},
-    )
-    content = response.json()["choices"][0]["message"]["content"]
-    assert json.loads(content) == {"adresse": value}
+    replies = (('{"adresse": "[ADDRESS_1]"}', {"adresse": value}), ('"[ADDRESS_1]"', value))
+    for reply, expected in replies:
+        fake = FakeMistral(reply=reply)
+        app = create_bridge(Quoted(), api_key="k", transport=httpx.MockTransport(fake))
+        response = ask(
+            TestClient(app, base_url=LOCAL),
+            {"role": "user", "content": f"Adresse : {value}"},
+            response_format={"type": "json_object"},
+        )
+        content = response.json()["choices"][0]["message"]["content"]
+        assert json.loads(content) == expected
 
 
 def test_text_the_bridge_cannot_mask_is_refused_not_forwarded():

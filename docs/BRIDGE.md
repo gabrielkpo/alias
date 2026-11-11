@@ -72,7 +72,11 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
     show them in another order.
 
   The bridge cannot follow every transformation a tool applies before display (joining the items
-  of a YAML list, for example); it protects the answer as returned and its JSON strings.
+  of a YAML list, for example); it protects the answer as returned and its JSON strings. The
+  cost: an answer with code (a backslash, `List<String>`), an image, or a line such as
+  `[PERSON_1]: director` (a valid reference definition) comes back with aliases left in place
+  after that point, or everywhere for the definition. `X-Alias-Restored` then counts fewer
+  aliases than the answer mentions.
 - **JSON answers** (`response_format`): values go back inside the JSON string values, so the
   JSON stays valid whatever they hold; keys keep their aliases.
 - **Local tools only**: the bridge spends the user's key, so a web page must not reach it. A

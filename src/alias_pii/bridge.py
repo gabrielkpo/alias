@@ -239,17 +239,18 @@ def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
     return "".join(parts)
 
 
-def _document(text: str) -> dict | list | None:
-    """The answer as a JSON object or array, if it is one, read as leniently as a browser does
-    (numbers of any length, kept as text). One too deeply nested to read counts as holding a
-    link mark, so nothing is restored in it."""
+def _document(text: str, strings: bool = False) -> dict | list | str | None:
+    """The answer as a JSON object or array (or string, with `strings`), if it is one, read as
+    leniently as a browser does (numbers of any length, kept as text). One too deeply nested to
+    read counts as holding a link mark, so nothing is restored in it."""
     try:
         value = json.loads(text, parse_int=str, parse_float=str)
     except RecursionError:
         return ["<"]
     except ValueError:
         return None
-    return value if isinstance(value, dict | list) else None
+    kinds = dict | list | str if strings else dict | list
+    return value if isinstance(value, kinds) else None
 
 
 def _strings(node) -> list[str]:
@@ -263,7 +264,7 @@ def _strings(node) -> list[str]:
     return []
 
 
-def _linked(document: dict | list) -> bool:
+def _linked(document: dict | list | str) -> bool:
     """Whether a link mark appears in a JSON document taken as a whole: a client may join its
     strings (a mark split as `"!"`, `"[x]"`, `"(url"`), show them in another order (JavaScript
     puts integer keys first) or render the JSON text as markdown."""
@@ -278,7 +279,7 @@ def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> s
     whatever the values hold (quotes, backslashes); None if the text is not JSON. Keys keep their
     aliases (two keys equal once restored would merge), and a document holding a link mark
     anywhere (`_linked`) gets nothing back."""
-    document = _document(text)
+    document = _document(text, strings=True)
     if document is None:
         return None
     if _linked(document):
