@@ -77,7 +77,10 @@ def from_markup(marked: str) -> tuple[str, list[dict]]:
 
 
 def _inside_real(path: Path) -> bool:
-    return "real" in path.resolve().parts
+    """Under a `data/real/` folder, the one Git ignores; any other folder named `real` (say
+    `docs/real/`) would let real documents be committed."""
+    parts = path.resolve().parts
+    return any(parts[i : i + 2] == ("data", "real") for i in range(len(parts) - 1))
 
 
 def prepare(paths: list[Path], out: Path, detector) -> list[Path]:

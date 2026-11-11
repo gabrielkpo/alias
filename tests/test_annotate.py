@@ -55,3 +55,11 @@ def test_prepare_keeps_hand_work_and_collect_builds_the_set(tmp_path):
     [document] = collect(out, "fr")
     assert document["text"] == TEXT and document["source"] == "real:lettre"
     assert "PERSON" in [s["label"] for s in document["spans"]]
+
+
+def test_only_data_real_is_accepted(tmp_path):
+    from alias_pii.annotate import _inside_real
+
+    assert _inside_real(tmp_path / "data" / "real" / "fr")
+    assert not _inside_real(tmp_path / "docs" / "real")
+    assert not _inside_real(tmp_path / "data" / "synthetic")
