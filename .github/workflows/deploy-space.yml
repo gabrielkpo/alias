@@ -1,19 +1,26 @@
-# Deploys the browser demo (demo/) to the Hugging Face Space Gabrielkph/alias when main changes,
-# like a Vercel deployment, then checks the deployed page end to end in headless Chromium.
-# Needs the repository secret HF_TOKEN: a fine-grained Hugging Face token with write access to
-# that Space only. Without it the job says so and deploys nothing.
+# Deploys the browser demo (demo/) to the Hugging Face Space Gabrielkph/alias, then checks the
+# deployed page end to end in headless Chromium. It runs when a release is published (called by
+# release-please.yml: the public demo changes only with a version Gabriel releases), or by hand
+# with a tag or branch, e.g. to roll back: gh workflow run deploy-space.yml -f ref=v0.2.0
+# The job runs in the GitHub environment "huggingface" (deployment history and the Space URL in
+# the repository's Deployments) and needs the secret HF_TOKEN: a fine-grained Hugging Face token
+# with write access to that Space only. Without it the job says so and deploys nothing.
 name: Deploy Space
 on:
-  push:
-    branches: [main]
-    paths:
-      - "demo/index.html"
-      - "demo/app.js"
-      - "demo/alias.js"
-      - "demo/style.css"
-      - "demo/README.md"
-      - ".github/workflows/deploy-space.yml"
+  workflow_call:
+    inputs:
+      ref:
+        description: Tag or branch to deploy
+        type: string
+        required: true
+    secrets:
+      HF_TOKEN:
+        required: false
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or branch to deploy (a release tag such as v0.2.0, or main)
+        default: main
 permissions:
   contents: read
 concurrency:
@@ -23,12 +30,18 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment:
+      name: huggingface
+      url: https://huggingface.co/spaces/Gabrielkph/alias
     outputs:
       deployed: ${{ steps.upload.outputs.deployed }}
     env:
       SPACE: Gabrielkph/alias
+      REF: ${{ inputs.ref }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       # The token is given to the two steps that need it only, never to the actions.
       - name: Check the token
         id: token
@@ -55,12 +68,17 @@ jobs:
           python - <<'PY'
           import os
           from huggingface_hub import HfApi
-          commit = HfApi().upload_folder(
+          api = HfApi()
+          ref = os.environ["REF"]
+          commit = api.upload_folder(
               repo_id=os.environ["SPACE"], repo_type="space", folder_path="demo",
               allow_patterns=["index.html", "app.js", "alias.js", "style.css", "README.md"],
-              commit_message=f"Deploy {os.environ['GITHUB_SHA'][:7]} from gabrielkpo/alias",
+              commit_message=f"Deploy {ref} from gabrielkpo/alias",
           )
           print(commit)
+          if ref.startswith("v"):  # a release: the Space commit gets the same tag
+              api.create_tag(os.environ["SPACE"], repo_type="space", tag=ref, exist_ok=True)
+              print(f"Space tagged {ref}")
           PY
           echo "deployed=true" >> "$GITHUB_OUTPUT"
       - name: Wait until the Space serves this version of every page file

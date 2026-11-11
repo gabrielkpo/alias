@@ -55,13 +55,19 @@ About 600 MB downloaded on the first visit (the browser keeps it). The time per 
 
 ## Deploying the Space
 
-Like a Vercel deployment: a merge to `main` that changes the page (`demo/index.html`, `app.js`,
-`alias.js`, `style.css`, `README.md`) runs `.github/workflows/deploy-space.yml`, which uploads
-these five files to the Space, waits until the Space serves the new `alias.js`, then runs the
-end-to-end check on it. The tests and `package.json` stay in the repository. It needs the
-repository secret `HF_TOKEN`, a fine-grained Hugging Face token with write access to the Space
-`Gabrielkph/alias` only; without it the workflow deploys nothing and says so. It can also be
-started by hand (`gh workflow run deploy-space.yml`).
+The public demo changes only with a release. Merging release-please's release PR publishes the
+release (tag `vX.Y.Z`, changelog); `release-please.yml` then calls `deploy-space.yml` with that
+tag, which uploads the page's five files (`demo/index.html`, `app.js`, `alias.js`, `style.css`,
+`README.md`) to the Space, tags the Space commit with the same version, waits until the Space
+serves them, and runs the end-to-end check. Merges to `main` in between are tested by CI but not
+deployed. To roll back, or to deploy by hand: `gh workflow run deploy-space.yml -f ref=v0.2.0`.
+
+The job runs in the GitHub environment `huggingface` (deployments listed with the Space URL,
+limited to `main`) and needs the secret `HF_TOKEN`, a fine-grained Hugging Face token with write
+access to the Space `Gabrielkph/alias` only; without it the workflow deploys nothing and says so.
+The page shows its version and the model's in the footer. The model is pinned to the tag `v1.0`
+of `Gabrielkph/alias-mmbert-small` (in `demo/app.js`, and in the CI downloads), so new weights
+reach the demo only through a release that changes that tag.
 
 A change of the model id or of the transformers.js version goes in `demo/app.js`; Dependabot
 proposes the npm version, and the CDN version in `app.js` must follow.
