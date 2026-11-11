@@ -1,0 +1,84 @@
+# Deploys the browser demo (demo/) to the Hugging Face Space Gabrielkph/alias when main changes,
+# like a Vercel deployment, then checks the deployed page end to end in headless Chromium.
+# Needs the repository secret HF_TOKEN: a fine-grained Hugging Face token with write access to
+# that Space only. Without it the job says so and deploys nothing.
+name: Deploy Space
+on:
+  push:
+    branches: [main]
+    paths:
+      - "demo/index.html"
+      - "demo/app.js"
+      - "demo/alias.js"
+      - "demo/style.css"
+      - "demo/README.md"
+      - ".github/workflows/deploy-space.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: deploy-space
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      deployed: ${{ steps.upload.outputs.deployed }}
+    env:
+      SPACE: Gabrielkph/alias
+    steps:
+      - uses: actions/checkout@v7
+      # The token is given to the two steps that need it only, never to the actions.
+      - name: Check the token
+        id: token
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::warning::HF_TOKEN secret not set: nothing deployed (docs/DEMO.md)."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v7
+        if: steps.token.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+      - name: Upload the page to the Space
+        id: upload
+        if: steps.token.outputs.present == 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install -q "huggingface_hub==2.3.0"
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          commit = HfApi().upload_folder(
+              repo_id=os.environ["SPACE"], repo_type="space", folder_path="demo",
+              allow_patterns=["index.html", "app.js", "alias.js", "style.css", "README.md"],
+              commit_message=f"Deploy {os.environ['GITHUB_SHA'][:7]} from gabrielkpo/alias",
+          )
+          print(commit)
+          PY
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+      - name: Wait until the Space serves this version of every page file
+        if: steps.token.outputs.present == 'true'
+        run: |
+          base=https://gabrielkph-alias.static.hf.space
+          for i in $(seq 1 36); do
+            stale=""
+            for f in index.html app.js alias.js style.css; do
+              want=$(sha256sum "demo/$f" | cut -d' ' -f1)
+              got=$(curl -sSf "$base/$f?v=$GITHUB_SHA" | sha256sum | cut -d' ' -f1 || true)
+              [ "$got" = "$want" ] || stale="$stale $f"
+            done
+            if [ -z "$stale" ]; then echo "served after ~$((i * 5)) s"; exit 0; fi
+            sleep 5
+          done
+          echo "::error::the Space still serves an older$stale after 3 minutes"; exit 1
+  e2e:
+    needs: deploy
+    if: needs.deploy.outputs.deployed == 'true'
+    uses: ./.github/workflows/space-e2e.yml
