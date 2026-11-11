@@ -53,6 +53,7 @@ def main() -> None:
     parser.add_argument("--pages", type=int, default=53, help="3 warm-up pages + 50 timed")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--quantize", choices=["none", "all", "no-head", "mlp"], default="none")
+    parser.add_argument("--onnx", action="store_true", help="--model is an ONNX export folder")
     args = parser.parse_args()
 
     import torch
@@ -61,9 +62,14 @@ def main() -> None:
 
     torch.set_num_threads(args.threads)
     mode = None if args.quantize == "none" else args.quantize
-    detector = TrainedDetector(args.model, quantize=mode)
+    if args.onnx:
+        from alias_pii.onnx_export import OnnxDetector
+
+        detector = OnnxDetector(args.model, threads=args.threads)
+    else:
+        detector = TrainedDetector(args.model, quantize=mode)
     result = measure(detector, pages(load(args.data / "validation.jsonl"), args.pages))
-    result.update(model=args.model, threads=args.threads, quantize=args.quantize)
+    result.update(model=args.model, threads=args.threads, quantize=args.quantize, onnx=args.onnx)
     print(json.dumps(result))
 
 
