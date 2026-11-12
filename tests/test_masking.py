@@ -232,3 +232,17 @@ def test_values_come_from_the_text_not_from_the_detector():
 def test_the_mask_result_repr_holds_no_text():
     result = mask("Écrire à jean.dupont@example.com, merci.", detector)
     assert "merci" not in repr(result) and "crire" not in repr(result)
+
+
+def test_restore_reads_aliases_an_llm_rewrote():
+    """LLMs change an alias's case or its underscore when they rewrite the text."""
+    result = mask("Écrire à jean.dupont@example.com.", detector)
+    for written in ("[email_1]", "[Email-1]", "[EMAIL 1]", "[ EMAIL_01 ]"):
+        assert restore(f"Voir {written}.", result).text == "Voir jean.dupont@example.com.", written
+    assert restore("Voir [EMAIL_2].", result).text == "Voir [EMAIL_2]."
+
+
+def test_a_rewritten_alias_already_in_the_input_is_never_restored():
+    result = mask("Note : [email-1]. Écrire à jean.dupont@example.com.", detector)
+    assert result.text == "Note : [email-1]. Écrire à [EMAIL_2]."
+    assert restore("[EMAIL_1] et [EMAIL_2]", result).text == "[EMAIL_1] et jean.dupont@example.com"

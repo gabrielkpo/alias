@@ -250,6 +250,14 @@ test("typographic spaces and invisible characters do not hide a value", () => {
   }
 });
 
+test("restore reads aliases an LLM rewrote", () => {
+  const text = "Écrire à a.b@example.com.";
+  const result = mask(text, [found(text, "EMAIL", "a.b@example.com")]);
+  for (const written of ["[email_1]", "[Email-1]", "[EMAIL 1]"]) {
+    assert.equal(restore(`Voir ${written}.`, result).text, "Voir a.b@example.com.", written);
+  }
+});
+
 test("a qualifier between the keyword and its number word", () => {
   for (const [text, value] of [
     ["Voir le dossier médical n° 12345.", "12345"],
