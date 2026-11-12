@@ -70,7 +70,7 @@ class RulesAndModel:
 
     def detect(self, text: str) -> list[Entity]:
         # Filter the rules' raw spans before merging overlaps: a rule phone the detector drops
-        # must not absorb an identifier it keeps ("sinistre n° 8084501260" also reads as a phone).
+        # must not absorb an identifier it keeps ("sinistre n° 2015550123" also reads as a phone).
         find = getattr(self.rules, "find", self.rules.detect)
         rules = [e for e in find(text) if self._kept(e)]
         return resolve_overlaps(rules + self.model.detect(text))

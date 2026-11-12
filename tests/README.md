@@ -13,4 +13,7 @@ reach a real person. Use only:
 | NIR | invented, with the key computed for the test |
 | US SSN | `123-45-6789`, the usual sample number |
 
+`test_fixtures.py` checks every tracked text file: French phone numbers outside these ranges or
+e-mail domains that are not reserved make it fail.
+
 Real annotated texts never go in this repository (see `.gitignore`: `data/real/`).
