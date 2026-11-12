@@ -67,8 +67,9 @@ def test_the_measure_stops_at_its_token_budget():
 
 
 def test_the_measure_works_over_real_connections():
-    """The bridge keeps its connections to Mistral open between requests: over a real socket,
-    the whole run must share one event loop (a closed loop broke the second request)."""
+    """Over a real socket, as the real API: connections kept open between requests (the whole
+    run must share one event loop) and gzip-encoded answers (the recorder must not decode them
+    twice)."""
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -76,12 +77,17 @@ def test_the_measure_works_over_real_connections():
         protocol_version = "HTTP/1.1"  # keep-alive, as the real API
 
         def do_POST(self):
+            import gzip
+
             self.rfile.read(int(self.headers["content-length"]))
-            body = json.dumps(
-                {"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}}
-            ).encode()
+            body = gzip.compress(
+                json.dumps(
+                    {"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}}
+                ).encode()
+            )
             self.send_response(200)
             self.send_header("content-type", "application/json")
+            self.send_header("content-encoding", "gzip")  # as the real API
             self.send_header("content-length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
