@@ -40,6 +40,13 @@ The table is in the README. What follows comments it, with the limits of these m
   application numbers mostly stay in clear (75 % and 95 %): quasi-identifiers Alias does not
   cover yet. French real-world sets come next.
 
+## Through the bridge, against the real API
+
+On 50 documents of the synthetic validation split sent through Alias Bridge to
+`mistral-small-latest` (2026-11-12): 0 of 203 personal values reached Mistral in clear, every
+alias Mistral kept (178 of 208) came back restored, and the bridge added 0.12 s per document
+(median). Record: `results/bridge-measure-2026-11-12.json`; details in docs/BRIDGE.md.
+
 ## Limits of these measures
 
 - The synthetic splits are not fully separate: some phrase templates and some fake names appear

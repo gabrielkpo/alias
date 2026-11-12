@@ -1,0 +1,34 @@
+{
+  "run": "https://github.com/gabrielkpo/alias/actions/runs/43258529186",
+  "date": "2026-11-12",
+  "code_commit": "3217c9d5eb86127085e514392585f849940c8650",
+  "model_repo": "Gabrielkph/alias-mmbert-small",
+  "model_revision": "41638ca5485ab9b963e7e900914fe417bc314907",
+  "source": "grid generator, validation split, seed 0, fictitious values only",
+  "documents": 50,
+  "errors": 0,
+  "values": 203,
+  "values_leaked": 0,
+  "aliases_sent": 208,
+  "aliases_kept": 178,
+  "aliases_restored": 178,
+  "answers_with_alias_left": 0,
+  "tokens_in": 9722,
+  "tokens_out": 7536,
+  "models": [
+    "mistral-small-latest"
+  ],
+  "error_statuses": {},
+  "leak_rate": 0.0,
+  "kept_rate": 0.8557692307692307,
+  "median_overhead_seconds": 0.11889912150000725,
+  "answers": 50,
+  "cost": null,
+  "settings": {
+    "n": 50,
+    "seed": 0,
+    "model": "mistral-small-latest",
+    "max_tokens": 300,
+    "budget": 150000
+  }
+}

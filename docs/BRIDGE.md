@@ -147,7 +147,14 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 - **Measure against the real API**: `alias_pii.measure_bridge` sends fictitious documents through
   the bridge to Mistral and reports counts only (values leaked, aliases kept by the model and
   restored, tokens, cost, time added); it runs by hand on GitHub (`bridge-measure` workflow, key
-  in the protected environment `mistral`), within a token budget.
+  in the protected environment `mistral`), within a token budget. First run (2026-11-12, 50
+  documents of the synthetic validation split, `mistral-small-latest`, asked for a summary):
+  none of the 203 personal values reached Mistral in clear; of the 208 aliases sent, Mistral
+  kept 178 in its summaries and all 178 came back restored, with no alias left in any answer;
+  17,258 tokens in all; the bridge added 0.12 s per document (median). Record:
+  [results/bridge-measure-2026-11-12.json](../results/bridge-measure-2026-11-12.json). On
+  synthetic text the detector misses little; on real text it misses more (docs/RESULTS.md), and
+  what it misses reaches Mistral in clear.
 - <a id="limits"></a>**Limits**: no detector is perfect; what the detector misses (a name it
   does not recognise) reaches Mistral in clear. The leak rates measured so far are in the README.
 - **Outside the entity types**: payment card numbers are not detected, nor any value outside the
