@@ -12,7 +12,7 @@ IBAN_LENGTHS = {
     "SE": 24,
 }  # fmt: skip
 
-_SEPARATORS = re.compile(r"[\s.\-]")
+_SEPARATORS = re.compile(r"[\s.\-\u00ad\u200b\u200c\u200d\u2060\ufeff]")
 
 
 def compact(value: str) -> str:

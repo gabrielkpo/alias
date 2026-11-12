@@ -145,3 +145,24 @@ def test_rules_stay_fast_on_hostile_input(text):
     start = time.perf_counter()
     detector.detect(text)
     assert time.perf_counter() - start < 2.0
+
+
+def test_typographic_spaces_and_invisible_characters_do_not_hide_a_value():
+    """French typography and text copied from a PDF use no-break, narrow and thin spaces, soft
+    hyphens and zero-width characters: the rules read through them, and the span covers the
+    value as written."""
+    texts = [
+        ("IBAN FR76\u00a03000\u00a06000\u00a00112\u00a03456\u00a07890\u00a0189 ok", "IBAN"),
+        ("IBAN FR76\u20093000\u20096000\u20090112\u20093456\u20097890\u2009189", "IBAN"),
+        ("IBAN FR76 3000 6000 0112\u00ad3456 7890 189", "IBAN"),
+        ("NIR 1\u00a085\u00a005\u00a078\u00a0006\u00a0084\u00a091", "NATIONAL_ID"),
+        ("Tél. 01\u202f99\u202f00\u202f12\u202f34", "PHONE"),
+        ("mail jean\u200b.dupont@example.com", "EMAIL"),
+        ("mail jean.dupont@exam\u200bple.com", "EMAIL"),
+    ]
+    for text, type_ in texts:
+        found = RuleDetector().detect(text)
+        assert [e.type for e in found] == [EntityType(type_)], text
+        e = found[0]
+        assert text[e.start : e.end] == e.text
+        assert e.text[0] not in " .\u200b" and e.text[-1] not in " .\u200b"

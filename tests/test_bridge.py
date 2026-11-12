@@ -147,8 +147,9 @@ def test_a_checksummed_value_left_in_clear_stops_the_request():
 
     fake = FakeMistral()
     app = create_bridge(Nothing(), api_key="k", transport=httpx.MockTransport(fake))
-    response = ask(TestClient(app, base_url=LOCAL), {"role": "user", "content": f"IBAN {IBAN}"})
-    assert response.status_code == 422
+    for iban in (IBAN, IBAN.replace(" ", "\u00a0"), IBAN.replace(" ", "\u202f")):
+        response = ask(TestClient(app, base_url=LOCAL), {"role": "user", "content": f"IBAN {iban}"})
+        assert response.status_code == 422
     assert fake.received == []  # nothing was sent
 
 

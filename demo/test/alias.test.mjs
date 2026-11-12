@@ -233,3 +233,19 @@ test("addresses and identifiers that differ by a dot or dash get their own alias
     "[EMAIL_1], [EMAIL_2], [EMAIL_1], [IDENTIFIER_1], [IDENTIFIER_2], [IDENTIFIER_1].",
   );
 });
+
+test("typographic spaces and invisible characters do not hide a value", () => {
+  const texts = [
+    ["IBAN FR76\u00a03000\u00a06000\u00a00112\u00a03456\u00a07890\u00a0189 ok", "IBAN"],
+    ["NIR 1\u202f85\u202f05\u202f78\u202f006\u202f084\u202f91", "NATIONAL_ID"],
+    ["IBAN FR76 3000 6000 0112\u00ad3456 7890 189", "IBAN"],
+    ["mail jean\u200b.dupont@example.com", "EMAIL"],
+  ];
+  for (const [text, type] of texts) {
+    const found = detectRules(text);
+    assert.equal(found.length, 1, text);
+    assert.equal(found[0].type, type);
+    assert.equal(text.slice(found[0].start, found[0].end), found[0].text);
+    assert.ok(!/[\s.]/u.test(found[0].text[0]));
+  }
+});
