@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Iterator
+from dataclasses import replace
 
 import phonenumbers
 
@@ -99,6 +100,31 @@ def keyword_kind(keyword: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c)).rstrip(".")
 
 
+# Typography the rules would not read as a separator: spaces other than U+0020 (no-break,
+# narrow no-break, thin, figure...) count as a space, and invisible characters (zero-width
+# spaces and joiners, soft hyphen, BOM) are skipped. A value written with them, common in French
+# typography and in text copied from a PDF, would otherwise stay readable.
+SPACES = frozenset(
+    "\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008"
+    "\u2009\u200a\u202f\u205f\u3000"
+)
+INVISIBLE = frozenset("\u00ad\u200b\u200c\u200d\u2060\ufeff")
+
+
+def shadow(text: str) -> tuple[str, list[int]]:
+    """The text as the rules read it (`SPACES` as a space, `INVISIBLE` skipped), and for each of
+    its positions, plus its end, the position in the original text."""
+    chars: list[str] = []
+    origin: list[int] = []
+    for i, char in enumerate(text):
+        if char in INVISIBLE:
+            continue
+        chars.append(" " if char in SPACES else char)
+        origin.append(i)
+    origin.append(len(text))
+    return "".join(chars), origin
+
+
 class RuleDetector:
     """Deterministic detector. `detect` returns non-overlapping spans sorted by position."""
 
@@ -109,7 +135,19 @@ class RuleDetector:
 
     def find(self, text: str) -> list[Entity]:
         """Every rule's spans, before overlaps are merged: a caller keeping only some types
-        (`detector.RulesAndModel`) filters first, so a type it drops cannot absorb one it keeps."""
+        (`detector.RulesAndModel`) filters first, so a type it drops cannot absorb one it keeps.
+        The rules read the text with its typographic spaces and invisible characters normalised
+        (`shadow`); spans point into the original text."""
+        if not any(char in SPACES or char in INVISIBLE for char in text):
+            return self._find(text)
+        read, origin = shadow(text)
+        found = []
+        for e in self._find(read):
+            start, end = origin[e.start], origin[e.end - 1] + 1
+            found.append(replace(e, start=start, end=end, text=text[start:end]))
+        return found
+
+    def _find(self, text: str) -> list[Entity]:
         return [
             *self._emails(text),
             *self._phones(text),
