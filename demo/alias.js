@@ -282,6 +282,7 @@ const SPACES = new Set(
   "\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000",
 );
 const INVISIBLE = new Set("\u00ad\u200b\u200c\u200d\u2060\ufeff");
+const TYPOGRAPHY = new RegExp(`[${[...SPACES, ...INVISIBLE].join("")}]`, "u");
 
 /** rules.shadow: the text as the rules read it, and each position's offset in the original. */
 export function shadow(text) {
@@ -303,7 +304,7 @@ function findRaw(text) {
 
 /** rules.RuleDetector.find, without the phone matcher: every rule's spans, not merged yet. */
 export function findRules(text) {
-  if (![...text].some((char) => SPACES.has(char) || INVISIBLE.has(char))) return findRaw(text);
+  if (!TYPOGRAPHY.test(text)) return findRaw(text);
   const [read, origin] = shadow(text);
   return findRaw(read).map((e) => {
     const start = origin[e.start];

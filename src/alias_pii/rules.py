@@ -109,6 +109,7 @@ SPACES = frozenset(
     "\u2009\u200a\u202f\u205f\u3000"
 )
 INVISIBLE = frozenset("\u00ad\u200b\u200c\u200d\u2060\ufeff")
+_TYPOGRAPHY = re.compile(f"[{''.join(sorted(SPACES | INVISIBLE))}]")
 
 
 def shadow(text: str) -> tuple[str, list[int]]:
@@ -138,7 +139,7 @@ class RuleDetector:
         (`detector.RulesAndModel`) filters first, so a type it drops cannot absorb one it keeps.
         The rules read the text with its typographic spaces and invisible characters normalised
         (`shadow`); spans point into the original text."""
-        if not any(char in SPACES or char in INVISIBLE for char in text):
+        if not _TYPOGRAPHY.search(text):
             return self._find(text)
         read, origin = shadow(text)
         found = []
