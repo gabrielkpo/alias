@@ -48,7 +48,8 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 
 - **Conversations**: one alias table per request, aliases given in order of appearance. A tool
   resends the whole history at each turn, so a value keeps its alias from turn to turn and the
-  bridge keeps no state.
+  bridge keeps no state. Once a value has an alias, every other whole-word occurrence of it in
+  the request (any case) gets the same alias, even where the detector missed it.
 - **Message parts**: the text of `content`, or of its `{"type": "text"}` parts, is masked.
   An image may only come inline (`image_url` holding `data:image/...;base64,...`) and passes as
   it is: neither what it shows nor its metadata (author, location) is masked. An image given by
@@ -60,7 +61,9 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   `name`, `prediction`, a JSON schema, `user`, another part type, an image URL) is refused (400)
   rather than sent unmasked. A `stop` sequence holding personal data is refused too (422).
 - **Check before sending**: if the rules still find an IBAN or a national ID in the masked text,
-  the request is refused (422) and nothing is sent.
+  or an IBAN, national ID or phone number of the request is still readable with other
+  separators (`01.99.00.12.34` for `01 99 00 12 34`), the request is refused (422) and nothing
+  is sent.
 - **Restoring**: only the aliases of this request get their value back; an alias the answer
   invents is left as it is. Headers `X-Alias-Masked` and `X-Alias-Restored` give the counts, and
   `X-Alias-Detector` the detector.
