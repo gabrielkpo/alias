@@ -49,9 +49,12 @@ def test_the_published_model_masks_and_restores_through_the_bridge():
     client = TestClient(app, base_url="http://127.0.0.1:8001")
     assert client.get("/health").json()["detector"] == "rules+model"
     body = {"model": "m", "messages": [{"role": "user", "content": TEXT}]}
-    for stream in (False, True):
-        response = client.post("/v1/chat/completions", json={**body, "stream": stream})
-        assert response.status_code == 200
+    streamed = client.post("/v1/chat/completions", json={**body, "stream": True})
+    events = [
+        json.loads(line[6:]) for line in streamed.text.split("\n") if line.startswith("data: {")
+    ]
+    text = "".join(e["choices"][0]["delta"].get("content", "") for e in events)
+    assert text == f"Reçu : {TEXT}"
     sent = json.dumps(received, ensure_ascii=False)
     for value in (NAME, EMAIL, IBAN):
         assert value not in sent, value
