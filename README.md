@@ -87,7 +87,7 @@ refuses what it cannot mask and restores the answer ([docs/BRIDGE.md](docs/BRIDG
 | 5 | Rules + model detector | done |
 | 6 | Local API and page, Docker CPU image, public demo in the browser | done |
 | 7 | Real documents: English court judgments (TAB) measured; French sets | in progress |
-| 8 | Alias Bridge: local Mistral-compatible endpoint, streaming (done); `alias-pii serve` command, Docker, macOS app | in progress |
+| 8 | Alias Bridge: local Mistral-compatible endpoint, streaming, `alias-pii serve` command (done); Docker, macOS app | in progress |
 
 ## Results
 Baselines and the fine-tuned model on the synthetic test split, 4,200 documents in French,

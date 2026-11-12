@@ -55,7 +55,14 @@ def export(checkpoint: str, out: Path, opset: int = 17) -> Path:
 class OnnxDetector:
     """The exported model as a detector, same windows and merging as `train.TrainedDetector`."""
 
-    def __init__(self, path: str, max_length: int = 512, stride: int = 128, threads: int = 0):
+    def __init__(
+        self,
+        path: str,
+        max_length: int = 512,
+        stride: int = 128,
+        threads: int = 0,
+        model_file: str = MODEL_FILE,
+    ):
         import onnxruntime as ort
         from transformers import AutoTokenizer
 
@@ -64,7 +71,7 @@ class OnnxDetector:
         if threads:
             options.intra_op_num_threads = threads
         self.session = ort.InferenceSession(
-            str(Path(path) / MODEL_FILE), options, providers=["CPUExecutionProvider"]
+            str(Path(path) / model_file), options, providers=["CPUExecutionProvider"]
         )
         self.tokenizer = AutoTokenizer.from_pretrained(path)
         self.max_length, self.stride = max_length, stride

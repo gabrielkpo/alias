@@ -16,6 +16,20 @@ dependencies = [
 # transformers (`model` extra), which the rules-only mode and the tests do without.
 app = ["fastapi>=0.115", "uvicorn>=0.30", "httpx>=0.27"]
 model = ["torch>=2.3", "transformers>=5.10,<6"]
+# `alias-pii serve`: the bridge with the published model on ONNX Runtime (no PyTorch) and the
+# Mistral key in the OS keychain.
+serve = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "onnxruntime>=1.18",
+    "transformers>=5.10,<6",
+    "huggingface_hub>=0.34",
+    "keyring>=25",
+]
+
+[project.scripts]
+alias-pii = "alias_pii.cli:main"
 
 [dependency-groups]
 bench = [
@@ -35,6 +49,7 @@ dev = [
     "faker>=30",
     "fastapi>=0.115",
     "httpx>=0.27",
+    "keyring>=25",
     "openai>=1.50",
     "pytest>=8",
     "ruff>=0.6",
