@@ -2,7 +2,8 @@
 // this one) in the background while the app is open, and gives the window four commands: the
 // bridge's health, whether a Mistral key is in the keychain, the local token, and setting or
 // deleting the key. The key goes to `alias-pii key set --stdin` on a pipe, never on a command
-// line; the bridge restarts after a change so it uses the new key.
+// line; the bridge restarts after a change so it uses the new key. The commands are async, so
+// running the bundled executable (seconds, as it unpacks itself) never freezes the window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::io::{Read, Write};
@@ -71,7 +72,7 @@ fn run(args: &[&str], input: Option<&str>) -> Result<String, String> {
 /// The bridge's `/health` answer (JSON text), read over a plain socket: the bridge refuses
 /// requests from a web page, which the window is.
 #[tauri::command]
-fn health() -> Result<String, String> {
+async fn health() -> Result<String, String> {
     let address: SocketAddr = BRIDGE.parse().map_err(|_| "bad address")?;
     let mut stream =
         TcpStream::connect_timeout(&address, Duration::from_secs(2)).map_err(|e| e.to_string())?;
@@ -85,17 +86,17 @@ fn health() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn key_status() -> Result<String, String> {
+async fn key_status() -> Result<String, String> {
     run(&["key", "status"], None)
 }
 
 #[tauri::command]
-fn token() -> Result<String, String> {
+async fn token() -> Result<String, String> {
     run(&["key", "token"], None)
 }
 
 #[tauri::command]
-fn set_key(key: String, bridge: State<Bridge>) -> Result<String, String> {
+async fn set_key(key: String, bridge: State<'_, Bridge>) -> Result<String, String> {
     let key = key.trim();
     if key.is_empty() {
         return Err("no key given".into());
@@ -106,7 +107,7 @@ fn set_key(key: String, bridge: State<Bridge>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn delete_key(bridge: State<Bridge>) -> Result<String, String> {
+async fn delete_key(bridge: State<'_, Bridge>) -> Result<String, String> {
     let message = run(&["key", "delete"], None)?;
     start(&bridge)?;
     Ok(message)
