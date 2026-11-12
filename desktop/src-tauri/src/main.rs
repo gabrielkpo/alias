@@ -27,8 +27,21 @@ fn executable() -> Result<PathBuf, String> {
     Ok(folder.join("alias-pii"))
 }
 
+/// Stops the bridge with SIGTERM, not SIGKILL: the one-file executable is a launcher that runs the
+/// bridge as its own child and passes SIGTERM on to it, while SIGKILL would stop the launcher only
+/// and leave the bridge running. SIGKILL is the fallback after five seconds.
 fn stop(child: &mut Option<Child>) {
     if let Some(mut running) = child.take() {
+        if let Ok(pid) = libc::pid_t::try_from(running.id()) {
+            // SAFETY: kill(2) on the pid of a child this process started and has not reaped yet.
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            for _ in 0..50 {
+                if let Ok(Some(_)) = running.try_wait() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
         let _ = running.kill();
         let _ = running.wait();
     }
