@@ -1,6 +1,8 @@
 # Alias
 
 [![CI](https://github.com/gabrielkpo/alias/actions/workflows/ci.yml/badge.svg)](https://github.com/gabrielkpo/alias/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/gabrielkpo/alias)](https://github.com/gabrielkpo/alias/releases)
+[![Demo](https://img.shields.io/badge/demo-Hugging%20Face-yellow)](https://huggingface.co/spaces/Gabrielkph/alias)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Alias masks the personal data in a French or English document **on your own machine**, so the
@@ -8,40 +10,37 @@ text can go to an LLM without the names, IBANs or social security numbers, then 
 values back into the answer.
 
 **Try it:** [public demo](https://huggingface.co/spaces/Gabrielkph/alias), the detector running in
-your browser (the text never leaves the page; fictitious data only): mask a text, send it to the
-LLM you use, paste its answer back and get the real values again. Model:
+your browser (fictitious data only): mask a text, send it to the LLM you use, paste its answer
+back and get the real values again. Model:
 [Gabrielkph/alias-mmbert-small](https://huggingface.co/Gabrielkph/alias-mmbert-small).
 
-> **Status:** work in progress (see [Roadmap](#status-and-roadmap)). Rules, masking and restoring
-> work, and the trained model is chosen and measured (step 4, mmBERT-small fine-tuned): recall 0.98
-> and leak rate 1.1 % on the synthetic test split, recall 0.93 and leak rate 3.5 % on documents
-> written by an LLM it never saw (see [Results](#results)). Rules + model form the detector (step
-> 5), served by a local API and page, a Docker image and a public demo. Not measured on real
-> documents yet. Expect breaking changes.
+> **Status:** work in progress (see [Roadmap](#status-and-roadmap)). The detector (rules + a
+> fine-tuned mmBERT-small) is chosen and measured: recall 0.98 and leak rate 1.1 % on the
+> synthetic test split, 0.93 and 3.5 % on documents written by an LLM it never saw, 12.5 % of
+> names left readable on English court judgments (see [Results](#results)). It runs in a local
+> API and page, a Docker image, a public demo and Alias Bridge. Expect breaking changes.
 
 ## Why
 Hospitals, banks and public bodies want to use LLMs on their documents, but cannot send a
 patient's name, an IBAN or a French NIR to an external API. Masking has to happen **before** the
-call, on the client's machine, without breaking the meaning of the text, and the answer must come
-back with the real values. Off-the-shelf recognisers are English-first: Presidio has no French
-national ID, and generic NER models do not know an IBAN from a phone number or keep the same
-alias for the same person across a document. Alias is built for French and English documents,
-measured on recall, and runs locally.
+call, on the client's machine, and the answer must come back with the real values.
+Off-the-shelf recognisers are English-first: Presidio has no French national ID, and generic NER
+models neither tell an IBAN from a phone number nor keep one alias per person. Alias is built
+for French and English, measured on recall, and runs locally.
 
 ## How it works
 
 ```mermaid
 flowchart LR
     F[".txt .md .docx PDF"] --> R["readers<br/>read_document"]
-    R --> D{"detectors"}
+    R --> D{"RulesAndModel"}
     D --> RU["RuleDetector<br/>regex + checksums"]
-    D --> M["trained model<br/>(step 4)"]
+    D --> M["TrainedDetector<br/>mmBERT-small"]
     RU --> O["resolve_overlaps<br/>merge spans"]
     M --> O
     O --> K["mask<br/>AliasTable"]
     K --> T["masked text"]
-    K --> J["report<br/>entities, leaks"]
-    T -. phase 2 .-> L["LLM (Mistral)"]
+    T -. Alias Bridge .-> L["LLM (Mistral)"]
     L -. answer .-> RS["restore<br/>only aliases sent"]
     RS --> A["answer with<br/>real values"]
 ```
@@ -49,21 +48,15 @@ flowchart LR
 The alias table (`[PERSON_1]` → "Jean Dupont") never leaves the machine; only the masked text does.
 
 Choices and trade-offs:
-- **Rules first, model next.** Formats with a checksum (IBAN, NIR) are caught exactly by rules;
-  names, addresses and birth dates need context, so a trained model handles them. Rules give
-  the low baseline the model has to beat.
-- **Stable aliases rather than generic placeholders.** The same value keeps the same alias across
-  a document (`01 99 00…` and `+33 1 99 00…` are one phone), so the LLM can follow who is who.
-  Two e-mail addresses or file numbers that differ by a dot or dash keep two aliases. The cost
-  is a table to keep, and to protect.
+- **Rules for what they prove, a model for context.** IBANs and national IDs are caught exactly by
+  checksums; names, addresses and birth dates need context, so a trained model handles them.
+- **Stable aliases.** The same value keeps the same alias across a document (`01 99 00…` and
+  `+33 1 99 00…` are one phone), so the LLM can follow who is who; two e-mail addresses that
+  differ by a dot keep two aliases. The cost is a table to keep, and to protect.
 - **Recall first.** A missed value leaks; a false positive only hides a word. Overlapping spans
   are merged rather than dropped, so no part of a value stays in clear.
-- **Refuse rather than guess.** A file whose encoding is ambiguous is refused: a wrong guess
-  hides data from the rules while staying exactly recoverable.
-- **Restoring is scoped to the exchange.** Only aliases written in the text actually sent are
-  restored, so a document containing a literal `[EMAIL_1]` cannot pull a value from another one.
-- **Local rather than an API.** Slower to build and to measure, but nothing personal leaves the
-  machine; the model has to run on an ordinary CPU, without a GPU.
+- **Restoring is scoped to the exchange**, never inside a link or an image of the answer.
+- **Local.** The model runs on an ordinary CPU, without a GPU.
 
 ## Example
 
@@ -79,33 +72,28 @@ answer = "Virement vers [IBAN_1] confirmé."
 restore(answer, result).text  # real IBAN back, only for aliases sent in this exchange
 ```
 
+**Alias Bridge** does this for tools that already call Mistral (a script, an SDK, LibreChat…):
+they change only their base URL to `http://127.0.0.1:8001/v1`; the bridge masks each request,
+refuses what it cannot mask and restores the answer ([docs/BRIDGE.md](docs/BRIDGE.md)).
+
 ## Status and roadmap
 
 | Step | Content | State |
 |---|---|---|
 | 1 | Rules (FR + EN), masking, restoring, leak check | done |
-| 2 | File readers; dataset v0.2 (grid generator, gates, balancer, datasheet), v0.3 LLM writer and v0.4 public corpora done; full build, LLM run, real sets | in progress |
-| 3 | Benchmark harness; baselines: rules, Presidio + spaCy, GLiNER multi PII, rules + GLiNER (done); Mistral zero-shot (done) | done |
-| 4 | Train three multilingual encoders (mmBERT-small, XLM-RoBERTa-base, mDeBERTa-v3-base), keep the best: mmBERT-small | done |
-| 5 | Rules + model: the rules add what they prove (IBAN, national ID, birth date after a keyword, identifier after a person's-file keyword) to the model's spans | done |
-| 6 | Local API and web page, Docker CPU image, public demo in the browser (done); `alias-pii mask` CLI | in progress |
-| 7 | Held-out real test sets (French and English, annotated by hand), final results | planned |
-| 8 | Phase 2: `alias-pii run --llm mistral`, end-to-end restoring | planned |
-
-**Evaluation plan.** Every method runs on the same data: a synthetic validation set (Faker
-`fr_FR`, `en_US`, `en_GB`), and two small real sets annotated by hand (French and English), read
-once at the end. Measures: recall and precision per entity type and per language, **leak rate**
-(values still readable in the masked text), CPU latency and memory. The model choice is written
-before training: below one second per page on a standard 4-core CPU (relaxed after the results
-to about one second, unquantised: docs/TRAINING.md), then the best entity-level recall on
-`PERSON`, `ADDRESS` and `BIRTH_DATE` averaged over French and English, then the lowest leak rate.
-Negative results will be published.
+| 2 | File readers; dataset: grid generator, LLM-written documents, public corpora | done |
+| 3 | Benchmark; baselines: rules, Presidio + spaCy, GLiNER, rules + GLiNER, Mistral zero-shot | done |
+| 4 | Three multilingual encoders trained, mmBERT-small kept | done |
+| 5 | Rules + model detector | done |
+| 6 | Local API and page, Docker CPU image, public demo in the browser | done |
+| 7 | Real documents: English court judgments (TAB) measured; French sets | in progress |
+| 8 | Alias Bridge: local Mistral-compatible endpoint (done); streaming, `alias-pii serve` command, Docker, macOS app | in progress |
 
 ## Results
-Baselines (step 3) and the fine-tuned model (step 4) on the synthetic test split, 4,200
-documents in French, English and mixed: grid generator, gretel and WikiNER. The test split was
-read once by the chosen model, after the choice was made on the validation split. These numbers
-measure the methods on our labels; the last bullet gives the first measure on real documents.
+Baselines and the fine-tuned model on the synthetic test split, 4,200 documents in French,
+English and mixed (grid generator, gretel and WikiNER), read once by the chosen model after the
+choice was made on the validation split. Comments, out-of-distribution and real-document results,
+and the limits of these measures: [docs/RESULTS.md](docs/RESULTS.md).
 
 | Method | Precision | Recall | Leak rate | ms / 1,000 chars (CPU) |
 |---|---|---|---|---|
@@ -114,176 +102,76 @@ measure the methods on our labels; the last bullet gives the first measure on re
 | GLiNER multi PII | 0.63 | 0.74 | 22.5 % | 374 |
 | rules + GLiNER (hybrid) | 0.63 | 0.85 | 12.6 % | about 375 |
 | Mistral zero-shot (`mistral-small-latest`, API; first 1,000 documents) | 0.82 | 0.87 | 10.1 % | about 1,870 (network) |
-| **Alias model: mmBERT-small fine-tuned (step 4)** | **0.97** | **0.98** | **1.1 %** | about 360 |
+| **Alias model: mmBERT-small fine-tuned** | **0.97** | **0.98** | **1.1 %** | about 360 |
 
-- Rules find every e-mail, IBAN and phone number, and 89 % of national IDs, but nothing that needs
-  context (names, addresses, birth dates). They also mask company mailboxes, switchboards and
-  invoice numbers, which Alias leaves in clear: precision 0.58 on `EMAIL`, 0.42 on `IDENTIFIER`.
-- GLiNER finds names, addresses and birth dates (recall 0.80, 0.91, 1.00) but misses most IBANs and
-  national IDs (0.24 and 0.06): rules and a model complement each other.
-- The hybrid (rules for validated formats, GLiNER for names, addresses and birth dates) gets
-  recall 0.85 and halves the leak rate (12.6 %). What leaks most is names (17 %) and
-  identifiers (42 %): the targets for the trained model of step 4.
-- GLiNER takes about 1.1 s for a 3,000-character page: above the one-second budget set for the
-  model choice.
-- Mistral asked to list the personal data, without training, leaks 10.1 % on the first 1,000
-  test documents (a subset: the other rows read all 4,200, so the comparison is indicative). It
-  sits between the hybrid baseline and the fine-tuned model, and the text leaves the machine.
-  On the 200 LLM-written test documents (written by Mistral itself, which favours it) it reaches
-  recall 0.93, precision 0.89 and leak rate 4.1 %, close to the model's 0.93, 0.94 and 3.5 %.
-- The fine-tuned mmBERT-small leaks ten times less than the best baseline. It was chosen among
-  three candidates (docs/TRAINING.md); int8 quantisation destroyed its precision, so it runs
-  unquantised, at about one second per page on 4 CPU cores.
-- Out of distribution: on 200 documents written by Mistral, a generator absent from training, the
-  model keeps recall 0.93, precision 0.94 and leak rate 3.5 %, against 0.91, 0.90 and 8.1 % for
-  rules + GLiNER. Its weak spots there are birth dates (14 % leaked) and national IDs (recall
-  0.76).
-- Rules + model (step 5, docs/DETECTOR.md): the rules add IBANs and national IDs (checksum) and
-  birth dates announced by a keyword to the model's spans. On the validation splits it equals the
-  model on synthetic text and leaks a little less on LLM-written text (5.1 % against 5.2 %;
-  national IDs 4 % against 6 %). Adding every rule type cost 18 points of precision (company
-  mailboxes, switchboards, invoice numbers) for no leak gained: rejected.
-- **On real documents** (step 7, docs/REALISTIC_SETS.md): on the 127 English judgments of the
-  Text Anonymization Benchmark (European Court of Human Rights), read once, 12.5 % of names stay
-  readable after masking (overlap recall 0.93, precision 0.89). Years of birth alone and court
-  application numbers mostly stay in clear (75 % and 95 %): quasi-identifiers Alias does not
-  cover yet. French real-world sets come next.
-
-Full tables per label, language and source: `uv run python -m alias_pii.benchmark` (see Run it).
-
-## Input files
-`read_document(path)` turns a file into plain text before detection:
-
-| Format | What is read |
-|---|---|
-| `.txt`, `.md` | UTF-8, UTF-16, UTF-32; UTF-8 and Windows-1252 decided per character (reported); ambiguous mixes refused; NFC |
-| `.docx` | body, tables (nested too), headers and footers (first-page and even-page too), text boxes, content controls (inline, block, in cells), tracked insertions, footnotes, endnotes, comments |
-| PDF with a text layer | every page (joined with a form feed), then filled-in form fields and annotation texts |
-
-What still cannot be read is reported in
-`Document.warnings`: scanned pages (OCR is not supported yet), charts, SmartArt and embedded
-objects. Broken, encrypted or binary files raise `UnsupportedFileError`.
-
-Known limits of the readers:
-- Typographic spaces (no-break, narrow, thin) count as spaces and invisible characters
-  (zero-width space or joiner, soft hyphen) are skipped by the rules; the model reads the text
-  as written, so a name or address split by an invisible character may still be missed.
-- UTF-8 or Windows-1252 is decided per character from a list of characters plausible in French or
-  English: anything else (CJK, Hebrew, Arabic, full-width) comes out garbled.
-- UTF-16 or UTF-32 mixed with another encoding is refused; convert the file to UTF-8.
-- Some PDFs (LaTeX) store an accent before its letter ("R´ef´erence"): accented keywords then miss.
-- Non-standard PDF strings (UTF-8 in PDF 2.0 annotations and form fields) are decoded as
-  PDFDocEncoding by pypdf.
-
-## Entity types
-
-| Label | Content | Detected by |
-|---|---|---|
-| `EMAIL` | e-mail, including accented domains | rules |
-| `PHONE` | French, UK and US numbers | rules (libphonenumber) |
-| `IBAN` | any country | rules (mod 97, length per country) |
-| `NATIONAL_ID` | `FR_NIR` (key, Corsica), `US_SSN`, `UK_NINO` | rules |
-| `IDENTIFIER` | file, contract or customer number after a keyword | rules |
-| `BIRTH_DATE` | date of birth | rules when a keyword announces it ("né(e) le", "date of birth", "DOB"), model otherwise |
-| `PERSON`, `ADDRESS` | need context | trained model (step 4) |
+- The model leaks ten times less than the best baseline on this split. On 200 documents written
+  by an LLM absent from training it keeps recall 0.93 and leak rate 3.5 % (rules + GLiNER: 8.1 %).
+- On 127 English court judgments (TAB), 12.5 % of names stay readable after masking.
+- Training and test splits share some templates and fake names: the other two are fairer.
 
 ## Run it
 Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```
 git clone https://github.com/gabrielkpo/alias && cd alias
-uv sync --group dev
-uv run pytest
-```
-
-Local API (masks a pasted text; nothing leaves the machine, nothing is logged or stored):
-
-```
+uv sync --group dev && uv run pytest
 uv sync --extra app --extra model
-uv run python -m alias_pii.app --model <checkpoint folder>   # page at http://127.0.0.1:8000
-curl -s localhost:8000/api/mask -H 'content-type: application/json' \
-  -d '{"text": "Écrire à jean.dupont@example.com"}'
+uv run hf download Gabrielkph/alias-mmbert-small --revision v1.0 --local-dir models/mmbert-small/final
+uv run python -m alias_pii.app --model models/mmbert-small/final   # page at http://127.0.0.1:8000
 ```
 
-The page highlights what was found by type, shows the masked text to copy and downloads a JSON
-report; it loads nothing from outside (no CDN, no font). The API answers with the masked text,
-each span's type, position and alias, and a count per type; never the values themselves.
-Without `--model` only the rules run (no names or addresses): enough to try it on a laptop.
+The page and `POST /api/mask` return the masked text and each span's type, position and alias,
+never the values; nothing is loaded from outside. The bridge: [docs/BRIDGE.md](docs/BRIDGE.md);
+Docker: the `Dockerfile`; input formats: [docs/READERS.md](docs/READERS.md).
 
-With Docker (CPU image; the checkpoint is mounted read-only, nothing is downloaded at run time):
+## Entity types
 
-```
-docker build -t alias .
-docker run --rm -p 127.0.0.1:8000:8000 -v "$PWD/models/mmbert-small/final:/model:ro" alias
-```
-
-Benchmark (step 3), on the generated dataset (see Data and privacy):
-
-```
-uv sync --group data --group bench
-uv run python -m spacy download fr_core_news_lg && uv run python -m spacy download en_core_web_lg
-uv run python -m alias_pii.benchmark --split test --methods rules,presidio,gliner --out reports
-```
-
-Heavy runs do not need a laptop: the `Compute` workflow (Actions tab, or `gh workflow run
-compute.yml -f task=benchmark -f size=full`) rebuilds the dataset from the generator and the
-public corpora on a GitHub CPU machine and uploads the reports as an artifact.
-
-It writes `reports/benchmark-test.md` and `.json`: strict and overlap precision and recall, leak
-rate (gold values still readable after masking) and CPU latency, per label, language and source.
-A value counts as leaked only when it is readable in full (exactly or without separators): a
-name masked by half does not count, which the overlap and strict recalls show instead.
-
+| Label | Content | Detected by |
+|---|---|---|
+| `PERSON`, `ADDRESS` | need context | model |
+| `EMAIL`, `PHONE` | e-mail (accented domains too); French, UK and US numbers | model (the rules find them too, but are not kept: docs/DETECTOR.md) |
+| `IBAN` | any country | rules (mod 97, length per country) and model |
+| `NATIONAL_ID` | `FR_NIR`, `US_SSN`, `UK_NINO` | rules (checksum) and model |
+| `IDENTIFIER` | file, contract or customer number after a keyword | model; rules after a person's-file keyword |
+| `BIRTH_DATE` | date of birth | rules after a keyword ("né(e) le", "DOB"), model otherwise |
 
 ## Project structure
 
 | Path | Content |
 |---|---|
-| `src/alias_pii/entities.py` | entity types, spans, overlap merging |
-| `src/alias_pii/rules.py`, `validators.py` | rule detector, IBAN and NIR checksums |
-| `src/alias_pii/masking.py` | alias table, `mask`, `restore`, `find_leaks` |
-| `src/alias_pii/readers.py` | `read_document`: .txt, .md, .docx, text PDFs to plain text |
-| `src/alias_pii/identities.py`, `documents.py` | fake identities; grid document generator |
-| `src/alias_pii/quality.py`, `build_dataset.py` | quality gates; dataset build and datasheet |
-| `src/alias_pii/detector.py`, `app.py`, `static/` | rules + model detector; local web API (FastAPI) and its page |
-| `src/alias_pii/benchmark.py`, `baselines.py` | benchmark harness; rules, Presidio + spaCy and GLiNER baselines |
-| `src/alias_pii/llm_writer.py`, `sources.py` | LLM-written documents (Mistral, placeholders); public corpora converters |
-| `demo/` | Public demo: the detector ported to JavaScript, run in the browser (docs/DEMO.md) |
-| `Dockerfile`, `space/` | CPU image; Docker Space variant of the demo (paid Hugging Face plan) |
-| `tests/` | unit tests; `tests/README.md` lists allowed fixture values |
+| `src/alias_pii/` | rules, masking, readers, trained detector, web API (`app.py`), Alias Bridge (`bridge.py`), dataset build and benchmark |
+| `demo/` | the detector ported to JavaScript, run in the browser (docs/DEMO.md) |
+| `docs/`, `results/` | design and measurement notes; training records |
+| `tests/` | tests; `tests/README.md` lists allowed fixture values |
 
 ## Data and privacy
-- **In the repository:** code, and test values that cannot reach a real person (RFC 2606
-  domains, French fiction phone ranges, Ofcom drama numbers, published example IBANs).
+- **In the repository:** code, and test values that cannot reach a real person (reserved e-mail
+  domains, French fiction phone ranges, published example IBANs).
 - **Never in the repository:** real documents. Hand-annotated real texts live in `data/real/`,
   ignored by Git.
-- **Never sent to a third party:** real texts do not go to Kaggle, Colab or an LLM API; only
-  synthetic and public data do. No weights trained on real data are published.
-- **Dataset:** how the training data is built, labelled, balanced and checked is specified in
-  [docs/DATASET.md](docs/DATASET.md). It is generated locally and never committed:
-  `uv run --group data python -m alias_pii.build_dataset --out data/synthetic` (add `--raw data/raw`
-  for the public corpora, `--llm data/llm` for the LLM-written documents).
-- **Training data:** synthetic Faker text (MIT), WikiNER French (CC BY 4.0), gretel synthetic PII
-  finance multilingual (Apache-2.0).
+- **Never sent to a third party:** real texts; only synthetic and public data go to an LLM API
+  or a notebook service. No weights trained on real data are published.
+- **Training data:** synthetic Faker text (MIT), WikiNER French (CC BY 4.0; it holds names of
+  public figures), gretel synthetic PII finance multilingual (Apache-2.0). How the dataset is
+  built and checked: [docs/DATASET.md](docs/DATASET.md).
 
 ## What it is not
 Alias is a component, not an anonymity guarantee and not a GDPR compliance tool. Context can
 still identify a person after masking (a job title, a rare event), and no detector has perfect
-recall.
+recall: what it misses reaches the LLM in clear.
 
 ## Limitations
-- The rules alone (no checkpoint) find no names or addresses, and a birth date only after a keyword.
-- A 4-digit year after a keyword (`compte 2024`) is flagged as an identifier (recall first).
-- An SSN needs its dashes or spaces; a NIR without its key is missed.
+- Payment card numbers and other values outside the entity types are not detected.
 - Name variants ("M. Dupont" and "Jean Dupont") do not share an alias yet.
+- A 4-digit year after a keyword (`compte 2024`) is flagged as an identifier (recall first).
+- An SSN needs its dashes or spaces; a NIR without its key is missed by the rules.
 - libphonenumber rejects unallocated ranges, so a number from a very recent range can be missed.
 
 ## Development
 - `uv sync --group dev`, then `uv run pytest`, `uv run ruff check .` and `uv run ruff format .`.
 - Pre-commit runs ruff and gitleaks: `pre-commit install`.
 - One pull request per change, Conventional Commits titles, squash merge; each PR goes through a
-  security review and a code review, and CI (tests, gitleaks, CodeQL, title check) must be green.
-- Releases: release-please.
+  security review and a code review, and CI must be green. Releases: release-please.
 
 ## License
 MIT, see [LICENSE](LICENSE).
