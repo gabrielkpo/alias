@@ -144,6 +144,10 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   go unmasked) and embeddings.
 - **Edge case**: an alias-shaped token typed in a later message (`[PERSON_1]` written by hand
   after the bridge gave that alias in an earlier message) is never restored, as in `restore`.
+- **Measure against the real API**: `alias_pii.measure_bridge` sends fictitious documents through
+  the bridge to Mistral and reports counts only (values leaked, aliases kept by the model and
+  restored, tokens, cost, time added); it runs by hand on GitHub (`bridge-measure` workflow, key
+  in the protected environment `mistral`), within a token budget.
 - <a id="limits"></a>**Limits**: no detector is perfect; what the detector misses (a name it
   does not recognise) reaches Mistral in clear. The leak rates measured so far are in the README.
 - **Outside the entity types**: payment card numbers are not detected, nor any value outside the

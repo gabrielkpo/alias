@@ -1,0 +1,48 @@
+# A real measure of Alias Bridge against the Mistral API (alias_pii.measure_bridge): fictitious
+# documents only, counts only in the report (no text). By hand only, since it spends API tokens:
+#   gh workflow run bridge-measure.yml -f n=50
+# The key comes from the secret MISTRAL_API_KEY of the protected environment "mistral".
+name: Bridge measure
+on:
+  workflow_dispatch:
+    inputs:
+      n:
+        description: fictitious documents to send
+        default: "50"
+      model:
+        description: Mistral model
+        default: mistral-small-latest
+      budget:
+        description: token budget for the whole run
+        default: "150000"
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: mistral
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.7"
+      - name: Install (serve extra, no PyTorch; faker for the documents)
+        run: uv sync --frozen --group dev --extra serve --python 3.12
+      - name: Measure
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          N: ${{ inputs.n }}
+          MODEL: ${{ inputs.model }}
+          BUDGET: ${{ inputs.budget }}
+        run: |
+          uv run --frozen python -m alias_pii.measure_bridge --n "$N" --model "$MODEL" \
+            --budget "$BUDGET" --out reports/bridge-measure.json
+          echo '### Bridge measure' >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat reports/bridge-measure.json >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: bridge-measure-${{ github.run_id }}
+          path: reports/bridge-measure.json
