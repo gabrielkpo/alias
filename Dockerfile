@@ -5,7 +5,8 @@
 #
 # The fine-tuned checkpoint is mounted at /model (read-only); without it only the rules run.
 # Nothing is downloaded at run time: Hugging Face libraries are set offline.
-FROM python:3.12-slim
+# Base image pinned by digest: a rebuild gets the same system, until this line changes.
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -17,11 +18,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ALIAS_MODEL=/model
 
 WORKDIR /app
-# CPU-only PyTorch: the CUDA build is several GB the image does not need.
-RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3"
-COPY pyproject.toml README.md LICENSE ./
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
-RUN pip install ".[app,model]" && rm -rf /app/src
+# The versions of uv.lock, checked against its hashes. PyTorch is the CPU-only build of the
+# locked version, from the PyTorch index: the CUDA build and its nvidia, cuda and triton packages
+# are several GB the image does not need, so they are left out of the export.
+RUN pip install "uv==0.13.7" \
+    && GPU=$(uv export --frozen --no-dev --extra app --extra model --no-emit-project --no-hashes \
+        | grep -oE '^(nvidia-[a-z0-9-]+|cuda-[a-z0-9-]+|triton)==' \
+        | sed 's/==$//; s/^/--no-emit-package /') \
+    && uv export --frozen --no-dev --extra app --extra model --no-emit-project \
+        --no-emit-package torch $GPU -o requirements.txt \
+    && pip install --require-hashes -r requirements.txt \
+    && TORCH=$(uv export --frozen --no-dev --extra model --no-emit-project --no-hashes \
+        | sed -n 's/^torch==\([^ ;]*\).*/\1/p') \
+    && pip install --no-deps --index-url https://download.pytorch.org/whl/cpu "torch==${TORCH}" \
+    && pip install --no-deps . \
+    && pip uninstall -y uv && rm -rf /app/src requirements.txt
 
 RUN useradd --create-home --uid 10001 alias
 USER alias

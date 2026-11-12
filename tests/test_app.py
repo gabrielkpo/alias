@@ -80,3 +80,19 @@ def test_demo_flag_reaches_the_page(client):
     detector, name = load_detector(None)
     demo = TestClient(create_app(detector, name, demo=True))
     assert demo.get("/health").json()["demo"] is True
+
+
+def test_a_chunked_body_too_large_is_refused(client):
+    """Without a Content-Length the size check on the header cannot apply: the body is counted
+    as it arrives and refused past the limit."""
+
+    def chunks():  # a short text, a long unknown field: only the byte count can refuse it
+        yield b'{"text": "x", "pad": "'
+        for _ in range(10):
+            yield b"x" * 1000
+        yield b'"}'
+
+    response = client.post(
+        "/api/mask", content=chunks(), headers={"content-type": "application/json"}
+    )
+    assert response.status_code == 413
