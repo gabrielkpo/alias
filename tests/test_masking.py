@@ -181,3 +181,29 @@ def test_addresses_and_identifiers_that_differ_by_a_dot_or_dash_get_their_own_al
 def test_an_iban_is_one_value_however_it_is_grouped():
     text = "IBAN FR76 3000 6000 0112 3456 7890 189, soit FR7630006000011234567890189."
     assert mask(text, detector).text == "IBAN [IBAN_1], soit [IBAN_1]."
+
+
+def test_values_come_from_the_text_not_from_the_detector():
+    """A detector whose span text disagrees with its position cannot put a wrong value in the
+    table; a span outside the text is refused."""
+
+    class Wrong:
+        def __init__(self, start, end, value):
+            self.span = (start, end, value)
+
+        def detect(self, text):
+            start, end, value = self.span
+            return [Entity(EntityType.PERSON, start, end, value)]
+
+    text = "Écrire à Jean Dupont."
+    result = mask(text, Wrong(9, 20, "WRONG VALUE"))
+    assert result.text == "Écrire à [PERSON_1]."
+    assert restore("[PERSON_1]", result).text == "Jean Dupont"
+    for start, end in ((-1, 4), (5, 99), (7, 7)):
+        with pytest.raises(ValueError):
+            mask(text, Wrong(start, end, "x"))
+
+
+def test_the_mask_result_repr_holds_no_text():
+    result = mask("Écrire à jean.dupont@example.com, merci.", detector)
+    assert "merci" not in repr(result) and "crire" not in repr(result)
