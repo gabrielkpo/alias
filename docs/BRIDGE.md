@@ -38,9 +38,26 @@ the machine could otherwise spend it: each tool must then send the bridge's **lo
 API key (`alias-pii key token` shows it; it is created once and kept in the keychain), and a
 request without it gets 401. Mistral still receives the real key, never the token.
 
+### In a container
+
+```
+docker build -f Dockerfile.bridge -t alias-bridge .
+docker run --rm -p 127.0.0.1:8001:8001 --env-file bridge.env alias-bridge
+```
+
+The image holds the `serve` extra (no PyTorch) and the published model, downloaded at build
+time: nothing is fetched at run time. There is no keychain in a container, so `bridge.env`
+(never committed) gives `MISTRAL_API_KEY` and `ALIAS_TOKEN`, the local token tools send as their
+API key (32 characters or more: `python -c "import secrets; print(secrets.token_urlsafe(32))"`).
+The bridge listens on every interface inside the container only with both set; publish it on
+127.0.0.1. A tool in another container that reaches it by name (`http://alias-bridge:8001/v1` in
+a compose file) needs that name in `ALIAS_ALLOWED_HOSTS` (comma-separated), since the bridge
+refuses unknown `Host` names. `alias-pii fetch` downloads the model ahead of time outside a
+container too.
+
 The development version runs from a clone with
 `uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>` (PyTorch).
-The Docker image and the macOS app come next.
+The macOS app comes next.
 
 ```python
 from openai import OpenAI

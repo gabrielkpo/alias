@@ -134,3 +134,36 @@ def test_without_a_keychain_the_token_lives_for_one_run(monkeypatch, capsys):
     headers = {"Authorization": f"Bearer {token}"}
     # Past the token check, an empty body is refused before anything is sent (no network).
     assert client.post("/v1/chat/completions", json={}, headers=headers).status_code == 400
+
+
+def test_a_container_binds_everywhere_only_with_a_key_and_a_token(keychain, monkeypatch, capsys):
+    served = {}
+    monkeypatch.setattr(
+        "uvicorn.run", lambda app, host, port, **o: served.update(app=app, host=host)
+    )
+    monkeypatch.delenv("ALIAS_MODEL", raising=False)
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+    with pytest.raises(SystemExit):  # no key held: a bridge open to the network is refused
+        cli.main(["serve", "--rules-only", "--host", "0.0.0.0"])
+    monkeypatch.setenv("MISTRAL_API_KEY", "from-the-environment")
+    monkeypatch.setenv("ALIAS_TOKEN", "short")
+    with pytest.raises(SystemExit):
+        cli.main(["serve", "--rules-only", "--host", "0.0.0.0"])
+    token = "t" * 43
+    monkeypatch.setenv("ALIAS_TOKEN", token)
+    monkeypatch.setenv("ALIAS_ALLOWED_HOSTS", "alias-bridge, other")
+    assert cli.main(["serve", "--rules-only", "--host", "0.0.0.0"]) == 0
+    assert served["host"] == "0.0.0.0"
+    assert ("alias-pii", "local-token") not in keychain  # the given token, not a stored one
+    client = TestClient(served["app"], base_url="http://alias-bridge:8001")
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.post("/v1/chat/completions", json={}, headers=headers).status_code == 400
+    stranger = TestClient(served["app"], base_url="http://evil.example:8001")
+    assert stranger.post("/v1/chat/completions", json={}, headers=headers).status_code == 403
+    assert token not in capsys.readouterr().err
+
+
+def test_fetch_downloads_the_model_and_prints_where(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "published_model", lambda: tmp_path)
+    assert cli.main(["fetch"]) == 0
+    assert capsys.readouterr().out.strip() == str(tmp_path)

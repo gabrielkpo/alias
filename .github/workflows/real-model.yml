@@ -10,6 +10,7 @@ on:
       - pyproject.toml
       - uv.lock
       - tests/test_real_model.py
+      - Dockerfile.bridge
       - .github/workflows/real-model.yml
   push:
     branches: [main]
@@ -18,6 +19,7 @@ on:
       - pyproject.toml
       - uv.lock
       - tests/test_real_model.py
+      - Dockerfile.bridge
       - .github/workflows/real-model.yml
   schedule:
     - cron: "0 6 * * 1"  # weekly, Monday 06:00 UTC
@@ -41,3 +43,38 @@ jobs:
         env:
           ALIAS_REAL_MODEL: "1"
         run: uv run --frozen pytest -q tests/test_real_model.py
+
+  docker-bridge:
+    # The bridge image: built with the model inside, then run with no network at all, so the
+    # container proves it needs nothing from outside and that Mistral is never reached here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Build
+        run: docker build -f Dockerfile.bridge -t alias-bridge:ci .
+      - name: Run offline and check the token, the detector and the masking path
+        run: |
+          token=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+          docker run -d --name bridge --network none \
+            -e MISTRAL_API_KEY=not-a-real-key -e ALIAS_TOKEN="$token" alias-bridge:ci
+          call() {
+            docker exec -e TOKEN="$1" bridge python -c "
+          import json, os, urllib.request, urllib.error
+          body = json.dumps({'model': 'm', 'messages': [{'role': 'user', 'content': 'Bonjour Jean Dupont'}]}).encode()
+          headers = {'content-type': 'application/json'}
+          if os.environ['TOKEN']: headers['authorization'] = 'Bearer ' + os.environ['TOKEN']
+          request = urllib.request.Request('http://127.0.0.1:8001/v1/chat/completions', body, headers)
+          try: print(urllib.request.urlopen(request, timeout=60).status)
+          except urllib.error.HTTPError as e: print(e.code)"
+          }
+          for i in $(seq 60); do
+            docker exec bridge python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=4)" && break
+            sleep 3
+          done
+          docker exec bridge python -c "import json, urllib.request; print(json.load(urllib.request.urlopen('http://127.0.0.1:8001/health')))" | tee health.txt
+          grep -q "rules+model" health.txt
+          test "$(call '')" = 401          # no token: refused before anything is read
+          test "$(call "$token")" = 502    # token accepted, text masked, Mistral unreachable
+          if docker logs bridge 2>&1 | grep -q "$token"; then echo "token in the logs"; exit 1; fi
+          docker rm -f bridge

@@ -5,6 +5,7 @@
     alias-pii key token    # the local token tools send as their API key
     alias-pii key status   # whether a key is stored (it is never shown)
     alias-pii key delete
+    alias-pii fetch        # download the model now (a container image does it at build time)
 
 The detector is the published model run by ONNX Runtime, without PyTorch: it is downloaded once,
 at a pinned revision (about 600 MB, into the Hugging Face cache), then read from the disk.
@@ -77,7 +78,13 @@ def stored_key() -> str | None:
 
 def local_token() -> tuple[str, bool]:
     """The bridge's local token, created and stored in the keychain on first use, and whether it
-    is stored: with no usable keychain, a token for this run only."""
+    is stored: ALIAS_TOKEN when set (a container), else with no usable keychain, a token for this
+    run only."""
+    given = os.environ.get("ALIAS_TOKEN")
+    if given is not None:  # set by the user, for a container where no keychain exists
+        if len(given) < 32:
+            raise SystemExit("ALIAS_TOKEN must be at least 32 characters (secrets.token_urlsafe)")
+        return given, True
     import keyring
     from keyring.errors import KeyringError
 
@@ -106,6 +113,18 @@ def parser() -> argparse.ArgumentParser:
         help="no model: names and addresses reach Mistral in clear",
     )
     serve.add_argument("--port", type=int, default=PORT)
+    serve.add_argument(
+        "--host",
+        default=os.environ.get("ALIAS_HOST", "127.0.0.1"),
+        help="127.0.0.1 by default; 0.0.0.0 only inside a container published on 127.0.0.1",
+    )
+    serve.add_argument(
+        "--allowed-host",
+        action="append",
+        default=[h for h in os.environ.get("ALIAS_ALLOWED_HOSTS", "").split(",") if h.strip()],
+        help="a Host name tools may use besides localhost (another container's view of it)",
+    )
+    commands.add_parser("fetch", help="download the published model now (it is kept on disk)")
     key = commands.add_parser("key", help="the Mistral key in the OS keychain")
     key.add_argument("action", choices=["set", "status", "delete", "token"])
     return root
@@ -150,7 +169,7 @@ def key_command(action: str) -> int:
 def serve_command(args: argparse.Namespace) -> int:
     import uvicorn
 
-    from alias_pii.bridge import create_bridge
+    from alias_pii.bridge import LOCAL_HOSTS, create_bridge
     from alias_pii.rules import RuleDetector
 
     if args.model and args.rules_only:
@@ -174,9 +193,17 @@ def serve_command(args: argparse.Namespace) -> int:
             print(f"Local token for this run (the tools' API key): {token}", file=sys.stderr)
     else:
         log.info("no stored key: each tool's own key is used (alias-pii key set to store one)")
-    app = create_bridge(detector, api_key=api_key, detector_name=name, local_token=token)
-    print(f"Alias Bridge on http://127.0.0.1:{args.port}/v1", file=sys.stderr)
-    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    loopback = args.host in ("127.0.0.1", "::1", "localhost")
+    if not loopback and not token:
+        # Reachable from elsewhere (a container's network): a held key needs a token, and a
+        # bridge without one would forward any caller's own key; both are refused.
+        raise SystemExit(f"--host {args.host} needs the bridge's own key and a local token")
+    hosts = (*LOCAL_HOSTS, *(h.strip() for h in args.allowed_host))
+    app = create_bridge(
+        detector, api_key=api_key, detector_name=name, local_token=token, allowed_hosts=hosts
+    )
+    print(f"Alias Bridge on http://{args.host}:{args.port}/v1", file=sys.stderr)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0
 
 
@@ -184,6 +211,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.command == "key":
         return key_command(args.action)
+    if args.command == "fetch":
+        print(published_model())
+        return 0
     return serve_command(args)
 
 
