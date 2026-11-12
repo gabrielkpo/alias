@@ -69,9 +69,11 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
     turns escapes into marks;
   - with a reference definition (`]:`) anywhere, nothing is restored: an image anywhere can use
     it, and its label may hold an alias;
-  - a JSON document (in JSON mode, or an answer that is a JSON object or array) holding a mark
-    anywhere, once its strings are joined (with or without keys, in document or JavaScript
-    order), gets nothing back: a client may join its strings or show them in another order.
+  - an answer holding a JSON object or array (the whole answer, a ```json block or JSON within
+    the text) gets nothing back when a mark can be formed from its strings: a client may take
+    the JSON out, join its strings with or without the keys and in any order. So a string
+    holding a mark, ending with `<`, or ending with the start of a mark (`]`, `/`, `w`) while
+    another starts with its end (`(`, `:`, `/`, `.`) blocks every restore.
 
   The bridge cannot follow every transformation a tool applies before display (joining the items
   of a YAML list, for example); it protects the answer as returned and its JSON strings. The

