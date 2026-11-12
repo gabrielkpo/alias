@@ -384,9 +384,12 @@ def create_bridge(
     transport: httpx.AsyncBaseTransport | None = None,
     max_chars: int = MAX_CHARS,
     allowed_hosts: tuple[str, ...] = LOCAL_HOSTS,
+    detector_name: str = "custom",
 ) -> FastAPI:
     """The bridge around one detector, loaded once by the caller. `api_key`: the Mistral key
-    (else the one the client sends); `transport`: for tests, a fake provider."""
+    (else the one the client sends); `transport`: for tests, a fake provider; `detector_name`:
+    shown in `/health` and in the `X-Alias-Detector` header, so a client can check what masks
+    its text."""
     app = FastAPI(title="Alias Bridge", version=__version__, docs_url=None, redoc_url=None)
     hosts = set(allowed_hosts)
 
@@ -444,7 +447,12 @@ def create_bridge(
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok", "upstream": upstream, "version": __version__}
+        return {
+            "status": "ok",
+            "upstream": upstream,
+            "version": __version__,
+            "detector": detector_name,
+        }
 
     @app.post("/v1/chat/completions")
     async def chat(request: Request) -> Response:
@@ -488,6 +496,7 @@ def create_bridge(
             headers={
                 "X-Alias-Masked": str(sum(counts.values())),
                 "X-Alias-Restored": str(restored),
+                "X-Alias-Detector": detector_name,
             },
         )
 
@@ -501,20 +510,42 @@ def create_bridge(
     return app
 
 
+def options(argv: list[str] | None = None) -> argparse.Namespace:
+    """The command line. Without a model the rules alone mask nothing but checksummed and
+    formatted values (no names, no addresses), so that mode needs `--rules-only`."""
+    parser = argparse.ArgumentParser(description="Run the Alias Bridge in front of Mistral.")
+    parser.add_argument("--model", default=os.environ.get("ALIAS_MODEL"), help="checkpoint")
+    parser.add_argument(
+        "--rules-only",
+        action="store_true",
+        help="no model: names and addresses reach Mistral in clear",
+    )
+    parser.add_argument("--host", default="127.0.0.1", help="0.0.0.0 only inside a container")
+    parser.add_argument("--port", type=int, default=8001)
+    args = parser.parse_args(argv)
+    if args.model and args.rules_only:
+        parser.error("--rules-only and a model (--model or ALIAS_MODEL) exclude each other")
+    if not args.model and not args.rules_only:
+        parser.error(
+            "no model: give a checkpoint (--model or ALIAS_MODEL), or pass --rules-only to "
+            "mask only what the rules find; names and addresses would then reach Mistral in clear"
+        )
+    return args
+
+
 def main() -> None:
     from alias_pii.app import load_detector
 
-    parser = argparse.ArgumentParser(description="Run the Alias Bridge in front of Mistral.")
-    parser.add_argument("--model", default=os.environ.get("ALIAS_MODEL"), help="checkpoint")
-    parser.add_argument("--host", default="127.0.0.1", help="0.0.0.0 only inside a container")
-    parser.add_argument("--port", type=int, default=8001)
-    args = parser.parse_args()
+    args = options()
     import uvicorn
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     detector, name = load_detector(args.model)
-    log.info("detector: %s", name)
-    app = create_bridge(detector, api_key=os.environ.get("MISTRAL_API_KEY"))
+    if args.rules_only:
+        log.warning("rules only: names and addresses are NOT masked and reach Mistral in clear")
+    else:
+        log.info("detector: %s", name)
+    app = create_bridge(detector, api_key=os.environ.get("MISTRAL_API_KEY"), detector_name=name)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 

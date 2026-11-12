@@ -1,9 +1,10 @@
 import json
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
-from alias_pii.bridge import create_bridge
+from alias_pii.bridge import create_bridge, options
 from alias_pii.entities import Entity, EntityType
 from alias_pii.rules import RuleDetector
 
@@ -447,3 +448,27 @@ def test_a_json_document_with_a_link_mark_anywhere_gets_nothing_back():
     )
     content = json.loads(response.json()["choices"][0]["message"]["content"])
     assert content == {"[PERSON_1]": NAME, "[PERSON_01]": [EMAIL, 3]}
+
+
+def test_without_a_model_the_bridge_needs_rules_only_to_start(monkeypatch):
+    """The rules mask no names or addresses: starting without a model must be asked for."""
+    monkeypatch.delenv("ALIAS_MODEL", raising=False)
+    with pytest.raises(SystemExit):
+        options([])
+    assert options(["--rules-only"]).rules_only
+    assert options(["--model", "models/x"]).model == "models/x"
+    with pytest.raises(SystemExit):
+        options(["--model", "models/x", "--rules-only"])
+    monkeypatch.setenv("ALIAS_MODEL", "models/y")
+    assert options([]).model == "models/y"
+
+
+def test_the_detector_in_use_is_shown_in_health_and_in_each_answer():
+    fake = FakeMistral(reply="ok")
+    app = create_bridge(
+        RuleDetector(), api_key="k", transport=httpx.MockTransport(fake), detector_name="rules"
+    )
+    client = TestClient(app, base_url=LOCAL)
+    assert client.get("/health").json()["detector"] == "rules"
+    response = ask(client, {"role": "user", "content": "Bonjour"})
+    assert response.headers["X-Alias-Detector"] == "rules"
