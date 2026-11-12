@@ -18,6 +18,12 @@ key, then puts the real values back in the answer. Nothing but counts is logged.
 uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>
 ```
 
+The checkpoint can also come from `ALIAS_MODEL`. Without a model the bridge does not start: the
+rules alone mask e-mails, phone numbers, IBANs, national IDs, file numbers and dates of birth
+announced as such, but no names or addresses. `--rules-only` starts it that way on purpose,
+with a warning in the log. `GET /health` and the `X-Alias-Detector` header of each answer name
+the detector in use (`rules+model` or `rules`).
+
 The Mistral key comes from `MISTRAL_API_KEY`, or else from the `Authorization` header the tool
 sends. The packaged command (`alias-pii serve`, key in the macOS keychain, ONNX detector without
 PyTorch), the Docker image and the macOS app come next.
@@ -56,7 +62,8 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 - **Check before sending**: if the rules still find an IBAN or a national ID in the masked text,
   the request is refused (422) and nothing is sent.
 - **Restoring**: only the aliases of this request get their value back; an alias the answer
-  invents is left as it is. Headers `X-Alias-Masked` and `X-Alias-Restored` give the counts.
+  invents is left as it is. Headers `X-Alias-Masked` and `X-Alias-Restored` give the counts, and
+  `X-Alias-Detector` the detector.
 - **Links stay masked**: restored inside a link or an image, a value would leave the machine,
   for example if the answer follows instructions hidden in a pasted document. Markdown and HTML
   have too many forms to follow one by one, so the bridge errs on the side of masking:
