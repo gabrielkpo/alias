@@ -614,8 +614,8 @@ def create_bridge(
         # A streamed answer is asked for whole, then restored like any other and sent back as
         # server-sent events: the link rules need the whole answer (a definition at the end
         # changes what may be restored at the start), so streaming changes the format only.
-        streaming = body.get("stream") is True
-        if streaming:
+        streaming = bool(body.get("stream"))
+        if "stream" in outgoing:
             outgoing = {**outgoing, "stream": False}
         answer = await upstream_call(
             "POST",

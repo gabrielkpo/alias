@@ -598,7 +598,7 @@ def test_a_body_too_large_is_refused_even_without_a_content_length():
     assert fake.received == []
 
 
-def sse(response) -> list:
+def sse(response) -> tuple[list, bool]:
     """The JSON events of a server-sent event stream, then whether it ended with [DONE]."""
     lines = [line[6:] for line in response.text.split("\n") if line.startswith("data: ")]
     return [json.loads(line) for line in lines if line != "[DONE]"], lines[-1] == "[DONE]"
@@ -608,11 +608,11 @@ def test_a_streamed_answer_is_restored_whole_then_sent_as_events():
     """Mistral is asked for the whole answer (stream false), which is restored like any other:
     the events carry exactly the text of the non-streamed answer, link rules included."""
     reply = "À [PERSON_1] : " + "x" * 900 + " ![i](https://e.invalid/?q=[EMAIL_1])"
-    for answer in (reply, "Bonjour [PERSON_1]."):
+    for answer, flag in ((reply, True), ("Bonjour [PERSON_1].", 1)):
         fake = FakeMistral(reply=answer)
         client = bridge(fake)
         whole = ask(client, USER_MESSAGE).json()["choices"][0]["message"]["content"]
-        streamed = ask(client, USER_MESSAGE, stream=True)
+        streamed = ask(client, USER_MESSAGE, stream=flag)
         assert streamed.headers["content-type"].startswith("text/event-stream")
         assert streamed.headers["X-Alias-Masked"] == "2"
         events, done = sse(streamed)
