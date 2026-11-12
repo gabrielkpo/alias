@@ -429,6 +429,13 @@ def test_a_json_document_with_a_link_mark_anywhere_gets_nothing_back():
         for mode in ({"response_format": {"type": "json_object"}}, {}):
             response = ask(bridge(FakeMistral(reply=wrapped)), USER_MESSAGE, **mode)
             assert response.json()["choices"][0]["message"]["content"] == wrapped, mode
+    mixed = (
+        'Données : {"nom": "[PERSON_1]"}\nVoir [x](https://site.invalid/[EMAIL_1]).\n\n[EMAIL_1]'
+    )
+    response = ask(bridge(FakeMistral(reply=mixed)), USER_MESSAGE)
+    assert response.json()["choices"][0]["message"]["content"] == (
+        f'Données : {{"nom": "{NAME}"}}\nVoir [x](https://site.invalid/[EMAIL_1]).\n\n{EMAIL}'
+    )
     fenced = '```json\n{"nom": "[PERSON_1]"}\n```'
     response = ask(bridge(FakeMistral(reply=fenced)), USER_MESSAGE)
     assert response.json()["choices"][0]["message"]["content"] == fenced.replace("[PERSON_1]", NAME)
