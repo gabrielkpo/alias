@@ -249,3 +249,13 @@ test("typographic spaces and invisible characters do not hide a value", () => {
     assert.ok(!/[\s.]/u.test(found[0].text[0]));
   }
 });
+
+test("a qualifier between the keyword and its number word", () => {
+  for (const [text, value] of [
+    ["Voir le dossier médical n° 12345.", "12345"],
+    ["Dossier complet n° 2024/1234", "2024/1234"],
+  ]) {
+    assert.deepEqual(detectRules(text).map((e) => [e.type, e.text]), [["IDENTIFIER", value]]);
+  }
+  assert.deepEqual(detectRules("Le dossier médical de Paul est complet."), []);
+});
