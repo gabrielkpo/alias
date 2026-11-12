@@ -53,8 +53,9 @@ Choices and trade-offs:
   names, addresses and birth dates need context, so a trained model handles them. Rules give
   the low baseline the model has to beat.
 - **Stable aliases rather than generic placeholders.** The same value keeps the same alias across
-  a document (`01 99 00…` and `+33 1 99 00…` are one phone), so the LLM can follow who is who. The
-  cost is a table to keep, and to protect.
+  a document (`01 99 00…` and `+33 1 99 00…` are one phone), so the LLM can follow who is who.
+  Two e-mail addresses or file numbers that differ by a dot or dash keep two aliases. The cost
+  is a table to keep, and to protect.
 - **Recall first.** A missed value leaks; a false positive only hides a word. Overlapping spans
   are merged rather than dropped, so no part of a value stays in clear.
 - **Refuse rather than guess.** A file whose encoding is ambiguous is refused: a wrong guess

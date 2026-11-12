@@ -217,3 +217,19 @@ test("the spans and the report never carry the values", () => {
   const result = mask(text, [found(text, "EMAIL", "a.b@example.com")]);
   assert.ok(!JSON.stringify({ entities: result.entities, report: result.report }).includes("a.b@"));
 });
+
+test("addresses and identifiers that differ by a dot or dash get their own alias", () => {
+  const text = "a.b@example.com, ab@example.com, A.B@EXAMPLE.COM, AB-1234, AB.12.34, ab-1234.";
+  const entities = [
+    found(text, "EMAIL", "a.b@example.com"),
+    found(text, "EMAIL", "ab@example.com"),
+    found(text, "EMAIL", "A.B@EXAMPLE.COM"),
+    found(text, "IDENTIFIER", "AB-1234"),
+    found(text, "IDENTIFIER", "AB.12.34"),
+    found(text, "IDENTIFIER", "ab-1234"),
+  ];
+  assert.equal(
+    mask(text, entities).masked,
+    "[EMAIL_1], [EMAIL_2], [EMAIL_1], [IDENTIFIER_1], [IDENTIFIER_2], [IDENTIFIER_1].",
+  );
+});
