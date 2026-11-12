@@ -75,8 +75,11 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
     holding a mark, ending with `<`, or ending with the start of a mark (`]`, `/`, `w`) while
     another starts with its end (`(`, `:`, `/`, `.`) blocks every restore.
 
-  The bridge cannot follow every transformation a tool applies before display (joining the items
-  of a YAML list, for example); it protects the answer as returned and its JSON strings. The
+  The bridge cannot follow every transformation a tool applies before display. It protects the
+  answer as returned and the strings of the valid JSON it holds. It does not cover a tool that
+  repairs invalid JSON (a raw tab in a string, a missing closing brace, a trailing comma, as
+  some lenient parsers do), then joins its strings and renders them as markdown, nor the items
+  of a YAML list joined the same way: show such output as text, or turn off remote images. The
   cost: an answer with code (a backslash, `List<String>`), an image, or a line such as
   `[PERSON_1]: director` (a valid reference definition) comes back with aliases left in place
   after that point, or everywhere for the definition. `X-Alias-Restored` then counts fewer
