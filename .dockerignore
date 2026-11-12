@@ -1,6 +1,7 @@
 # Allowlist: only what the image needs. Secrets (.env), data, weights and caches never go in.
 *
 !pyproject.toml
+!uv.lock
 !README.md
 !LICENSE
 !src/
