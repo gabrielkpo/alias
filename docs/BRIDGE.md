@@ -45,8 +45,8 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   bridge keeps no state.
 - **Message parts**: the text of `content`, or of its `{"type": "text"}` parts, is masked.
   An image may only come inline (`image_url` holding `data:image/...;base64,...`) and passes as
-  it is: what the image shows is not masked. An image given by URL is refused (400), since the
-  URL itself could hold a name or an address.
+  it is: neither what it shows nor its metadata (author, location) is masked. An image given by
+  URL is refused (400), since the URL itself could hold a name or an address.
 - **Nothing unmasked goes through**: besides `messages` (keys `role`, `content`, `prefix`), a
   request may only hold settings without text of their own (`model`, `temperature`, `top_p`,
   `max_tokens`, `random_seed`, `n`, `presence_penalty`, `frequency_penalty`, `safe_prompt`,
@@ -70,8 +70,8 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   - with a reference definition (`]:`) anywhere, nothing is restored: an image anywhere can use
     it, and its label may hold an alias;
   - a JSON document (in JSON mode, or an answer that is a JSON object or array) holding a mark
-    anywhere, once its strings are joined, gets nothing back: a client may join its strings or
-    show them in another order.
+    anywhere, once its strings are joined (with or without keys, in document or JavaScript
+    order), gets nothing back: a client may join its strings or show them in another order.
 
   The bridge cannot follow every transformation a tool applies before display (joining the items
   of a YAML list, for example); it protects the answer as returned and its JSON strings. The

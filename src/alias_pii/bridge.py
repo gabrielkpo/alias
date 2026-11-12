@@ -273,23 +273,37 @@ def _document(text: str, strings: bool = False) -> dict | list | str | None:
     return value if isinstance(value, kinds) else None
 
 
-def _strings(node) -> list[str]:
-    """Every string of a JSON document, keys included, in document order."""
+def _js_order(node: dict) -> list:
+    """An object's items in the order JavaScript gives them: integer keys first, ascending."""
+    index = [k for k in node if k.isascii() and k.isdigit() and str(int(k)) == k]
+    return [(k, node[k]) for k in sorted(index, key=int)] + [
+        (k, v) for k, v in node.items() if k not in index
+    ]
+
+
+def _strings(node, keys: bool, js: bool) -> list[str]:
+    """Every string of a JSON document in document order (or JavaScript's), keys included or
+    not."""
     if isinstance(node, str):
         return [node]
     if isinstance(node, list):
-        return [s for item in node for s in _strings(item)]
+        return [s for item in node for s in _strings(item, keys, js)]
     if isinstance(node, dict):
-        return [s for k, v in node.items() for s in (k, *_strings(v))]
+        items = _js_order(node) if js else node.items()
+        return [s for k, v in items for s in ([k] if keys else []) + _strings(v, keys, js)]
     return []
 
 
 def _linked(document: dict | list | str) -> bool:
     """Whether a link mark appears in a JSON document taken as a whole: a client may join its
-    strings (a mark split as `"!"`, `"[x]"`, `"(url"`), show them in another order (JavaScript
-    puts integer keys first) or render the JSON text as markdown."""
+    strings with or without the keys (a mark split as `"!"`, `"[x]"`, `"(url"`), in another
+    order (JavaScript puts integer keys first), or render the JSON text as markdown."""
     try:
-        return LINK_MARK.search("".join(_strings(document))) is not None
+        return any(
+            LINK_MARK.search("".join(_strings(document, keys, js)))
+            for keys in (True, False)
+            for js in (False, True)
+        )
     except RecursionError:
         return True
 

