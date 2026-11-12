@@ -23,3 +23,8 @@ node_modules/
 
 # local tool state (Claude Code worktrees, launch files)
 .claude/
+
+# PyInstaller output (packaging/, built on GitHub)
+build/
+dist/
+*.spec

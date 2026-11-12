@@ -56,6 +56,8 @@ dev = [
     "uvicorn>=0.30",
 ]
 onnx = ["onnx>=1.16", "onnxruntime>=1.18"]
+# The standalone `alias-pii` executable for the macOS app (packaging/, built on GitHub).
+bundle = ["pyinstaller>=6.10"]
 train = [
     "accelerate>=0.30",
     "datasets>=2.19",
