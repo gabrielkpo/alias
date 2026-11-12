@@ -56,7 +56,8 @@ _FILLER = r"(?:(?:is|was|est|était|=)\s+)?(?:(?:le|la|the)\s+)?"
 # "n° de dossier : 2024/0042", "Customer ID: AB-123456", "le numéro de dossier est le 2024/1234"
 _IDENTIFIER = re.compile(
     rf"(?:\b{_NUMBER_WORD}\s*(?:de\s+|du\s+|d['’]\s*|of\s+)?)?\b(?P<keyword>{_ID_KEYWORD})(?!\w)"
-    rf"(?:\s+{_NUMBER_WORD})?\s*(?:[:#]\s*)?{_FILLER}"
+    # One qualifier may sit between the keyword and its number word: "dossier médical n° 12345".
+    rf"(?:\s+(?:[^\W\d_]{{2,20}}\s+)?{_NUMBER_WORD})?\s*(?:[:#]\s*)?{_FILLER}"
     r"(?P<value>[A-Z0-9](?:[A-Z0-9/_.\-]*[A-Z0-9])?)",
     re.IGNORECASE,
 )

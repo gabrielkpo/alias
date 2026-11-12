@@ -168,7 +168,7 @@ const ID_KEYWORD =
 const FILLER = "(?:(?:is|was|est|était|=)\\s+)?(?:(?:le|la|the)\\s+)?";
 const IDENTIFIER = new RegExp(
   `(?:${B}${NUMBER_WORD}\\s*(?:de\\s+|du\\s+|d['’]\\s*|of\\s+)?)?${B}(?<keyword>${ID_KEYWORD})(?!${W})` +
-    `(?:\\s+${NUMBER_WORD})?\\s*(?:[:#]\\s*)?${FILLER}` +
+    `(?:\\s+(?:\\p{L}{2,20}\\s+)?${NUMBER_WORD})?\\s*(?:[:#]\\s*)?${FILLER}` +
     "(?<value>[A-Z0-9](?:[A-Z0-9/_.\\-]*[A-Z0-9])?)",
   "giud",
 );
