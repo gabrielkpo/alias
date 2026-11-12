@@ -23,7 +23,7 @@ COPY src ./src
 # The versions of uv.lock, checked against its hashes. PyTorch is the CPU-only build of the
 # locked version, from the PyTorch index: the CUDA build and its nvidia, cuda and triton packages
 # are several GB the image does not need, so they are left out of the export.
-RUN pip install "uv==0.12.5" \
+RUN pip install "uv==0.13.7" \
     && GPU=$(uv export --frozen --no-dev --extra app --extra model --no-emit-project --no-hashes \
         | grep -oE '^(nvidia-[a-z0-9-]+|cuda-[a-z0-9-]+|triton)==' \
         | sed 's/==$//; s/^/--no-emit-package /') \
