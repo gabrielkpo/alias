@@ -1,0 +1,12 @@
+{
+  "name": "alias-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Alias Bridge as a macOS app: the bridge runs in the background, the window shows its state, the key and the token.",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4"
+  }
+}

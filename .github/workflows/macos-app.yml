@@ -1,0 +1,74 @@
+# The macOS app (desktop/, Tauri): the standalone `alias-pii` executable as the app's sidecar, the
+# window, an unsigned .dmg (ad-hoc signed, Apple silicon). Built and checked on a GitHub macOS
+# machine, never on a laptop: the app is launched, its bridge must answer with the published
+# model, then quitting the app must stop the bridge.
+name: macOS app
+on:
+  pull_request:
+    paths:
+      - "src/alias_pii/**"
+      - packaging/**
+      - desktop/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/macos-app.yml
+  push:
+    branches: [main]
+    paths:
+      - "src/alias_pii/**"
+      - packaging/**
+      - desktop/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/macos-app.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos-app:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.7"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "22"
+      - name: The bridge as one executable (the app's sidecar)
+        run: |
+          uv sync --frozen --no-dev --extra serve --group bundle --python 3.12
+          uv run --frozen pyinstaller packaging/alias-pii-entry.py --name alias-pii --onefile \
+            --noconfirm --clean --collect-all transformers --collect-submodules uvicorn \
+            --collect-submodules alias_pii --hidden-import keyring.backends.macOS
+          mkdir -p desktop/src-tauri/binaries
+          cp dist/alias-pii desktop/src-tauri/binaries/alias-pii-aarch64-apple-darwin
+      - name: Icons, drawn from code
+        working-directory: desktop
+        run: |
+          npm ci
+          uv run --frozen python ../packaging/make_icon.py icon.png
+          npx tauri icon icon.png
+      - name: Build the app and the .dmg
+        working-directory: desktop
+        run: |
+          npx tauri build --bundles app,dmg -- --locked
+          ls -la src-tauri/target/release/bundle/macos src-tauri/target/release/bundle/dmg
+          du -sh src-tauri/target/release/bundle/macos/Alias.app
+      - name: Launch the app; its bridge answers with the model; quitting stops it
+        run: |
+          app=desktop/src-tauri/target/release/bundle/macos/Alias.app
+          open "$app"
+          for i in $(seq 150); do curl -sf localhost:8001/health > health.json && break; sleep 2; done
+          cat health.json
+          grep -q '"detector":"rules+model"' health.json
+          osascript -e 'quit app "Alias"'
+          for i in $(seq 30); do curl -sf localhost:8001/health > /dev/null || break; sleep 1; done
+          if curl -sf localhost:8001/health; then
+            echo "the bridge outlived the app"; pgrep -fl alias-pii || true; exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: alias-macos-dmg
+          path: desktop/src-tauri/target/release/bundle/dmg/*.dmg

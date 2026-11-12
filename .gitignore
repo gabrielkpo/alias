@@ -28,3 +28,11 @@ node_modules/
 build/
 dist/
 *.spec
+
+# Desktop app build output (desktop/, built on GitHub): Rust target, generated icons and schemas,
+# the bridge executable copied in at build time
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/icons/
+desktop/src-tauri/binaries/
+desktop/icon.png

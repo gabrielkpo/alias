@@ -127,10 +127,13 @@ def parser() -> argparse.ArgumentParser:
     commands.add_parser("fetch", help="download the published model now (it is kept on disk)")
     key = commands.add_parser("key", help="the Mistral key in the OS keychain")
     key.add_argument("action", choices=["set", "status", "delete", "token"])
+    key.add_argument(
+        "--stdin", action="store_true", help="set: read the key from standard input (an app)"
+    )
     return root
 
 
-def key_command(action: str) -> int:
+def key_command(action: str, from_stdin: bool = False) -> int:
     import keyring
     from keyring.errors import KeyringError, PasswordDeleteError
 
@@ -144,7 +147,10 @@ def key_command(action: str) -> int:
                 return 1
             print(token)
         elif action == "set":
-            value = getpass.getpass("Mistral API key (not shown): ").strip()
+            if from_stdin:  # the desktop app passes it on a pipe, never on the command line
+                value = sys.stdin.readline().strip()
+            else:
+                value = getpass.getpass("Mistral API key (not shown): ").strip()
             if not value:
                 print("No key given: nothing stored.", file=sys.stderr)
                 return 1
@@ -210,7 +216,7 @@ def serve_command(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.command == "key":
-        return key_command(args.action)
+        return key_command(args.action, args.stdin)
     if args.command == "fetch":
         print(published_model())
         return 0
