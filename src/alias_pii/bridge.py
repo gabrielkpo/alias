@@ -29,6 +29,7 @@ for whole, restored, then sent back as server-sent events.
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import logging
 import os
@@ -498,11 +499,17 @@ def create_bridge(
     max_chars: int = MAX_CHARS,
     allowed_hosts: tuple[str, ...] = LOCAL_HOSTS,
     detector_name: str = "custom",
+    local_token: str | None = None,
 ) -> FastAPI:
     """The bridge around one detector, loaded once by the caller. `api_key`: the Mistral key
     (else the one the client sends); `transport`: for tests, a fake provider; `detector_name`:
     shown in `/health` and in the `X-Alias-Detector` header, so a client can check what masks
-    its text."""
+    its text; `local_token`: when the bridge holds the key, the token each tool must send as its
+    own API key (`Authorization: Bearer <token>`), so another program or account on the machine
+    cannot spend the key."""
+    if local_token is not None and not (api_key and local_token):
+        raise ValueError("a local token needs a non-empty token and the bridge's own Mistral key")
+    expected = f"Bearer {local_token}".encode() if local_token else None
     client = httpx.AsyncClient(base_url=upstream, transport=transport, timeout=120)
 
     @asynccontextmanager
@@ -536,6 +543,11 @@ def create_bridge(
             "application/json"
         ):
             return JSONResponse({"detail": "the body must be application/json"}, 415)
+        if expected and request.url.path.startswith("/v1/"):
+            sent = request.headers.get("authorization", "").encode()
+            if not hmac.compare_digest(sent, expected):
+                detail = "the bridge's local token is required as the API key (alias-pii key token)"
+                return JSONResponse({"detail": detail}, 401)
         return await call_next(request)
 
     lock = threading.Lock()  # one detection at a time: CPU-bound, and the model is shared

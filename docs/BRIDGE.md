@@ -33,14 +33,19 @@ the detector in use (`rules+model` or `rules`).
 
 The Mistral key comes from the keychain (`alias-pii key status`, `alias-pii key delete`), else
 from `MISTRAL_API_KEY`, else from the `Authorization` header the tool sends; it is never shown,
-logged or written in clear. The development version runs from a clone with
+logged or written in clear. When the bridge holds the key (keychain or variable), any program on
+the machine could otherwise spend it: each tool must then send the bridge's **local token** as its
+API key (`alias-pii key token` shows it; it is created once and kept in the keychain), and a
+request without it gets 401. Mistral still receives the real key, never the token.
+
+The development version runs from a clone with
 `uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>` (PyTorch).
 The Docker image and the macOS app come next.
 
 ```python
 from openai import OpenAI
 
-client = OpenAI(base_url="http://127.0.0.1:8001/v1", api_key="unused-if-the-bridge-has-one")
+client = OpenAI(base_url="http://127.0.0.1:8001/v1", api_key="<alias-pii key token>")
 answer = client.chat.completions.create(
     model="mistral-small-latest",
     messages=[

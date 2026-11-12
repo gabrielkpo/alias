@@ -87,10 +87,29 @@ def test_serve_uses_the_keychain_key_and_listens_on_loopback(keychain, monkeypat
     keychain[("alias-pii", "mistral")] = SECRET
     assert cli.main(["serve"]) == 0
     assert (served["host"], served["port"]) == ("127.0.0.1", 8001)
-    health = TestClient(served["app"], base_url="http://127.0.0.1:8001").get("/health").json()
-    assert health["detector"] == "rules+model"
+    client = TestClient(served["app"], base_url="http://127.0.0.1:8001")
+    assert client.get("/health").json()["detector"] == "rules+model"
+    token = keychain[("alias-pii", "local-token")]
+    assert len(token) >= 40 and token != SECRET
+    assert client.get("/v1/models").status_code == 401  # the bridge holds a key: token needed
     assert cli.main(["serve", "--rules-only", "--port", "9000"]) == 0
     health = TestClient(served["app"], base_url="http://127.0.0.1:9000").get("/health").json()
     assert (health["detector"], served["port"]) == ("rules", 9000)
     with pytest.raises(SystemExit):
         cli.main(["serve", "--rules-only", "--model", "folder"])
+
+
+def test_the_local_token_is_created_once_and_shown_on_request(keychain, capsys):
+    assert cli.main(["key", "token"]) == 0
+    first = capsys.readouterr().out.strip()
+    assert cli.main(["key", "token"]) == 0
+    assert capsys.readouterr().out.strip() == first == keychain[("alias-pii", "local-token")]
+
+
+def test_without_a_stored_key_tools_send_their_own(keychain, monkeypatch):
+    served = {}
+    monkeypatch.setattr("uvicorn.run", lambda app, **options: served.update(app=app))
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+    monkeypatch.delenv("ALIAS_MODEL", raising=False)
+    assert cli.main(["serve", "--rules-only"]) == 0
+    assert ("alias-pii", "local-token") not in keychain
