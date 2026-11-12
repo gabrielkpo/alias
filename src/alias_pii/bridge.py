@@ -161,14 +161,17 @@ def mask_messages(
         return result.text
 
     out = _each_text(messages, masked)
-    known = {e.text.casefold(): e for result in results for e in result.entities}
+    known = list({e.text: e for result in results for e in result.entities}.values())
     if not known:
         return out, results, counts
-    values = sorted(known, key=len, reverse=True)
-    pattern = re.compile("|".join(rf"(?<!\w){re.escape(v)}(?!\w)" for v in values), re.IGNORECASE)
+    known.sort(key=lambda e: len(e.text), reverse=True)  # the longest value first
+    pattern = re.compile(
+        "|".join(rf"(?P<v{i}>(?<!\w){re.escape(e.text)}(?!\w))" for i, e in enumerate(known)),
+        re.IGNORECASE,
+    )
 
     def alias(match: re.Match[str]) -> str:
-        entity = known[match.group().casefold()]
+        entity = known[int(match.lastgroup[1:])]
         counts[entity.type.value] += 1
         return table.alias_for(entity)
 

@@ -478,11 +478,12 @@ class InSentencesOnly:
     """A detector that finds the name only after "Madame", as a model can miss it elsewhere."""
 
     def detect(self, text):
-        start = text.find(f"Madame {NAME}")
-        if start < 0:
-            return []
-        start += len("Madame ")
-        return [Entity(EntityType.PERSON, start, start + len(NAME), NAME, source="fake")]
+        for name in (NAME, "İlknur Yılmaz"):
+            start = text.find(f"Madame {name}")
+            if start >= 0:
+                start += len("Madame ")
+                return [Entity(EntityType.PERSON, start, start + len(name), name, source="fake")]
+        return []
 
 
 def test_a_value_aliased_in_one_message_is_masked_in_every_other():
@@ -496,6 +497,7 @@ def test_a_value_aliased_in_one_message_is_masked_in_every_other():
         {"role": "assistant", "content": f"Noté pour {NAME.upper()}."},
         {"role": "user", "content": [{"type": "text", "text": f"{NAME}\n14 rue des Lilas"}]},
         {"role": "user", "content": f"{NAME}s et X{NAME} restent des mots à part."},
+        {"role": "user", "content": "Madame İlknur Yılmaz, puis İlknur Yılmaz seule."},
     )
     sent = [m["content"] for m in fake.received[0]["messages"]]
     assert sent[:3] == [
@@ -504,7 +506,8 @@ def test_a_value_aliased_in_one_message_is_masked_in_every_other():
         [{"type": "text", "text": "[PERSON_1]\n14 rue des Lilas"}],
     ]
     assert sent[3] == f"{NAME}s et X{NAME} restent des mots à part."  # not whole words
-    assert response.headers["X-Alias-Masked"] == "3"
+    assert sent[4] == "Madame [PERSON_2], puis [PERSON_2] seule."
+    assert response.headers["X-Alias-Masked"] == "5"
     assert response.json()["choices"][0]["message"]["content"] == f"Réponse à {NAME}."
 
 
