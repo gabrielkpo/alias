@@ -22,7 +22,8 @@ A request holding text the bridge does not mask (a field other than the settings
 Nothing is logged but counts; no text is written to disk. `GET /v1/models` is relayed as is.
 Only local tools may call it: a request from a browser (an `Origin` header), with a non-local
 `Host` (DNS rebinding) or a non-JSON body is refused, so a web page cannot spend the user's key.
-Streaming answers (`"stream": true`) and tool calls come later and are refused for now.
+Tool calls come later and are refused for now. A streamed answer (`"stream": true`) is asked
+for whole, restored, then sent back as server-sent events.
 """
 
 from __future__ import annotations
@@ -34,13 +35,13 @@ import os
 import re
 import threading
 from collections import Counter
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from alias_pii import __version__
 from alias_pii.entities import EntityType
@@ -447,6 +448,48 @@ def restore_answer(
     return data, len(restored)
 
 
+STREAM_PIECE = 400  # characters of answer text per event
+
+
+def stream_events(data: dict) -> Iterator[str]:
+    """A whole chat completion as the server-sent events of a streamed one, in the provider's
+    chunk format: per choice, its role, its text in pieces, then its finish reason; the usage
+    with the last chunk; then `[DONE]`."""
+    base = {
+        "id": data.get("id"),
+        "object": "chat.completion.chunk",
+        "created": data.get("created"),
+        "model": data.get("model"),
+    }
+
+    def event(choices: list, **extra) -> str:
+        return f"data: {json.dumps({**base, 'choices': choices, **extra}, ensure_ascii=False)}\n\n"
+
+    choices = [c for c in data.get("choices") or [] if isinstance(c, dict)]
+    for number, choice in enumerate(choices):
+        index = choice.get("index", number)
+        message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+        role = message.get("role", "assistant")
+        content = message.get("content")
+        yield event(
+            [{"index": index, "delta": {"role": role, "content": ""}, "finish_reason": None}]
+        )
+        pieces = (
+            [content[i : i + STREAM_PIECE] for i in range(0, len(content), STREAM_PIECE)]
+            if isinstance(content, str)
+            else [content]
+            if content
+            else []
+        )
+        for piece in pieces:
+            yield event([{"index": index, "delta": {"content": piece}, "finish_reason": None}])
+        last = number == len(choices) - 1
+        extra = {"usage": data["usage"]} if last and data.get("usage") else {}
+        finish = choice.get("finish_reason") or "stop"
+        yield event([{"index": index, "delta": {}, "finish_reason": finish}], **extra)
+    yield "data: [DONE]\n\n"
+
+
 def create_bridge(
     detector: Detector,
     api_key: str | None = None,
@@ -554,8 +597,6 @@ def create_bridge(
             raise HTTPException(400, "the body must be JSON") from None
         if not isinstance(body, dict):
             raise HTTPException(400, "the body must be a JSON object")
-        if body.get("stream"):
-            raise HTTPException(501, "streaming answers are not supported yet: set stream false")
         messages = body.get("messages")
         if body.get("tools") or (
             isinstance(messages, list)
@@ -570,6 +611,12 @@ def create_bridge(
             )
         token = key(request)
         outgoing, results, counts = await run_in_threadpool(masked_request, body)
+        # A streamed answer is asked for whole, then restored like any other and sent back as
+        # server-sent events: the link rules need the whole answer (a definition at the end
+        # changes what may be restored at the start), so streaming changes the format only.
+        streaming = bool(body.get("stream"))
+        if "stream" in outgoing:
+            outgoing = {**outgoing, "stream": False}
         answer = await upstream_call(
             "POST",
             "/v1/chat/completions",
@@ -592,14 +639,16 @@ def create_bridge(
             raise HTTPException(502, "Mistral's answer is not a JSON object")
         data, restored = restore_answer(data, results, json_mode)
         log.info("masked %s; restored %d", dict(counts), restored)
-        return JSONResponse(
-            data,
-            headers={
-                "X-Alias-Masked": str(sum(counts.values())),
-                "X-Alias-Restored": str(restored),
-                "X-Alias-Detector": detector_name,
-            },
-        )
+        headers = {
+            "X-Alias-Masked": str(sum(counts.values())),
+            "X-Alias-Restored": str(restored),
+            "X-Alias-Detector": detector_name,
+        }
+        if streaming:
+            return StreamingResponse(
+                stream_events(data), media_type="text/event-stream", headers=headers
+            )
+        return JSONResponse(data, headers=headers)
 
     @app.get("/v1/models")
     async def models(request: Request) -> Response:
