@@ -159,3 +159,25 @@ def test_reprs_do_not_show_values():
     restored = restore("[EMAIL_1]", result)
     for obj in (result, result.entities[0], restored):
         assert "a.b@example.com" not in repr(obj)
+
+
+def test_addresses_and_identifiers_that_differ_by_a_dot_or_dash_get_their_own_alias():
+    """A dot or dash makes another e-mail address or file number: sharing one alias would put
+    one person's address back where the answer meant the other's."""
+    text = (
+        "Écrire à jean.dupont@example.com (directeur) et jeandupont@example.com (stagiaire), "
+        "copie à JEAN.DUPONT@EXAMPLE.COM. Dossier n° AB-1234, dossier n° AB.12.34 et dossier "
+        "n° ab-1234."
+    )
+    result = mask(text, detector)
+    assert result.text == (
+        "Écrire à [EMAIL_1] (directeur) et [EMAIL_2] (stagiaire), copie à [EMAIL_1]. "
+        "Dossier n° [IDENTIFIER_1], dossier n° [IDENTIFIER_2] et dossier n° [IDENTIFIER_1]."
+    )
+    answer = restore("Envoyer le contrat à [EMAIL_2].", result)
+    assert answer.text == "Envoyer le contrat à jeandupont@example.com."
+
+
+def test_an_iban_is_one_value_however_it_is_grouped():
+    text = "IBAN FR76 3000 6000 0112 3456 7890 189, soit FR7630006000011234567890189."
+    assert mask(text, detector).text == "IBAN [IBAN_1], soit [IBAN_1]."

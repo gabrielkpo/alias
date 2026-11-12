@@ -475,7 +475,6 @@ export async function detect(text, model, idKeywords = ID_KEYWORDS) {
 
 // ---------------------------------------------------------------- masking.py
 
-const STRICT = new Set(["EMAIL", "IBAN", "NATIONAL_ID", "IDENTIFIER"]);
 const ALIAS = new RegExp(`\\[\\s*(${TYPES.join("|")})_([0-9]+)\\s*\\]`, "gu");
 
 export function normalize(e) {
@@ -487,7 +486,11 @@ export function normalize(e) {
     if (digits.startsWith("0")) return `+33${digits.slice(1)}`;
     return `+33${digits}`;
   }
-  if (STRICT.has(e.type)) return compact(e.text);
+  if (e.type === "IBAN" || e.type === "NATIONAL_ID") return compact(e.text);
+  const visible = e.text.replace(/[\u00ad\u200b\u200c\u200d\u2060\ufeff]/gu, "");
+  // An e-mail only ignores case, an identifier case and spacing: a dot or dash makes another one.
+  if (e.type === "EMAIL") return visible.normalize("NFC").trim().toUpperCase().toLowerCase();
+  if (e.type === "IDENTIFIER") return visible.toUpperCase().split(/\s+/u).filter(Boolean).join(" ");
   // Upper then lower case is closer to Python's casefold than lower case alone (ß -> ss).
   const folded = e.text.toUpperCase().toLowerCase().normalize("NFKD").replace(/\p{Mn}/gu, "");
   return folded.split(/\s+/u).filter(Boolean).join(" ");
