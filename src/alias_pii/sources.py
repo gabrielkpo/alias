@@ -1,4 +1,4 @@
-"""Public annotated corpora converted to the Alias schema (dataset v0.4, docs/DATASET.md §11).
+"""Public annotated corpora converted to the Alias schema (dataset v0.4, docs/DATASET.md §4.3).
 
 - gretelai/synthetic_pii_finance_multilingual (Apache-2.0): synthetic financial documents in
   many formats (EDI, BAI, SWIFT, contracts, letters), French and English files.

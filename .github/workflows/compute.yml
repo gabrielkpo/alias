@@ -1,4 +1,4 @@
-# Heavy runs on a GitHub CPU machine instead of a laptop (Gabriel's decision of 16/10): dataset
+# Heavy runs on a GitHub CPU machine (decision, 2026-10-16): dataset
 # build, benchmark, training smoke test, CPU latency. Synthetic and public data only: the
 # dataset is rebuilt here from the generator and the public corpora; nothing private is used.
 # Start it from the Actions tab or `gh workflow run compute.yml -f task=benchmark`, or add the

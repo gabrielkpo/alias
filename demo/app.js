@@ -1,7 +1,8 @@
 // Alias demo page: loads the tokenizer and the ONNX model from Hugging Face once (the browser
-// caches them), then masks the pasted text locally with alias.js. The text is never sent: the
-// only requests are for the model files and the ONNX runtime, and the page's CSP allows no other
-// host. Text is only ever inserted with textContent, never as HTML.
+// caches them), then masks the pasted text locally with alias.js. This code never sends the
+// text: its only requests are for the model files and the ONNX runtime. The page's CSP limits
+// requests to Hugging Face and cdn.jsdelivr.net, from which scripts are also allowed. Text is
+// only ever inserted with textContent, never as HTML.
 import {
   AutoModelForTokenClassification,
   AutoTokenizer,

@@ -5,9 +5,12 @@ fields it carries, a layout (prose, key-value form, table, e-mail thread, chat) 
 phrase banks in French and English word them, and distractors that look personal but are not are
 mixed in. Spans are recorded while the text is built, so labels are exact by construction.
 
-Splits are leak-free: phrase variants are divided between train and evaluation by a stable hash,
-every document draws a fresh identity, and one document type (meeting minutes) is reserved for the
-test split.
+Splits are not fully separate. Phrase variants are assigned to a split by a stable hash where a
+bank has enough variants; otherwise a split falls back to the whole bank. Some templates
+(greetings, closings, chat lines, sentences with two values) are shared by every split. Every
+document draws a fresh identity, but names come from small pools, so a test name can also appear
+in training. One document type (meeting minutes) is reserved for the test split. The measures
+that share no template with training are the LLM-written set and the open sets such as TAB.
 """
 
 from __future__ import annotations

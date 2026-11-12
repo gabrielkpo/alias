@@ -17,7 +17,7 @@
 
 * **readme:** Mistral zero-shot baseline results ([#39](https://github.com/gabrielkpo/alias/issues/39)) ([1efe31e](https://github.com/gabrielkpo/alias/commit/1efe31ecf6fb62781c2c65bcb875c63b374d9dec))
 
-## [0.2.0](https://github.com/gabrielkpo/alias/compare/v0.1.0...v0.2.0) (2026-11-11)
+## [0.2.0](https://github.com/gabrielkpo/alias/releases/tag/v0.2.0) (2026-11-11)
 
 
 ### Features

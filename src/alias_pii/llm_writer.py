@@ -1,4 +1,4 @@
-"""Documents written by an LLM around placeholders (dataset v0.3, docs/DATASET.md §10).
+"""Documents written by an LLM around placeholders (dataset v0.3, docs/DATASET.md §4.2).
 
 The grid generator assembles documents from phrase banks; its wording is ours. Here a language
 model writes the whole document, with placeholders such as `{{PERSON_1}}` instead of every

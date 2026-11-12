@@ -206,3 +206,29 @@ def test_a_phone_found_by_the_model_gets_one_alias_in_any_region():
         text = f"Appeler le {national} ou le {international}."
         masked = mask(text, Model(national, international)).text
         assert masked == "Appeler le [PHONE_1] ou le [PHONE_1].", text
+
+
+def test_values_come_from_the_text_not_from_the_detector():
+    """A detector whose span text disagrees with its position cannot put a wrong value in the
+    table; a span outside the text is refused."""
+
+    class Wrong:
+        def __init__(self, start, end, value):
+            self.span = (start, end, value)
+
+        def detect(self, text):
+            start, end, value = self.span
+            return [Entity(EntityType.PERSON, start, end, value)]
+
+    text = "Écrire à Jean Dupont."
+    result = mask(text, Wrong(9, 20, "WRONG VALUE"))
+    assert result.text == "Écrire à [PERSON_1]."
+    assert restore("[PERSON_1]", result).text == "Jean Dupont"
+    for start, end in ((-1, 4), (5, 99), (7, 7)):
+        with pytest.raises(ValueError):
+            mask(text, Wrong(start, end, "x"))
+
+
+def test_the_mask_result_repr_holds_no_text():
+    result = mask("Écrire à jean.dupont@example.com, merci.", detector)
+    assert "merci" not in repr(result) and "crire" not in repr(result)
