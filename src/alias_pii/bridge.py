@@ -43,12 +43,21 @@ from fastapi.responses import JSONResponse, Response
 
 from alias_pii import __version__
 from alias_pii.entities import EntityType
-from alias_pii.masking import AliasTable, Detector, MaskResult, mask, restore
+from alias_pii.masking import (
+    AliasTable,
+    Detector,
+    MaskResult,
+    find_leaks,
+    mask,
+    restore,
+)
 from alias_pii.rules import RuleDetector
 
 UPSTREAM = "https://api.mistral.ai"
 # Values the rules prove by a checksum: if one is still readable after masking, the request stops.
 CHECKED = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID})
+# Values of the request looked for again, in any separator form, before sending.
+COMPACT_CHECKED = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID, EntityType.PHONE})
 MAX_CHARS = 200_000  # the whole conversation of one request
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 # What a request may hold besides `messages`: settings with no text of their own. Any other
@@ -100,7 +109,35 @@ log = logging.getLogger("alias.bridge")
 
 
 class LeftInClear(Exception):
-    """A checksummed value is still readable after masking."""
+    """A value is still readable after masking."""
+
+
+def _each_text(messages: list[dict], change: Callable[[str], str]) -> list[dict]:
+    """The messages with `change` applied to each text: a `content` string, or the `text` of a
+    `{"type": "text"}` part. Other parts (inline images) are kept as they are."""
+    out = []
+    for message in messages:
+        message = dict(message)
+        content = message.get("content")
+        if isinstance(content, str):
+            message["content"] = change(content)
+        elif isinstance(content, list):
+            message["content"] = [
+                {**part, "text": change(part["text"])}
+                if isinstance(part, dict)
+                and part.get("type") == "text"
+                and isinstance(part.get("text"), str)
+                else part
+                for part in content
+            ]
+        out.append(message)
+    return out
+
+
+def texts(messages: list[dict]) -> list[str]:
+    found: list[str] = []
+    _each_text(messages, lambda text: found.append(text) or text)
+    return found
 
 
 def mask_messages(
@@ -108,7 +145,11 @@ def mask_messages(
 ) -> tuple[list[dict], list[MaskResult], Counter]:
     """The messages with their text masked, the mask results (to restore the answer) and the
     count of values per type. Text is a message's `content` string, or the `text` of its
-    `{"type": "text"}` parts; inline images (`inline_image`) are passed as they are."""
+    `{"type": "text"}` parts; inline images (`inline_image`) are passed as they are.
+
+    The detector may find a value in one message and miss it in another (a name in a sentence,
+    then alone on a line): a second pass gives every whole-word occurrence of a value already
+    aliased in this request the same alias."""
     table = AliasTable()
     results: list[MaskResult] = []
     counts: Counter = Counter()
@@ -119,23 +160,22 @@ def mask_messages(
         counts.update(e.type.value for e in result.entities)
         return result.text
 
-    out = []
-    for message in messages:
-        message = dict(message)
-        content = message.get("content")
-        if isinstance(content, str):
-            message["content"] = masked(content)
-        elif isinstance(content, list):
-            message["content"] = [
-                {**part, "text": masked(part["text"])}
-                if isinstance(part, dict)
-                and part.get("type") == "text"
-                and isinstance(part.get("text"), str)
-                else part
-                for part in content
-            ]
-        out.append(message)
-    return out, results, counts
+    out = _each_text(messages, masked)
+    known = list({e.text: e for result in results for e in result.entities}.values())
+    if not known:
+        return out, results, counts
+    known.sort(key=lambda e: len(e.text), reverse=True)  # the longest value first
+    pattern = re.compile(
+        "|".join(rf"(?P<v{i}>(?<!\w){re.escape(e.text)}(?!\w))" for i, e in enumerate(known)),
+        re.IGNORECASE,
+    )
+
+    def alias(match: re.Match[str]) -> str:
+        entity = known[int(match.lastgroup[1:])]
+        counts[entity.type.value] += 1
+        return table.alias_for(entity)
+
+    return _each_text(out, lambda text: pattern.sub(alias, text)), results, counts
 
 
 def unmaskable(body: dict) -> str | None:
@@ -216,10 +256,14 @@ def stops(body: dict) -> list[str]:
     return [stop] if isinstance(stop, str) else list(stop or [])
 
 
-def check_masked(results: list[MaskResult]) -> None:
+def check_masked(masked: list[str], results: list[MaskResult]) -> None:
+    """Raise `LeftInClear` when a text about to be sent still holds a checksummed value the
+    rules find (IBAN, national ID), or an IBAN, national ID or phone number of this request
+    written with other separators (`find_leaks`)."""
     rules = RuleDetector()
-    for result in results:
-        if any(e.type in CHECKED for e in rules.detect(result.text)):
+    entities = [e for result in results for e in result.entities if e.type in COMPACT_CHECKED]
+    for text in masked:
+        if any(e.type in CHECKED for e in rules.detect(text)) or find_leaks(text, entities):
             raise LeftInClear
 
 
@@ -436,11 +480,11 @@ def create_bridge(
                 )
             masked, results, counts = mask_messages(messages, detector)
         try:
-            check_masked(results)
+            check_masked(texts(masked), results)
         except LeftInClear:
             raise HTTPException(
                 422,
-                "a checksummed value (IBAN, national ID) is still readable after masking: "
+                "a value (IBAN, national ID, phone number) is still readable after masking: "
                 "nothing was sent",
             ) from None
         return {**body, "messages": masked}, results, counts

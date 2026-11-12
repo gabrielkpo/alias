@@ -472,3 +472,58 @@ def test_the_detector_in_use_is_shown_in_health_and_in_each_answer():
     assert client.get("/health").json()["detector"] == "rules"
     response = ask(client, {"role": "user", "content": "Bonjour"})
     assert response.headers["X-Alias-Detector"] == "rules"
+
+
+class InSentencesOnly:
+    """A detector that finds the name only after "Madame", as a model can miss it elsewhere."""
+
+    def detect(self, text):
+        for name in (NAME, "İlknur Yılmaz"):
+            start = text.find(f"Madame {name}")
+            if start >= 0:
+                start += len("Madame ")
+                return [Entity(EntityType.PERSON, start, start + len(name), name, source="fake")]
+        return []
+
+
+def test_a_value_aliased_in_one_message_is_masked_in_every_other():
+    """The detector may find a name in one message and miss it in another: every whole-word
+    occurrence of a value already aliased in the request gets the same alias before sending."""
+    fake = FakeMistral(reply="Réponse à [PERSON_1].")
+    app = create_bridge(InSentencesOnly(), api_key="k", transport=httpx.MockTransport(fake))
+    response = ask(
+        TestClient(app, base_url=LOCAL),
+        {"role": "user", "content": f"Madame {NAME} demande un rendez-vous."},
+        {"role": "assistant", "content": f"Noté pour {NAME.upper()}."},
+        {"role": "user", "content": [{"type": "text", "text": f"{NAME}\n14 rue des Lilas"}]},
+        {"role": "user", "content": f"{NAME}s et X{NAME} restent des mots à part."},
+        {"role": "user", "content": "Madame İlknur Yılmaz, puis İlknur Yılmaz seule."},
+    )
+    sent = [m["content"] for m in fake.received[0]["messages"]]
+    assert sent[:3] == [
+        "Madame [PERSON_1] demande un rendez-vous.",
+        "Noté pour [PERSON_1].",
+        [{"type": "text", "text": "[PERSON_1]\n14 rue des Lilas"}],
+    ]
+    assert sent[3] == f"{NAME}s et X{NAME} restent des mots à part."  # not whole words
+    assert sent[4] == "Madame [PERSON_2], puis [PERSON_2] seule."
+    assert response.headers["X-Alias-Masked"] == "5"
+    assert response.json()["choices"][0]["message"]["content"] == f"Réponse à {NAME}."
+
+
+def test_a_phone_number_written_another_way_stops_the_request():
+    """A phone number of the request left readable with other separators is not sent."""
+
+    class FirstOnly:
+        def detect(self, text):
+            return [e for e in RuleDetector().detect(text) if "01 99" in e.text]
+
+    fake = FakeMistral(reply="ok")
+    app = create_bridge(FirstOnly(), api_key="k", transport=httpx.MockTransport(fake))
+    response = ask(
+        TestClient(app, base_url=LOCAL),
+        {"role": "user", "content": "Appeler le 01 99 00 12 34."},
+        {"role": "user", "content": "Ou le 01.99.00.12.34 le soir."},
+    )
+    assert response.status_code == 422
+    assert fake.received == []
