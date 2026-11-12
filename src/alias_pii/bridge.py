@@ -543,7 +543,7 @@ def create_bridge(
             "application/json"
         ):
             return JSONResponse({"detail": "the body must be application/json"}, 415)
-        if expected and request.url.path.startswith("/v1/"):
+        if expected and request.url.path != "/health":
             sent = request.headers.get("authorization", "").encode()
             if not hmac.compare_digest(sent, expected):
                 detail = "the bridge's local token is required as the API key (alias-pii key token)"

@@ -662,6 +662,7 @@ def test_with_a_local_token_only_tools_that_send_it_spend_the_key():
         assert client.get("/v1/models", headers=headers).status_code == 401
     assert fake.received == []
     assert client.get("/health").status_code == 200
+    assert client.get("/docs").status_code == 401  # every path but /health needs the token
     ok = client.post("/v1/chat/completions", json=body, headers={"Authorization": "Bearer t0k3n"})
     assert ok.status_code == 200
     assert fake.headers[-1]["authorization"] == "Bearer mistral-key"

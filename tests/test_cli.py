@@ -113,3 +113,24 @@ def test_without_a_stored_key_tools_send_their_own(keychain, monkeypatch):
     monkeypatch.delenv("ALIAS_MODEL", raising=False)
     assert cli.main(["serve", "--rules-only"]) == 0
     assert ("alias-pii", "local-token") not in keychain
+
+
+def test_without_a_keychain_the_token_lives_for_one_run(monkeypatch, capsys):
+    from keyring.errors import NoKeyringError
+
+    def broken(*args):
+        raise NoKeyringError("none")
+
+    served = {}
+    monkeypatch.setattr(keyring, "get_password", broken)
+    monkeypatch.setattr("uvicorn.run", lambda app, **options: served.update(app=app))
+    monkeypatch.setenv("MISTRAL_API_KEY", "from-the-environment")
+    monkeypatch.delenv("ALIAS_MODEL", raising=False)
+    assert cli.main(["key", "token"]) == 1
+    assert cli.main(["serve", "--rules-only"]) == 0
+    token = capsys.readouterr().err.split("API key): ")[1].split()[0]
+    client = TestClient(served["app"], base_url="http://127.0.0.1:8001")
+    assert client.post("/v1/chat/completions", json={}).status_code == 401
+    headers = {"Authorization": f"Bearer {token}"}
+    # Past the token check, an empty body is refused before anything is sent (no network).
+    assert client.post("/v1/chat/completions", json={}, headers=headers).status_code == 400

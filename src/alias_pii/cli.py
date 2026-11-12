@@ -75,9 +75,9 @@ def stored_key() -> str | None:
         return None
 
 
-def local_token() -> str:
-    """The bridge's local token, created and stored in the keychain on first use; a token for
-    this run only when no keychain is usable."""
+def local_token() -> tuple[str, bool]:
+    """The bridge's local token, created and stored in the keychain on first use, and whether it
+    is stored: with no usable keychain, a token for this run only."""
     import keyring
     from keyring.errors import KeyringError
 
@@ -86,9 +86,9 @@ def local_token() -> str:
         if not token:
             token = secrets.token_urlsafe(32)
             keyring.set_password(KEYCHAIN_SERVICE, TOKEN_ACCOUNT, token)
-        return token
+        return token, True
     except KeyringError:
-        return secrets.token_urlsafe(32)
+        return secrets.token_urlsafe(32), False
 
 
 def parser() -> argparse.ArgumentParser:
@@ -117,7 +117,13 @@ def key_command(action: str) -> int:
 
     try:
         if action == "token":  # the user asked for it, to give it to their tools
-            print(local_token())
+            token, stored = local_token()
+            if not stored:
+                print(
+                    "No usable keychain: serve prints a new token at each start.", file=sys.stderr
+                )
+                return 1
+            print(token)
         elif action == "set":
             value = getpass.getpass("Mistral API key (not shown): ").strip()
             if not value:
@@ -161,8 +167,11 @@ def serve_command(args: argparse.Namespace) -> int:
     token = None
     if api_key:
         # The bridge spends this key for whoever calls it: only a tool given the local token may.
-        token = local_token()
-        log.info("tools send the local token as their API key: see alias-pii key token")
+        token, stored = local_token()
+        if stored:
+            log.info("tools send the local token as their API key: see alias-pii key token")
+        else:  # no keychain: the token lives for this run only, so it is shown here
+            print(f"Local token for this run (the tools' API key): {token}", file=sys.stderr)
     else:
         log.info("no stored key: each tool's own key is used (alias-pii key set to store one)")
     app = create_bridge(detector, api_key=api_key, detector_name=name, local_token=token)
