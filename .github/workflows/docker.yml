@@ -3,21 +3,20 @@
 # outside at run time. The real model is published on Hugging Face (Gabrielkph/alias-mmbert-small);
 # the tiny random one keeps this check offline and fast. Built on a GitHub machine.
 name: Docker
+# On every pull request, so the check can be required.
 on:
   pull_request:
-    paths: [Dockerfile, .dockerignore, "src/**", pyproject.toml, uv.lock, .github/workflows/docker.yml]
   push:
     branches: [main]
-    paths: [Dockerfile, .dockerignore, "src/**", pyproject.toml, uv.lock, .github/workflows/docker.yml]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  image:
+  docker:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build
         run: docker build -t alias:ci .
       - name: Rules only, through the published port
