@@ -19,7 +19,7 @@ from alias_pii.validators import IBAN_LENGTHS, iban_is_valid, nir_is_valid
 
 PHONE_REGIONS = ("FR", "GB", "US")
 
-# Unicode domains too (jean@société.fr): \w is Unicode-aware; the TLD is letters only.
+# Unicode domains too (jean@société.example): \w is Unicode-aware; the TLD is letters only.
 _EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]++@[\w-]++(?:\.[\w-]++)*\.[^\W\d_]{2,}\b")
 
 # 15 characters with optional single separators (space, dot or dash): sex, year, month,
@@ -166,7 +166,7 @@ class RuleDetector:
             yield self._entity(EntityType.EMAIL, text, m.start(), m.end())
 
     def _phones(self, text: str) -> Iterator[Entity]:
-        # National formats depend on the region (06 12 34 56 78 vs (415) 555-0132), so the text
+        # National formats depend on the region (01 99 00 12 34 vs (201) 555-0132), so the text
         # is scanned once per region; international formats are found by every pass.
         for region in PHONE_REGIONS:
             for match in phonenumbers.PhoneNumberMatcher(text, region):

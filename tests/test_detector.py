@@ -77,7 +77,7 @@ def test_a_dropped_rule_type_does_not_absorb_a_kept_one():
 
     # The rules' phone matcher also reads this claim number as a US phone; phones from the
     # rules are dropped, so the identifier must survive instead of being merged into a phone.
-    text = "Déclaration de sinistre n° 8084501260"
+    text = "Déclaration de sinistre n° 2015550123"
     assert [(e.type, e.text) for e in RulesAndModel(Nothing()).detect(text)] == [
-        (EntityType.IDENTIFIER, "8084501260")
+        (EntityType.IDENTIFIER, "2015550123")
     ]

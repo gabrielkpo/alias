@@ -56,7 +56,7 @@ test("Unicode word boundaries: a keyword inside a word is not a keyword", () => 
 });
 
 test("overlapping spans merge into the strongest type", () => {
-  const text = "AB-0612345678-ZZ";
+  const text = "AB-0199001234-ZZ";
   const merged = resolveOverlaps([
     { type: "PHONE", start: 3, end: 13, text: text.slice(3, 13), score: 1 },
     { type: "IDENTIFIER", start: 0, end: 16, text, score: 1 },
