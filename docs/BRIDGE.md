@@ -106,9 +106,13 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 - **Local tools only**: the bridge spends the user's key, so a web page must not reach it. A
   request with an `Origin` header (sent by browsers, not by SDKs or scripts), a non-local `Host`
   (DNS rebinding) or a body that is not `application/json` is refused (403, 415).
-- **Not yet**: streaming answers (`"stream": true` is refused with 501 until the next version),
-  tool calls (`tools`, `tool_calls`: refused with 501, since their arguments would go unmasked)
-  and embeddings.
+- **Streaming** (`"stream": true`): the bridge asks Mistral for the whole answer, restores it
+  like any other, then sends it back as server-sent events in Mistral's chunk format, ending
+  with `[DONE]`. The text arrives all at once rather than word by word: the link rules need the
+  whole answer (a definition at the end changes what may be restored at the start), so a
+  streamed answer is restored exactly as a non-streamed one.
+- **Not yet**: tool calls (`tools`, `tool_calls`: refused with 501, since their arguments would
+  go unmasked) and embeddings.
 - **Edge case**: an alias-shaped token typed in a later message (`[PERSON_1]` written by hand
   after the bridge gave that alias in an earlier message) is never restored, as in `restore`.
 - <a id="limits"></a>**Limits**: no detector is perfect; what the detector misses (a name it

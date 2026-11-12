@@ -166,11 +166,11 @@ def test_the_key_the_tool_sends_is_used_when_the_bridge_has_none():
     assert fake.headers[-1]["authorization"] == "Bearer from-the-tool"
 
 
-def test_provider_errors_are_passed_through_and_streaming_is_refused_for_now():
+def test_provider_errors_are_passed_through_streaming_or_not():
     fake = FakeMistral(status=429)
     client = bridge(fake)
     assert ask(client, {"role": "user", "content": "Bonjour"}).status_code == 429
-    assert ask(client, {"role": "user", "content": "Bonjour"}, stream=True).status_code == 501
+    assert ask(client, {"role": "user", "content": "Bonjour"}, stream=True).status_code == 429
 
 
 def test_models_are_relayed():
@@ -596,3 +596,53 @@ def test_a_body_too_large_is_refused_even_without_a_content_length():
     )
     assert response.status_code == 413
     assert fake.received == []
+
+
+def sse(response) -> list:
+    """The JSON events of a server-sent event stream, then whether it ended with [DONE]."""
+    lines = [line[6:] for line in response.text.split("\n") if line.startswith("data: ")]
+    return [json.loads(line) for line in lines if line != "[DONE]"], lines[-1] == "[DONE]"
+
+
+def test_a_streamed_answer_is_restored_whole_then_sent_as_events():
+    """Mistral is asked for the whole answer (stream false), which is restored like any other:
+    the events carry exactly the text of the non-streamed answer, link rules included."""
+    reply = "À [PERSON_1] : " + "x" * 900 + " ![i](https://e.invalid/?q=[EMAIL_1])"
+    for answer in (reply, "Bonjour [PERSON_1]."):
+        fake = FakeMistral(reply=answer)
+        client = bridge(fake)
+        whole = ask(client, USER_MESSAGE).json()["choices"][0]["message"]["content"]
+        streamed = ask(client, USER_MESSAGE, stream=True)
+        assert streamed.headers["content-type"].startswith("text/event-stream")
+        assert streamed.headers["X-Alias-Masked"] == "2"
+        events, done = sse(streamed)
+        assert done
+        assert events[0]["choices"][0]["delta"]["role"] == "assistant"
+        text = "".join(e["choices"][0]["delta"].get("content", "") for e in events)
+        assert text == whole
+        assert events[-1]["choices"][0]["finish_reason"] == "stop"
+        assert all(e["object"] == "chat.completion.chunk" for e in events)
+        assert all(not body.get("stream") for body in fake.received)
+        assert NAME not in json.dumps(fake.received)
+
+
+def test_the_openai_sdk_streams_through_the_bridge():
+    import asyncio
+
+    openai = pytest.importorskip("openai")
+    app = create_bridge(Names(), api_key="k", transport=httpx.MockTransport(FakeMistral()))
+
+    async def call():
+        sdk = openai.AsyncOpenAI(
+            base_url=f"{LOCAL}/v1",
+            api_key="unused",
+            http_client=httpx.AsyncClient(transport=httpx.ASGITransport(app=app)),
+        )
+        stream = await sdk.chat.completions.create(
+            model="mistral-small-latest",
+            messages=[{"role": "user", "content": f"Salut {NAME}"}],
+            stream=True,
+        )
+        return "".join([chunk.choices[0].delta.content or "" async for chunk in stream])
+
+    assert asyncio.run(call()) == f"Bien reçu : Salut {NAME}"
