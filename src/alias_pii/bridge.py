@@ -13,8 +13,11 @@ to `http://127.0.0.1:8001/v1`. For `POST /v1/chat/completions` the bridge:
    national ID) stops the request, since it would reach the provider in clear;
 3. forwards the request to Mistral with the user's key (the bridge's own key, else the key the
    tool sent);
-4. puts the values back in the answer, only for the aliases of this request (`masking.restore`),
-   and returns it in the provider's format, with counts of what was masked in headers.
+4. puts the values back in the answer, only for the aliases of this request (`masking.restore`)
+   and never inside a link, and returns it in the provider's format, with counts in headers.
+
+A request holding text the bridge does not mask (a field other than the settings, a message
+`name`, a JSON schema, `prediction`...) is refused rather than forwarded with it.
 
 Nothing is logged but counts; no text is written to disk. `GET /v1/models` is relayed as is.
 Only local tools may call it: a request from a browser (an `Origin` header), with a non-local
@@ -28,6 +31,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import threading
 from collections import Counter
 from collections.abc import Awaitable, Callable
@@ -47,6 +51,51 @@ UPSTREAM = "https://api.mistral.ai"
 CHECKED = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID})
 MAX_CHARS = 200_000  # the whole conversation of one request
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+# What a request may hold besides `messages`: settings with no text of their own. Any other
+# field (`prediction`, `user`, a JSON schema...) could carry personal data the bridge does not
+# mask, so the request is refused rather than forwarded with it.
+SETTINGS = frozenset(
+    {
+        "model",
+        "temperature",
+        "top_p",
+        "max_tokens",
+        "random_seed",
+        "n",
+        "presence_penalty",
+        "frequency_penalty",
+        "safe_prompt",
+        "stream",
+        "response_format",
+        "stop",
+    }
+)
+MESSAGE_KEYS = frozenset({"role", "content", "prefix"})
+ROLES = frozenset({"system", "user", "assistant"})
+# An image may only come inline: base64 data and nothing else, so no text rides in its URL.
+IMAGE_DATA = re.compile(r"data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]*")
+# Where answer text may become a request of the client's own. A link (`](`) or a bare URL (`//`,
+# `www.`) only works inside its paragraph (inline markdown never crosses a blank line) and needs
+# a click, so from such a mark to the end of the paragraph aliases stay masked. From any of these
+# to the end of the text, nothing more is restored (`FAR`):
+# - an image (`![`): it is fetched as soon as it is shown;
+# - a reference definition (`]:`), from the start of the text: an image anywhere in the answer
+#   can use it, and its label may hold an alias, across a blank line a YAML decoder removes;
+# - a `<` not followed by a space, `=` or digit (`a < b`, `<=`, `<3` are text): an HTML block can
+#   run across blank lines, `<[PERSON_1]` becomes a tag once the name is back, and
+#   `<a:b/title="...` is a tag to a browser even though it looks like an autolink;
+# - a backslash: a client decoding the answer as JSON, JSON5 or YAML turns `\u003c` into `<`,
+#   `\/\/` into `//`, and drops a backslash before a line break, all marks hidden here.
+FAR = re.compile(r"!\[|(?<=\]):|<(?![\s=\d])|\\")
+NEAR = re.compile(r"(?<=\])\(|//|www\.", re.IGNORECASE)
+LINK_MARK = re.compile(f"{FAR.pattern}|{NEAR.pattern}", re.IGNORECASE)
+DEFINITION = re.compile(r"(?<=\]):")
+PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
+# A mark a client could form by joining two strings of a JSON document in any order: one string
+# ends with its start, another starts with its end. An image also needs `](` or a definition
+# (`]:`), so `![` split in two is caught through them; a split `<` is a string ending with `<`.
+SPLIT_MARKS = ("](", "]:", "//", "www.")
+OPENING = re.compile(r"[\[{]")
 log = logging.getLogger("alias.bridge")
 
 
@@ -59,7 +108,7 @@ def mask_messages(
 ) -> tuple[list[dict], list[MaskResult], Counter]:
     """The messages with their text masked, the mask results (to restore the answer) and the
     count of values per type. Text is a message's `content` string, or the `text` of its
-    `{"type": "text"}` parts; anything else (images, tool calls) is passed as it is."""
+    `{"type": "text"}` parts; inline images (`inline_image`) are passed as they are."""
     table = AliasTable()
     results: list[MaskResult] = []
     counts: Counter = Counter()
@@ -89,6 +138,84 @@ def mask_messages(
     return out, results, counts
 
 
+def unmaskable(body: dict) -> str | None:
+    """Where the request holds text the bridge would forward without masking it, else None: a
+    field that is not a setting, a message key other than role/content/prefix, a content that
+    is neither text nor text and inline image parts, a JSON schema, a setting that is not a
+    number."""
+    for name in body:
+        if name != "messages" and name not in SETTINGS:
+            return f"'{name}'"
+    if not isinstance(body.get("model", ""), str):
+        return "'model'"
+    for name in SETTINGS - {"model", "response_format", "stop"}:
+        value = body.get(name)
+        if value is not None and not isinstance(value, int | float | bool):
+            return f"'{name}'"
+    response_format = body.get("response_format")
+    if response_format is not None and not (
+        isinstance(response_format, dict)
+        and set(response_format) <= {"type"}
+        and response_format.get("type") in ("text", "json_object")
+    ):
+        return "'response_format' other than text or json_object (a schema's text is not masked)"
+    stop = body.get("stop")
+    if stop is not None and not (
+        isinstance(stop, str) or (isinstance(stop, list) and all(isinstance(s, str) for s in stop))
+    ):
+        return "'stop'"
+    messages = body.get("messages")
+    for i, message in enumerate(messages if isinstance(messages, list) else []):
+        where = f"messages[{i}]"
+        if not isinstance(message, dict):
+            return where
+        for key in message:
+            if key not in MESSAGE_KEYS:
+                return f"{where}.{key}"
+        if not isinstance(message.get("role"), str) or message["role"] not in ROLES:
+            return f"{where}.role"
+        if not isinstance(message.get("prefix", False), bool):
+            return f"{where}.prefix"
+        content = message.get("content")
+        if content is None or isinstance(content, str):
+            continue
+        if not isinstance(content, list):
+            return f"{where}.content"
+        for j, part in enumerate(content):
+            text = (
+                isinstance(part, dict)
+                and set(part) == {"type", "text"}
+                and part["type"] == "text"
+                and isinstance(part["text"], str)
+            )
+            if not (text or inline_image(part)):
+                return f"{where}.content[{j}]"
+    return None
+
+
+def inline_image(part) -> bool:
+    """Whether a part is an image sent inline, as base64 data: a URL would be forwarded as it
+    is, and its path or query can hold a name or an e-mail address."""
+    if not (isinstance(part, dict) and set(part) == {"type", "image_url"}):
+        return False
+    image = part["image_url"]
+    if isinstance(image, dict):
+        detail = image.get("detail", "auto")
+        if not (set(image) <= {"url", "detail"} and detail in ("auto", "low", "high")):
+            return False
+        image = image.get("url")
+    return (
+        part["type"] == "image_url"
+        and isinstance(image, str)
+        and IMAGE_DATA.fullmatch(image) is not None
+    )
+
+
+def stops(body: dict) -> list[str]:
+    stop = body.get("stop")
+    return [stop] if isinstance(stop, str) else list(stop or [])
+
+
 def check_masked(results: list[MaskResult]) -> None:
     rules = RuleDetector()
     for result in results:
@@ -96,33 +223,144 @@ def check_masked(results: list[MaskResult]) -> None:
             raise LeftInClear
 
 
-def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> str | None:
-    """A JSON answer with the values put back inside each string, so the JSON stays valid
-    whatever the values hold (quotes, backslashes); None if the text is not JSON."""
+def link_spans(text: str) -> list[tuple[int, int]]:
+    """The parts of the text where aliases stay masked: from each link or URL mark (`NEAR`) to
+    the end of its paragraph, and from the first image, tag or escape (`FAR`) to the end of the
+    text, or all of it with a definition."""
+    if DEFINITION.search(text):  # its label may hold an alias, even across a blank line a
+        return [(0, len(text))]  # YAML decoder folds away: nothing is restored
+    far = FAR.search(text)
+    first_far = far.start() if far else len(text)
+    spans: list[tuple[int, int]] = []
+    position = 0
+    while (mark := NEAR.search(text, position)) and mark.start() < first_far:
+        end_of_paragraph = PARAGRAPH_END.search(text, mark.start())
+        if not end_of_paragraph or end_of_paragraph.start() > first_far:
+            return [*spans, (mark.start(), len(text))]
+        spans.append((mark.start(), end_of_paragraph.start()))
+        position = end_of_paragraph.start()
+    if first_far < len(text):
+        spans.append((first_far, len(text)))
+    return spans
+
+
+def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
+    """The text with the values of this request's aliases put back, except in links and what
+    follows them (`link_spans`): an alias there stays masked, so a client loading a link or an
+    image sends no value."""
+
+    def plain(segment: str) -> str:
+        back = restore(segment, *results)
+        restored.update(back.restored)
+        return back.text
+
+    parts: list[str] = []
+    cursor = 0
+    for start, end in link_spans(text):
+        parts.append(plain(text[cursor:start]))
+        parts.append(text[start:end])
+        cursor = end
+    parts.append(plain(text[cursor:]))
+    return "".join(parts)
+
+
+def _document(text: str, strings: bool = False) -> dict | list | str | None:
+    """The answer as a JSON object or array (or string, with `strings`), if it is one, read as
+    leniently as a browser does (numbers of any length, kept as text). One too deeply nested to
+    read counts as holding a link mark, so nothing is restored in it."""
     try:
-        value = json.loads(text)
+        value = json.loads(text, parse_int=str, parse_float=str)
+    except RecursionError:
+        return ["<"]
     except ValueError:
         return None
+    kinds = dict | list | str if strings else dict | list
+    return value if isinstance(value, kinds) else None
+
+
+def _documents(text: str) -> list:
+    """The JSON objects and arrays in the answer, whole or within text (a ```json block,
+    `Result: {...}`), read as leniently as `_document`. One too deeply nested to read counts as
+    holding a link mark."""
+    decoder = json.JSONDecoder(parse_int=str, parse_float=str)
+    found: list = []
+    position = 0
+    while opening := OPENING.search(text, position):
+        try:
+            value, position = decoder.raw_decode(text, opening.start())
+        except RecursionError:
+            return [["<"]]
+        except ValueError:
+            position = opening.start() + 1
+            continue
+        found.append(value)
+    return found
+
+
+def _strings(node) -> list[str]:
+    """Every string of a JSON document, keys included."""
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, list):
+        return [s for item in node for s in _strings(item)]
+    if isinstance(node, dict):
+        return [s for k, v in node.items() for s in (k, *_strings(v))]
+    return []
+
+
+def _linked(document: dict | list | str) -> bool:
+    """Whether a client could form a link mark from a JSON document's strings, whatever it
+    does with them: show them, join them with or without the keys, in any order (JavaScript
+    puts integer keys first, a Go map sorts them). True when a string holds a mark or ends with
+    `<`, or when one string ends with the start of a mark another one could finish
+    (`SPLIT_MARKS`)."""
+    try:
+        strings = [s.lower() for s in _strings(document)]
+    except RecursionError:
+        return True
+    if any(LINK_MARK.search(s) or s.endswith("<") for s in strings):
+        return True
+    return any(
+        any(s.endswith(mark[:i]) for s in strings for i in range(1, len(mark)))
+        and any(s.startswith(mark[i:]) for s in strings for i in range(1, len(mark)))
+        for mark in SPLIT_MARKS
+    )
+
+
+def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> str | None:
+    """A JSON answer with the values put back inside each string value, so the JSON stays valid
+    whatever the values hold (quotes, backslashes); None if the text is not JSON. Keys keep their
+    aliases (two keys equal once restored would merge), and a document holding a link mark
+    anywhere (`_linked`) gets nothing back."""
+    document = _document(text, strings=True)
+    if document is None:
+        return None
+    if _linked(document):
+        return text
+    try:
+        document = json.loads(text)
+    except (ValueError, RecursionError):  # an integer too long for Python: left as it is
+        return text
 
     def walk(node):
         if isinstance(node, str):
-            back = restore(node, *results)
-            restored.update(back.restored)
-            return back.text
+            return put_back(node, results, restored)
         if isinstance(node, list):
             return [walk(item) for item in node]
         if isinstance(node, dict):
-            return {walk(k): walk(v) for k, v in node.items()}
+            return {k: walk(v) for k, v in node.items()}
         return node
 
-    return json.dumps(walk(value), ensure_ascii=False)
+    return json.dumps(walk(document), ensure_ascii=False)
 
 
 def restore_answer(
     data: dict, results: list[MaskResult], json_mode: bool = False
 ) -> tuple[dict, int]:
     """The provider's answer with the values back in each choice's message text; the number of
-    aliases restored. In JSON mode (`response_format`), values go back inside the JSON strings."""
+    aliases restored. In JSON mode (`response_format`), values go back inside the JSON string
+    values, not in the keys. An answer holding a JSON document, whole or within the text, from
+    whose strings a client could form a link mark gets nothing back (`_linked`)."""
     if not results:
         return data, 0
     restored: set[str] = set()
@@ -130,11 +368,11 @@ def restore_answer(
         message = choice.get("message") if isinstance(choice, dict) else None
         if not (isinstance(message, dict) and isinstance(message.get("content"), str)):
             continue
-        text = _restore_json(message["content"], results, restored) if json_mode else None
+        content = message["content"]
+        text = _restore_json(content, results, restored) if json_mode else None
         if text is None:
-            back = restore(message["content"], *results)
-            restored.update(back.restored)
-            text = back.text
+            linked = any(_linked(document) for document in _documents(content))
+            text = content if linked else put_back(content, results, restored)
         message["content"] = text
     return data, len(restored)
 
@@ -188,6 +426,11 @@ def create_bridge(
         if size > max_chars:
             raise HTTPException(413, f"conversation too long: at most {max_chars} characters")
         with lock:
+            # A stop sequence cannot be masked without changing what it stops on.
+            if any(detector.detect(stop) for stop in stops(body)):
+                raise HTTPException(
+                    422, "a stop sequence holds personal data, which cannot be masked: not sent"
+                )
             masked, results, counts = mask_messages(messages, detector)
         try:
             check_masked(results)
@@ -220,6 +463,11 @@ def create_bridge(
         ):
             # Tool definitions and call arguments are not masked yet: refuse rather than leak.
             raise HTTPException(501, "tool calls are not supported yet")
+        where = unmaskable(body)
+        if where:
+            raise HTTPException(
+                400, f"{where} is not supported: its text would reach Mistral unmasked"
+            )
         token = key(request)
         outgoing, results, counts = await run_in_threadpool(masked_request, body)
         answer = await client.post(
