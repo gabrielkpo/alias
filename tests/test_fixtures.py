@@ -5,6 +5,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 # Ranges the French numbering plan keeps for fiction (tests/README.md).
 FICTION = ("019900", "026191", "035301", "046571", "053649", "063998")
@@ -15,9 +17,12 @@ SKIPPED = (".lock", ".json", ".png", ".jpg", ".ico", ".onnx")
 
 
 def tracked_texts():
-    names = subprocess.run(
-        ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
-    ).stdout.split()
+    try:
+        names = subprocess.run(
+            ["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True
+        ).stdout.split()
+    except (OSError, subprocess.CalledProcessError):
+        pytest.skip("not a git checkout: the tracked files are unknown")
     for name in names:
         if name.endswith(SKIPPED):
             continue
