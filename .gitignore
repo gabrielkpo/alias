@@ -1,5 +1,6 @@
-# secrets
-.env
+# secrets: every .env file, except the versioned example
+.env*
+!.env.example
 # datasets, hand-annotated real texts and trained weights stay out of Git
 data/raw/
 data/real/
@@ -19,3 +20,6 @@ reports/
 
 # demo tests (demo/package.json)
 node_modules/
+
+# local tool state (Claude Code worktrees, launch files)
+.claude/
