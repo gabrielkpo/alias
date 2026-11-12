@@ -1,5 +1,5 @@
 # Realistic test sets from open sources (step 7, docs/REALISTIC_SETS.md), measured on a GitHub
-# CPU machine with the published model (no inference on a laptop). By hand only: a test split is
+# CPU machine with the published model. By hand only: a test split is
 # read once, after the detector is frozen, so this never runs on a push or a pull request.
 #   gh workflow run open-sets.yml -f set=tab -f split=validation   # check the chain on dev
 #   gh workflow run open-sets.yml -f set=tab -f split=test         # the one reading

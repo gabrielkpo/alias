@@ -3,7 +3,7 @@
     uv run --group train python -m alias_pii.train --model jhu-clsp/mmBERT-small \\
         --data data/synthetic --out models/mmbert-small
 
-The same settings are used for the three candidates (Gabriel's decision of 16/10): 3 epochs,
+The same settings are used for the three candidates (decision, 2026-10-16): 3 epochs,
 windows of 512 tokens with a 128-token overlap, learning rate 3e-5, batch 16, warm-up 10 %. The
 choice rule is fixed before training (README): it reads the validation split only; the test
 split is read once, at the end, by `alias_pii.benchmark`. Each run appends one line to
@@ -208,7 +208,7 @@ def main() -> None:
     parser.add_argument("--data", type=Path, default=Path("data/synthetic"))
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--epochs", type=int, default=3)
-    parser.add_argument("--batch-size", type=int, default=16, help="lower it on a laptop")
+    parser.add_argument("--batch-size", type=int, default=16, help="lower it on a small machine")
     parser.add_argument("--grad-accum", type=int, default=1, help="passes per batch (same batch)")
     parser.add_argument("--limit", type=int, default=0, help="first N documents (smoke test)")
     parser.add_argument("--results", type=Path, default=Path("results/training.jsonl"))

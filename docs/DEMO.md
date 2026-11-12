@@ -4,9 +4,9 @@ The demo shows Alias in a few seconds without installing anything: <https://hugg
 
 ## Why in the browser
 
-Publishing was agreed by Gabriel on 11/11. Docker Spaces (the first plan, `space/`) now need a paid
-Hugging Face subscription on the free CPU tier; static Spaces stay free. Gabriel chose to run the
-detector in the visitor's browser instead, which also fits the project: the text never leaves the
+Decision (2026-11-11): publish the demo. Docker Spaces (the first plan, `space/`) now need a paid
+Hugging Face subscription on the free CPU tier; static Spaces stay free. The detector therefore
+runs in the visitor's browser instead, which also fits the project: the text never leaves the
 page, not even to a demo server.
 
 - **Model**: [`Gabrielkph/alias-mmbert-small`](https://huggingface.co/Gabrielkph/alias-mmbert-small),
@@ -29,7 +29,7 @@ request, and pastes the answer back. `restore` in `demo/alias.js` (the port of
 only; an alias already literal in the input or invented by the LLM is left as it is and listed,
 and an alias the answer dropped is listed too. "Try an example answer" fills in what an LLM could
 answer to "Summarise this document" about the example, so the step can be tried without an LLM.
-No API key, no credit, no server (Gabriel's choice of 11/11).
+No API key, no credit, no server (decision, 2026-11-11).
 
 ## Checks
 

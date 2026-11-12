@@ -1,4 +1,4 @@
-# Alias Bridge: your tools talk to Mistral, Mistral never sees the personal data
+# Alias Bridge: your tools talk to Mistral, the personal data found stays on your machine
 
 The bridge is a local endpoint with the same API as Mistral's chat completions. A tool written
 for Mistral (a script, the `mistralai` or `openai` SDK, LibreChat, n8n…) keeps its code and only
@@ -11,6 +11,8 @@ https://api.mistral.ai/v1   ->   http://127.0.0.1:8001/v1
 For each `POST /v1/chat/completions` the bridge masks every message, checks that no checksummed
 value (IBAN, national ID) is still readable, forwards the request to Mistral with the user's
 key, then puts the real values back in the answer. Nothing but counts is logged.
+
+What the detector misses reaches Mistral in clear (see [Limits](#limits)).
 
 ## Run it (development version)
 
@@ -109,5 +111,8 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   and embeddings.
 - **Edge case**: an alias-shaped token typed in a later message (`[PERSON_1]` written by hand
   after the bridge gave that alias in an earlier message) is never restored, as in `restore`.
-- **Limits**: no detector is perfect; what the detector misses (a name it does not recognise)
-  reaches Mistral in clear. The leak rates measured so far are in the README.
+- <a id="limits"></a>**Limits**: no detector is perfect; what the detector misses (a name it
+  does not recognise) reaches Mistral in clear. The leak rates measured so far are in the README.
+- **Outside the entity types**: payment card numbers are not detected, nor any value outside the
+  eight entity types (person, address, e-mail, phone, IBAN, national ID, birth date, file
+  number); they pass to Mistral in clear.
