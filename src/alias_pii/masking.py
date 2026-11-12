@@ -61,7 +61,7 @@ def normalize(entity: Entity) -> str:
                 continue
         if not parsed:
             return compact(entity.text)
-        # No region reads a valid number: the first reading (France first), as before.
+        # No region reads a valid number: the first reading (France for a trunk prefix 0).
         number = next((n for n in parsed if phonenumbers.is_valid_number(n)), parsed[0])
         return phonenumbers.format_number(number, phonenumbers.PhoneNumberFormat.E164)
     if entity.type in _SEPARATORS_MEANINGLESS:
