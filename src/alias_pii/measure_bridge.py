@@ -72,7 +72,15 @@ def answer_text(data: dict) -> str:
     return content if isinstance(content, str) else ""
 
 
-def measure(documents, detector, transport, model: str, max_tokens: int, budget: int) -> dict:
+def measure(
+    documents,
+    detector,
+    transport,
+    model: str,
+    max_tokens: int,
+    budget: int,
+    upstream: str = "https://api.mistral.ai",
+) -> dict:
     """Send each document through the bridge; counts only."""
     from fastapi.testclient import TestClient
 
@@ -82,63 +90,70 @@ def measure(documents, detector, transport, model: str, max_tokens: int, budget:
     token = secrets.token_urlsafe(32)
     key = os.environ.get("MISTRAL_API_KEY") or "unset"
     app = create_bridge(
-        detector, api_key=key, transport=recorder, detector_name="measure", local_token=token
+        detector,
+        api_key=key,
+        upstream=upstream,
+        transport=recorder,
+        detector_name="measure",
+        local_token=token,
     )
-    client = TestClient(app, base_url="http://127.0.0.1:8001")
-    counts = dict.fromkeys(
-        [
-            "documents",
-            "errors",
-            "values",
-            "values_leaked",
-            "aliases_sent",
-            "aliases_kept",
-            "aliases_restored",
-            "answers_with_alias_left",
-            "tokens_in",
-            "tokens_out",
-        ],
-        0,
-    )
-    overhead, models, statuses = [], set(), {}
-    for document in documents:
-        if counts["tokens_in"] + counts["tokens_out"] >= budget:
-            break
-        prompt = PROMPTS.get(document.language, PROMPTS["fr"])
-        body = {
-            "model": model,
-            "messages": [{"role": "user", "content": f"{prompt}\n\n{document.text}"}],
-            "max_tokens": max_tokens,
-            "temperature": 0,
-        }
-        start = time.perf_counter()
-        response = client.post(
-            "/v1/chat/completions", json=body, headers={"Authorization": f"Bearer {token}"}
+    # One client for the whole run: its event loop must outlive the connections the bridge
+    # keeps open to Mistral (a client per request closes the loop under them).
+    with TestClient(app, base_url="http://127.0.0.1:8001") as client:
+        counts = dict.fromkeys(
+            [
+                "documents",
+                "errors",
+                "values",
+                "values_leaked",
+                "aliases_sent",
+                "aliases_kept",
+                "aliases_restored",
+                "answers_with_alias_left",
+                "tokens_in",
+                "tokens_out",
+            ],
+            0,
         )
-        took = time.perf_counter() - start
-        counts["documents"] += 1
-        if response.status_code != 200 or not recorder.sent:
-            counts["errors"] += 1
-            code = str(response.status_code)
-            statuses[code] = statuses.get(code, 0) + 1
-            continue
-        raw = recorder.answers[-1]
-        messages = json.loads(recorder.sent[-1])["messages"]
-        sent = "\n".join(m["content"] for m in messages if isinstance(m.get("content"), str))
-        overhead.append(took - recorder.seconds[-1])
-        values = {document.text[s.start : s.end] for s in document.spans}
-        counts["values"] += len(values)
-        counts["values_leaked"] += sum(value in sent for value in values)
-        given = aliases(sent)
-        kept = given & aliases(answer_text(raw))
-        counts["aliases_sent"] += len(given)
-        counts["aliases_kept"] += len(kept)
-        counts["aliases_restored"] += int(response.headers.get("X-Alias-Restored", 0))
-        counts["answers_with_alias_left"] += bool(given & aliases(answer_text(response.json())))
-        usage = raw.get("usage") or {}
-        counts["tokens_in"] += usage.get("prompt_tokens", 0)
-        counts["tokens_out"] += usage.get("completion_tokens", 0)
-        models.add(str(raw.get("model")))
+        overhead, models, statuses = [], set(), {}
+        for document in documents:
+            if counts["tokens_in"] + counts["tokens_out"] >= budget:
+                break
+            prompt = PROMPTS.get(document.language, PROMPTS["fr"])
+            body = {
+                "model": model,
+                "messages": [{"role": "user", "content": f"{prompt}\n\n{document.text}"}],
+                "max_tokens": max_tokens,
+                "temperature": 0,
+            }
+            start = time.perf_counter()
+            response = client.post(
+                "/v1/chat/completions", json=body, headers={"Authorization": f"Bearer {token}"}
+            )
+            took = time.perf_counter() - start
+            counts["documents"] += 1
+            if response.status_code != 200 or not recorder.sent:
+                counts["errors"] += 1
+                code = str(response.status_code)
+                statuses[code] = statuses.get(code, 0) + 1
+                continue
+            raw = recorder.answers[-1]
+            messages = json.loads(recorder.sent[-1])["messages"]
+            sent = "\n".join(m["content"] for m in messages if isinstance(m.get("content"), str))
+            overhead.append(took - recorder.seconds[-1])
+            values = {document.text[s.start : s.end] for s in document.spans}
+            counts["values"] += len(values)
+            counts["values_leaked"] += sum(value in sent for value in values)
+            given = aliases(sent)
+            kept = given & aliases(answer_text(raw))
+            counts["aliases_sent"] += len(given)
+            counts["aliases_kept"] += len(kept)
+            counts["aliases_restored"] += int(response.headers.get("X-Alias-Restored", 0))
+            counts["answers_with_alias_left"] += bool(given & aliases(answer_text(response.json())))
+            usage = raw.get("usage") or {}
+            counts["tokens_in"] += usage.get("prompt_tokens", 0)
+            counts["tokens_out"] += usage.get("completion_tokens", 0)
+            models.add(str(raw.get("model")))
     sent_docs = counts["documents"] - counts["errors"]
     return {
         **counts,

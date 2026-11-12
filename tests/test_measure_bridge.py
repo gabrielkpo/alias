@@ -64,3 +64,39 @@ def test_the_measure_stops_at_its_token_budget():
 
     report = measure(documents, Known(documents, ""), httpx.MockTransport(mistral), "m", 50, 1000)
     assert report["documents"] == 2
+
+
+def test_the_measure_works_over_real_connections():
+    """The bridge keeps its connections to Mistral open between requests: over a real socket,
+    the whole run must share one event loop (a closed loop broke the second request)."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class Mistral(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"  # keep-alive, as the real API
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers["content-length"]))
+            body = json.dumps(
+                {"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}}
+            ).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Mistral)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        documents = generate(3, "validation", 0)
+        upstream = f"http://127.0.0.1:{server.server_port}"
+        transport = httpx.AsyncHTTPTransport()
+        detector = Known(documents, "")
+        report = measure(documents, detector, transport, "m", 50, 10_000, upstream=upstream)
+        assert report["documents"] == 3 and report["errors"] == 0
+    finally:
+        server.shutdown()
