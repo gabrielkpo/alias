@@ -14,6 +14,7 @@ from typing import Protocol
 import phonenumbers
 
 from alias_pii.entities import Entity, EntityType, resolve_overlaps
+from alias_pii.rules import PHONE_REGIONS
 from alias_pii.validators import compact
 
 _TYPES = "|".join(t.value for t in EntityType)
@@ -31,6 +32,15 @@ class Detector(Protocol):
     def detect(self, text: str) -> list[Entity]: ...
 
 
+def _phone_regions(text: str) -> tuple[str, ...]:
+    """The regions a phone number written without its country can belong to: a national number
+    starting with the trunk prefix 0 is French or British, one without it American (a British
+    reading of "(201) 555-0123" would also be valid)."""
+    if text.lstrip().startswith("+"):
+        return PHONE_REGIONS[:1]  # the country code decides
+    return ("FR", "GB") if re.sub(r"\D", "", text).startswith("0") else ("US",)
+
+
 def normalize(entity: Entity) -> str:
     """Key under which two surface forms count as the same value.
 
@@ -41,11 +51,20 @@ def normalize(entity: Entity) -> str:
     merged yet.
     """
     if entity.type is EntityType.PHONE:
-        try:
-            number = phonenumbers.parse(entity.text, entity.kind or "FR")
-            return phonenumbers.format_number(number, phonenumbers.PhoneNumberFormat.E164)
-        except phonenumbers.NumberParseException:
+        # The rules say the region; a model span does not, so the regions its form allows are
+        # tried in turn and the first that reads a valid number wins: "020 7946 0958" and
+        # "+44 20 7946 0958" are then one phone, and so are "(201) 555-0123" and "+1 201 555 0123".
+        parsed = []
+        for region in (entity.kind,) if entity.kind else _phone_regions(entity.text):
+            try:
+                parsed.append(phonenumbers.parse(entity.text, region))
+            except phonenumbers.NumberParseException:
+                continue
+        if not parsed:
             return compact(entity.text)
+        # No region reads a valid number: the first reading (France for a trunk prefix 0).
+        number = next((n for n in parsed if phonenumbers.is_valid_number(n)), parsed[0])
+        return phonenumbers.format_number(number, phonenumbers.PhoneNumberFormat.E164)
     if entity.type in _SEPARATORS_MEANINGLESS:
         return compact(entity.text)
     if entity.type is EntityType.EMAIL:  # a dot or dash makes another address

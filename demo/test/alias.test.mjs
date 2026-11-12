@@ -257,3 +257,13 @@ test("restore reads aliases an LLM rewrote", () => {
     assert.equal(restore(`Voir ${written}.`, result).text, "Voir a.b@example.com.", written);
   }
 });
+
+test("a qualifier between the keyword and its number word", () => {
+  for (const [text, value] of [
+    ["Voir le dossier médical n° 12345.", "12345"],
+    ["Dossier complet n° 2024/1234", "2024/1234"],
+  ]) {
+    assert.deepEqual(detectRules(text).map((e) => [e.type, e.text]), [["IDENTIFIER", value]]);
+  }
+  assert.deepEqual(detectRules("Le dossier médical de Paul est complet."), []);
+});

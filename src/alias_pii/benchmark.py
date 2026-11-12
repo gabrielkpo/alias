@@ -26,8 +26,6 @@ from typing import Protocol
 from alias_pii.entities import Entity, EntityType
 from alias_pii.masking import find_leaks
 
-LABELS = [t.value for t in EntityType]
-
 
 class Detector(Protocol):
     def detect(self, text: str) -> list[Entity]: ...

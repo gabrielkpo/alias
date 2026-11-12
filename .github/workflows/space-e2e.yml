@@ -25,8 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.12"
       - name: Install Playwright and Chromium
@@ -45,7 +45,7 @@ jobs:
           if [ -f e2e/report.json ]; then
             python -c "import json; r=json.load(open('e2e/report.json')); print('### Demo end-to-end'); print(); print('- model load:', r.get('load_seconds'), 's'); [print('-', s) for s in r.get('mask_status', [])]; print('- hosts:', ', '.join(r.get('hosts', []))); print('- problems:', r.get('problems') or 'none'); print('- known leaks:', r.get('known_leaks') or 'none'); print('- notes:', r.get('notes') or 'none')" >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: space-e2e

@@ -4,7 +4,7 @@ The demo shows Alias in a few seconds without installing anything: <https://hugg
 
 ## Why in the browser
 
-Decision (2026-11-11): publish the demo. Docker Spaces (the first plan, `space/`) now need a paid
+Decision (2026-11-11): publish the demo. Docker Spaces (the first plan) now need a paid
 Hugging Face subscription on the free CPU tier; static Spaces stay free. The detector therefore
 runs in the visitor's browser instead, which also fits the project: the text never leaves the
 page, not even to a demo server.
@@ -71,8 +71,3 @@ reach the demo only through a release that changes that tag.
 
 A change of the model id or of the transformers.js version goes in `demo/app.js`; Dependabot
 proposes the npm version, and the CDN version in `app.js` must follow.
-
-## The Docker Space (`space/`)
-
-Still usable with a paid Hugging Face plan: it runs the Python API and page with `--demo` (the
-server sees the text, but logs nothing). Variables `ALIAS_REF` and `MODEL_REPO`.
