@@ -2,6 +2,7 @@
 
     alias-pii key set      # asks for the Mistral key and stores it in the keychain
     alias-pii serve        # http://127.0.0.1:8001/v1 for tools written for Mistral
+    alias-pii key token    # the local token tools send as their API key
     alias-pii key status   # whether a key is stored (it is never shown)
     alias-pii key delete
 
@@ -9,7 +10,9 @@ The detector is the published model run by ONNX Runtime, without PyTorch: it is 
 at a pinned revision (about 600 MB, into the Hugging Face cache), then read from the disk.
 `--model` gives a local folder instead (an ONNX export with its tokenizer); `--rules-only` runs
 the rules alone, which mask no names or addresses. The key comes from the keychain, else from
-`MISTRAL_API_KEY`, else from the `Authorization` header each tool sends.
+`MISTRAL_API_KEY`, else from the `Authorization` header each tool sends. When the bridge holds
+the key, a tool must send the bridge's local token as its API key instead, so no other program or
+account on the machine can spend the key.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ import argparse
 import getpass
 import logging
 import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -31,6 +35,7 @@ MODEL_FILES = [
     "special_tokens_map.json",
 ]
 KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT = "alias-pii", "mistral"
+TOKEN_ACCOUNT = "local-token"  # what tools send to the bridge when it holds the Mistral key
 PORT = 8001
 log = logging.getLogger("alias.cli")
 
@@ -70,6 +75,22 @@ def stored_key() -> str | None:
         return None
 
 
+def local_token() -> tuple[str, bool]:
+    """The bridge's local token, created and stored in the keychain on first use, and whether it
+    is stored: with no usable keychain, a token for this run only."""
+    import keyring
+    from keyring.errors import KeyringError
+
+    try:
+        token = keyring.get_password(KEYCHAIN_SERVICE, TOKEN_ACCOUNT)
+        if not token:
+            token = secrets.token_urlsafe(32)
+            keyring.set_password(KEYCHAIN_SERVICE, TOKEN_ACCOUNT, token)
+        return token, True
+    except KeyringError:
+        return secrets.token_urlsafe(32), False
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="alias-pii", description=__doc__.splitlines()[0])
     commands = root.add_subparsers(dest="command", required=True)
@@ -86,7 +107,7 @@ def parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("--port", type=int, default=PORT)
     key = commands.add_parser("key", help="the Mistral key in the OS keychain")
-    key.add_argument("action", choices=["set", "status", "delete"])
+    key.add_argument("action", choices=["set", "status", "delete", "token"])
     return root
 
 
@@ -95,7 +116,15 @@ def key_command(action: str) -> int:
     from keyring.errors import KeyringError, PasswordDeleteError
 
     try:
-        if action == "set":
+        if action == "token":  # the user asked for it, to give it to their tools
+            token, stored = local_token()
+            if not stored:
+                print(
+                    "No usable keychain: serve prints a new token at each start.", file=sys.stderr
+                )
+                return 1
+            print(token)
+        elif action == "set":
             value = getpass.getpass("Mistral API key (not shown): ").strip()
             if not value:
                 print("No key given: nothing stored.", file=sys.stderr)
@@ -135,9 +164,17 @@ def serve_command(args: argparse.Namespace) -> int:
         detector, name = model_detector(folder), "rules+model"
         log.info("detector: %s", name)
     api_key = stored_key() or os.environ.get("MISTRAL_API_KEY")
-    if not api_key:
+    token = None
+    if api_key:
+        # The bridge spends this key for whoever calls it: only a tool given the local token may.
+        token, stored = local_token()
+        if stored:
+            log.info("tools send the local token as their API key: see alias-pii key token")
+        else:  # no keychain: the token lives for this run only, so it is shown here
+            print(f"Local token for this run (the tools' API key): {token}", file=sys.stderr)
+    else:
         log.info("no stored key: each tool's own key is used (alias-pii key set to store one)")
-    app = create_bridge(detector, api_key=api_key, detector_name=name)
+    app = create_bridge(detector, api_key=api_key, detector_name=name, local_token=token)
     print(f"Alias Bridge on http://127.0.0.1:{args.port}/v1", file=sys.stderr)
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     return 0
