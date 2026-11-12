@@ -57,9 +57,9 @@ class Recorder(httpx.AsyncBaseTransport):
             self.answers.append(json.loads(response.content))
         except ValueError:
             self.answers.append({})
-        return httpx.Response(
-            response.status_code, headers=response.headers, content=response.content
-        )
+        # The response itself, already read: rebuilding it from its decoded content would keep a
+        # `content-encoding: gzip` header that the client then tries to decode a second time.
+        return response
 
 
 def aliases(text: str) -> set[str]:
@@ -134,7 +134,11 @@ def measure(
             counts["documents"] += 1
             if response.status_code != 200 or not recorder.sent:
                 counts["errors"] += 1
-                code = str(response.status_code)
+                try:  # the bridge's own error message (fixed text, never a value)
+                    detail = str(response.json().get("detail", ""))[:80]
+                except ValueError:
+                    detail = ""
+                code = f"{response.status_code} {detail}".strip()
                 statuses[code] = statuses.get(code, 0) + 1
                 continue
             raw = recorder.answers[-1]
