@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alias</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Alias</h1>
+    <p class="lead">Your tools talk to Mistral; the personal data stays on this Mac.</p>
+
+    <section>
+      <h2>The bridge</h2>
+      <p id="state" class="state">Starting…</p>
+      <p class="hint">On first launch the model (about 600 MB) is downloaded once.</p>
+      <p>Address for your tools: <code>http://127.0.0.1:8001/v1</code></p>
+    </section>
+
+    <section>
+      <h2>Mistral key</h2>
+      <p id="key-state">…</p>
+      <form id="key-form">
+        <input id="key" type="password" autocomplete="off" placeholder="Paste the Mistral key" aria-label="Mistral key">
+        <button type="submit">Save</button>
+      </form>
+      <button id="delete" type="button" class="secondary">Delete the key</button>
+      <p class="hint">Kept in the macOS keychain, never shown.</p>
+    </section>
+
+    <section id="token-section" hidden>
+      <h2>Local token</h2>
+      <p>With a key saved, your tools send this token as their API key instead of the Mistral key.</p>
+      <div class="row">
+        <code id="token">…</code>
+        <button id="copy" type="button">Copy</button>
+      </div>
+    </section>
+
+    <p id="message" class="message" role="status"></p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

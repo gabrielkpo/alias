@@ -167,3 +167,12 @@ def test_fetch_downloads_the_model_and_prints_where(monkeypatch, tmp_path, capsy
     monkeypatch.setattr(cli, "published_model", lambda: tmp_path)
     assert cli.main(["fetch"]) == 0
     assert capsys.readouterr().out.strip() == str(tmp_path)
+
+
+def test_an_app_passes_the_key_on_standard_input(keychain, monkeypatch, capsys):
+    import io
+
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(f"{SECRET}\n"))
+    assert cli.main(["key", "set", "--stdin"]) == 0
+    assert keychain[("alias-pii", "mistral")] == SECRET
+    assert SECRET not in capsys.readouterr().out
