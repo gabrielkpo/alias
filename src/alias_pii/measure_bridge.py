@@ -9,7 +9,8 @@ published model, to the real Mistral API, and the run reports counts only, never
 - tokens (and a cost, given the prices), and the time the bridge adds to Mistral's.
 
 It runs on a GitHub machine (.github/workflows/bridge-measure.yml, by hand), with the key from
-MISTRAL_API_KEY, and stops before a token budget is passed.
+MISTRAL_API_KEY, and sends no new document once its token budget is reached (the last answer
+may pass it by at most one document's tokens).
 
     python -m alias_pii.measure_bridge --n 50 --out reports/bridge-measure.json
 """
@@ -99,7 +100,7 @@ def measure(documents, detector, transport, model: str, max_tokens: int, budget:
         ],
         0,
     )
-    overhead, models = [], set()
+    overhead, models, statuses = [], set(), {}
     for document in documents:
         if counts["tokens_in"] + counts["tokens_out"] >= budget:
             break
@@ -118,6 +119,8 @@ def measure(documents, detector, transport, model: str, max_tokens: int, budget:
         counts["documents"] += 1
         if response.status_code != 200 or not recorder.sent:
             counts["errors"] += 1
+            code = str(response.status_code)
+            statuses[code] = statuses.get(code, 0) + 1
             continue
         raw = recorder.answers[-1]
         messages = json.loads(recorder.sent[-1])["messages"]
@@ -140,6 +143,7 @@ def measure(documents, detector, transport, model: str, max_tokens: int, budget:
     return {
         **counts,
         "models": sorted(models),
+        "error_statuses": statuses,
         "leak_rate": counts["values_leaked"] / counts["values"] if counts["values"] else None,
         "kept_rate": counts["aliases_kept"] / counts["aliases_sent"]
         if counts["aliases_sent"]
@@ -170,9 +174,12 @@ def main() -> None:
     detector = cli.model_detector(cli.published_model())
     transport = httpx.AsyncHTTPTransport(retries=2)
     report = measure(documents, detector, transport, args.model, args.max_tokens, args.budget)
+    priced = args.price_in or args.price_out
     report["cost"] = (
-        report["tokens_in"] * args.price_in + report["tokens_out"] * args.price_out
-    ) / 1_000_000
+        (report["tokens_in"] * args.price_in + report["tokens_out"] * args.price_out) / 1_000_000
+        if priced
+        else None  # no prices given: tokens only
+    )
     report["settings"] = {
         k: getattr(args, k) for k in ("n", "seed", "model", "max_tokens", "budget")
     }
