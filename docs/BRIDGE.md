@@ -96,6 +96,11 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   aliases than the answer mentions.
 - **JSON answers** (`response_format`): values go back inside the JSON string values, so the
   JSON stays valid whatever they hold; keys keep their aliases.
+- **Answers in parts** (a list of `text`, `thinking`... parts): the `text` parts get their
+  values back, unless their joined text holds a link mark; other parts keep their aliases.
+- **Errors**: Mistral unreachable or answering something that is not a JSON object gives 502, no
+  answer within 120 s 504; a request body over 20 MB (inline images included) gives 413, counted
+  as it arrives. Mistral's own errors are relayed as they are: they only hold masked text.
 - **Local tools only**: the bridge spends the user's key, so a web page must not reach it. A
   request with an `Origin` header (sent by browsers, not by SDKs or scripts), a non-local `Host`
   (DNS rebinding) or a body that is not `application/json` is refused (403, 415).
