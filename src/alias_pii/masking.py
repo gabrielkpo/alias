@@ -17,8 +17,9 @@ from alias_pii.entities import Entity, EntityType, resolve_overlaps
 from alias_pii.validators import compact
 
 _TYPES = "|".join(t.value for t in EntityType)
-# Tolerates spaces inside the brackets, which some LLMs add when they rewrite text.
-ALIAS_PATTERN = re.compile(rf"\[\s*({_TYPES})_(\d+)\s*\]")
+# Tolerates what LLMs do to an alias when they rewrite text: spaces inside the brackets, another
+# case ("[Email_1]"), a dash or space for the underscore ("[EMAIL-1]", "[EMAIL 1]").
+ALIAS_PATTERN = re.compile(rf"\[\s*({_TYPES})[_\- ]?(\d+)\s*\]", re.IGNORECASE)
 
 _STRICT_FORMATS = {EntityType.EMAIL, EntityType.IBAN, EntityType.NATIONAL_ID, EntityType.IDENTIFIER}
 # Types whose spaces, dots and dashes carry no meaning: one value however it is grouped.
@@ -187,4 +188,4 @@ def find_leaks(masked_text: str, entities: list[Entity]) -> list[Entity]:
 
 
 def _canonical(match: re.Match[str]) -> str:
-    return f"[{match.group(1)}_{int(match.group(2))}]"
+    return f"[{match.group(1).upper()}_{int(match.group(2))}]"

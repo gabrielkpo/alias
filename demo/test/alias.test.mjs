@@ -249,3 +249,11 @@ test("typographic spaces and invisible characters do not hide a value", () => {
     assert.ok(!/[\s.]/u.test(found[0].text[0]));
   }
 });
+
+test("restore reads aliases an LLM rewrote", () => {
+  const text = "Écrire à a.b@example.com.";
+  const result = mask(text, [found(text, "EMAIL", "a.b@example.com")]);
+  for (const written of ["[email_1]", "[Email-1]", "[EMAIL 1]"]) {
+    assert.equal(restore(`Voir ${written}.`, result).text, "Voir a.b@example.com.", written);
+  }
+});

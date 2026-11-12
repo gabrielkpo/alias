@@ -475,7 +475,8 @@ export async function detect(text, model, idKeywords = ID_KEYWORDS) {
 
 // ---------------------------------------------------------------- masking.py
 
-const ALIAS = new RegExp(`\\[\\s*(${TYPES.join("|")})_([0-9]+)\\s*\\]`, "gu");
+// masking.ALIAS_PATTERN: spaces in the brackets, another case, a dash or space for the underscore.
+const ALIAS = new RegExp(`\\[\\s*(${TYPES.join("|")})[_\\- ]?([0-9]+)\\s*\\]`, "giu");
 
 export function normalize(e) {
   if (e.type === "PHONE") {
@@ -496,7 +497,7 @@ export function normalize(e) {
   return folded.split(/\s+/u).filter(Boolean).join(" ");
 }
 
-const canonical = (m) => `[${m[1]}_${parseInt(m[2], 10)}]`;
+const canonical = (m) => `[${m[1].toUpperCase()}_${parseInt(m[2], 10)}]`;
 
 /**
  * masking.mask with a fresh alias table: masked text, spans with their alias, counts, and what
