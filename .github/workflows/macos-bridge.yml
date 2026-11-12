@@ -1,0 +1,67 @@
+# The standalone `alias-pii` executable for macOS (Apple silicon), the bridge the desktop app will
+# embed: Python and the `serve` extra frozen by PyInstaller (no PyTorch), built and checked on a
+# GitHub macOS machine, never on a laptop. The checks run the executable itself: its commands, the
+# bridge with the rules alone, then with the published model downloaded by `alias-pii fetch`.
+name: macOS bridge
+on:
+  pull_request:
+    paths:
+      - "src/alias_pii/**"
+      - packaging/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/macos-bridge.yml
+  push:
+    branches: [main]
+    paths:
+      - "src/alias_pii/**"
+      - packaging/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/macos-bridge.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos-bridge:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.7"
+      - name: Install the serve extra and PyInstaller (versions of uv.lock)
+        run: uv sync --frozen --no-dev --extra serve --group bundle --python 3.12
+      - name: Freeze
+        run: |
+          uv run --frozen pyinstaller packaging/alias-pii-entry.py --name alias-pii --onedir \
+            --noconfirm --clean --collect-all transformers --collect-submodules uvicorn \
+            --collect-submodules alias_pii --hidden-import keyring.backends.macOS
+          du -sh dist/alias-pii
+      - name: The commands run
+        run: |
+          dist/alias-pii/alias-pii --help
+          dist/alias-pii/alias-pii key status
+      - name: The bridge with the rules alone, then with the published model
+        env:
+          MISTRAL_API_KEY: not-a-real-key
+        run: |
+          export ALIAS_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+          check() {
+            for i in $(seq 90); do curl -sf localhost:8001/health && break; sleep 2; done
+            curl -sf localhost:8001/health | tee health.json
+            grep -q "\"detector\":\"$1\"" health.json
+            test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8001/v1/models)" = 401
+          }
+          dist/alias-pii/alias-pii serve --rules-only & pid=$!
+          check rules; kill $pid; wait $pid || true
+          dist/alias-pii/alias-pii fetch
+          dist/alias-pii/alias-pii serve & pid=$!
+          check rules+model; kill $pid; wait $pid || true
+      - name: Keep the executable
+        run: ditto -c -k --keepParent dist/alias-pii alias-pii-macos-arm64.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: alias-pii-macos-arm64
+          path: alias-pii-macos-arm64.zip
