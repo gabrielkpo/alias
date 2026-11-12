@@ -181,3 +181,28 @@ def test_addresses_and_identifiers_that_differ_by_a_dot_or_dash_get_their_own_al
 def test_an_iban_is_one_value_however_it_is_grouped():
     text = "IBAN FR76 3000 6000 0112 3456 7890 189, soit FR7630006000011234567890189."
     assert mask(text, detector).text == "IBAN [IBAN_1], soit [IBAN_1]."
+
+
+def test_a_phone_found_by_the_model_gets_one_alias_in_any_region():
+    """A model span has no region: national and international forms of a UK or US number are
+    one phone, as for a French one."""
+
+    class Model:
+        def __init__(self, *values):
+            self.values = values
+
+        def detect(self, text):
+            found = []
+            for value in self.values:
+                start = text.find(value)
+                found.append(Entity(EntityType.PHONE, start, start + len(value), value))
+            return sorted(found, key=lambda e: e.start)
+
+    for national, international in [
+        ("020 7946 0958", "+44 20 7946 0958"),
+        ("(201) 555-0123", "+1 201 555 0123"),
+        ("01 99 00 12 34", "+33 1 99 00 12 34"),
+    ]:
+        text = f"Appeler le {national} ou le {international}."
+        masked = mask(text, Model(national, international)).text
+        assert masked == "Appeler le [PHONE_1] ou le [PHONE_1].", text
