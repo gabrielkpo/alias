@@ -1,10 +1,10 @@
 # Alias dataset: specification
 
-> Status: **version 0.2 built** (identity factory, grid generator, quality gates, balancer,
-> datasheet); LLM-written documents and public corpora come next (§12). This document
-> describes how the training, validation and test data of Alias are built, labelled, balanced and
-> checked. Every number below is a target; the built dataset will report its actual composition in
-> a generated datasheet (`data/DATASHEET.md`).
+> Status: **versions 0.2 to 0.4 built** (§12): grid generator with its identity factory, quality
+> gates, balancer and datasheet; LLM-written documents (§4.2); public corpora merged into the
+> build (§4.3). This document describes how the training, validation and test data of Alias are
+> built, labelled, balanced and checked. Targets are marked as such; each build reports its actual
+> composition in a generated datasheet (`data/DATASHEET.md`).
 
 ## 1. Purpose and principles
 
@@ -19,8 +19,10 @@ as honest as the data it is measured on. Five principles drive every choice belo
    is measured, cell by cell.
 3. **Balance.** Every entity type weighs roughly the same in training, in each language, so the
    rare types (birth dates, national IDs) are not drowned by names and e-mails.
-4. **No real personal data in training.** Real documents never leave the machine and never train
-   a model. They are only used, at the end, to measure the gap between synthetic and real text.
+4. **No private documents or private persons' data in training.** Private documents never leave
+   the machine and never train a model. The public WikiNER corpus contains names of public
+   figures. Real documents are only used, at the end, to measure the gap between synthetic and
+   real text.
 5. **Reproducible.** The whole dataset is regenerated from code, seeds and versioned prompts. It is
    never committed.
 
@@ -202,13 +204,19 @@ unlabelled, and each document type has a target share of them.
   French and English, plus a few hundred mixed documents.
 
 ## 7. Splits and leakage prevention
-- Templates and LLM prompt families are split between train, validation and test.
-- No fake identity is shared between splits.
-- One document type is held out entirely for the test set, to measure generalisation to a format
-  never seen in training.
+- Grid phrase variants are assigned to train, validation or test by a stable hash where a bank
+  has enough variants. A bank with no variant for a split falls back to the whole bank, so that
+  split shares its wording with training. Some templates (greetings, closings, chat lines,
+  sentences carrying two values) are never split.
+- Every document draws a fresh identity, but names come from small pools: a name in the test
+  split can also appear in training.
+- One document type (meeting minutes) is held out entirely for the test set, to measure
+  generalisation to a format never seen in training.
+- Near duplicates are removed across all splits and sources.
 - Public corpora are split by their own document boundaries.
-- The hand-annotated real sets (French and English, a few dozen documents each) are only read for
-  the final evaluation.
+- The grid splits therefore share wording with training. The measures that share no template with
+  training are the LLM-written set (§4.2) and the realistic open sets (TAB,
+  `docs/REALISTIC_SETS.md`), read once for the final evaluation.
 
 ## 8. Quality gates
 Automatic, on every document:
@@ -227,15 +235,23 @@ One JSON object per line:
 ```json
 {"text": "...", "spans": [{"start": 12, "end": 23, "label": "PERSON"}],
  "language": "fr", "locale": "fr_FR", "doc_type": "insurance_claim", "domain": "insurance",
- "layout": "email", "source": "llm", "generator": "mistral-...|prompt-v1", "split": "train"}
+ "layout": "email", "split": "train", "source": "grid-v0.2",
+ "negatives": [{"start": 60, "end": 81, "label": "EMAIL"}], "person_origin": "fr_FR"}
 ```
+
+`source` names where a document comes from: `grid-v0.2`, `llm-v0.3:<model>:prompt-<version>`
+(layout `llm`), `gretel-pii-finance-multilingual` or `wikiner-fr`. `negatives` lists the
+company phones, mailboxes and addresses of grid documents, under the type they look like (empty
+elsewhere); `person_origin` is the origin of the person's name, to report recall by origin
+(empty for public corpora).
 
 The dataset is regenerated with one command from a seed:
 `uv run --group data python -m alias_pii.build_dataset --out data/synthetic --seed 0`. A datasheet is generated alongside it:
 composition per axis and per label, sources and licences, rejected-document counts, version.
 
 ## 10. Privacy and ethics
-- No real person's data is used for training; fake values come from Faker and format generators.
+- No private person's data is used for training; fake values come from Faker and format
+  generators. The public WikiNER corpus contains names of public figures.
 - Generated values can coincide with a real person by chance; the dataset is therefore never
   published, only the code that builds it.
 - Real annotated documents stay in `data/real/`, ignored by Git, and are never sent to a third
@@ -245,7 +261,7 @@ composition per axis and per label, sources and licences, rejected-document coun
 
 ## 11. Known limitations
 - Synthetic text, even LLM-written, is more regular than real documents: the gap is measured on
-  the real sets and reported.
+  realistic open sets (`docs/REALISTIC_SETS.md`) and reported.
 - Scanned documents and OCR noise are out of scope for this version.
 - Labels follow the guidelines above; another definition of personal data (for example, labelling
   organisations) would need new data.
@@ -255,5 +271,5 @@ composition per axis and per label, sources and licences, rejected-document coun
 |---|---|
 | 0.1 | this specification; first 12 templates (done) |
 | 0.2 | identity factory, grid generator (14 document types × 5 layouts × 2 languages + mixed), quality gates, balancer, datasheet, build command (done) |
-| 0.3 | LLM-written documents with placeholders: writer, cache, retries and gates (done); first run pending the API key |
+| 0.3 | LLM-written documents with placeholders: writer, cache, retries and gates (done); LLM-written set built and used as an out-of-distribution measure (docs/DETECTOR.md) |
 | 0.4 | public corpora mapped, capped and merged into the build with per-source datasheet (done); first full build and manual review next |

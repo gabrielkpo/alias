@@ -23,11 +23,11 @@ synthetic one (4,200 documents) and the LLM-written one (200 documents, docs/DAT
    lower than the model's alone and its strict precision is no more than 2 points lower.
 2. Speed: under 2 seconds per 3,000-character page at the 95th percentile on 4 CPU cores
    (application framing, criterion of the V1), measured on a Kaggle CPU session.
-3. Otherwise the results are reported as they are and the choice goes back to Gabriel.
+3. Otherwise the results are reported as they are and the choice stays open.
 
 ## How it is measured
 
-On a Kaggle CPU session (nothing heavy on a laptop), with the synthetic and LLM-written datasets
+On a Kaggle CPU session, with the synthetic and LLM-written datasets
 (private) and the mmBERT-small checkpoint from the step 4 training kernel:
 
 ```
@@ -66,7 +66,7 @@ distribution. E-mails, phones and identifiers are left to the model.
 
 It becomes the Alias detector if, on both validation splits, its leak rate is not higher than
 the model's alone and lower on at least one, with strict precision no more than 2 points lower.
-Because it was designed after seeing the validation numbers, Gabriel may still choose otherwise.
+Because it was designed after seeing the validation numbers, it may still be set aside.
 
 Results (code `2bbb262`, same validation splits):
 
