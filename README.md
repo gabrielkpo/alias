@@ -55,7 +55,7 @@ Choices and trade-offs:
   differ by a dot keep two aliases. The cost is a table to keep, and to protect.
 - **Recall first.** A missed value leaks; a false positive only hides a word. Overlapping spans
   are merged rather than dropped, so no part of a value stays in clear.
-- **Restoring is scoped to the exchange**, never inside a link or an image of the answer.
+- **Restoring is scoped to the exchange**; the bridge never restores inside a link or an image.
 - **Local.** The model runs on an ordinary CPU, without a GPU.
 
 ## Example
