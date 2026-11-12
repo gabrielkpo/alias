@@ -20,7 +20,7 @@ uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>
 
 The Mistral key comes from `MISTRAL_API_KEY`, or else from the `Authorization` header the tool
 sends. The packaged command (`alias-pii serve`, key in the macOS keychain, ONNX detector without
-PyTorch), the Docker image and the macOS app follow (framing: brain `projets/cadrage-alias-bridge`).
+PyTorch), the Docker image and the macOS app come next.
 
 ```python
 from openai import OpenAI
@@ -43,14 +43,16 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 - **Conversations**: one alias table per request, aliases given in order of appearance. A tool
   resends the whole history at each turn, so a value keeps its alias from turn to turn and the
   bridge keeps no state.
-- **Message parts**: the text of `content`, or of its `{"type": "text"}` parts, is masked;
-  `image_url` parts pass as they are.
+- **Message parts**: the text of `content`, or of its `{"type": "text"}` parts, is masked.
+  An image may only come inline (`image_url` holding `data:image/...;base64,...`) and passes as
+  it is: what the image shows is not masked. An image given by URL is refused (400), since the
+  URL itself could hold a name or an address.
 - **Nothing unmasked goes through**: besides `messages` (keys `role`, `content`, `prefix`), a
   request may only hold settings without text of their own (`model`, `temperature`, `top_p`,
   `max_tokens`, `random_seed`, `n`, `presence_penalty`, `frequency_penalty`, `safe_prompt`,
   `stream`, `stop`, `response_format` of type `text` or `json_object`). Anything else (a message
-  `name`, `prediction`, a JSON schema, `user`, another part type) is refused (400) rather than
-  sent unmasked. A `stop` sequence holding personal data is refused too (422).
+  `name`, `prediction`, a JSON schema, `user`, another part type, an image URL) is refused (400)
+  rather than sent unmasked. A `stop` sequence holding personal data is refused too (422).
 - **Check before sending**: if the rules still find an IBAN or a national ID in the masked text,
   the request is refused (422) and nothing is sent.
 - **Restoring**: only the aliases of this request get their value back; an alias the answer

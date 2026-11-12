@@ -72,6 +72,8 @@ SETTINGS = frozenset(
 )
 MESSAGE_KEYS = frozenset({"role", "content", "prefix"})
 ROLES = frozenset({"system", "user", "assistant"})
+# An image may only come inline: base64 data and nothing else, so no text rides in its URL.
+IMAGE_DATA = re.compile(r"data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]*")
 # Where answer text may become a request of the client's own. A link (`](`) or a bare URL (`//`,
 # `www.`) only works inside its paragraph (inline markdown never crosses a blank line) and needs
 # a click, so from such a mark to the end of the paragraph aliases stay masked. From any of these
@@ -101,7 +103,7 @@ def mask_messages(
 ) -> tuple[list[dict], list[MaskResult], Counter]:
     """The messages with their text masked, the mask results (to restore the answer) and the
     count of values per type. Text is a message's `content` string, or the `text` of its
-    `{"type": "text"}` parts; anything else (images, tool calls) is passed as it is."""
+    `{"type": "text"}` parts; inline images (`inline_image`) are passed as they are."""
     table = AliasTable()
     results: list[MaskResult] = []
     counts: Counter = Counter()
@@ -134,7 +136,8 @@ def mask_messages(
 def unmaskable(body: dict) -> str | None:
     """Where the request holds text the bridge would forward without masking it, else None: a
     field that is not a setting, a message key other than role/content/prefix, a content that
-    is neither text nor text and image parts, a JSON schema, a setting that is not a number."""
+    is neither text nor text and inline image parts, a JSON schema, a setting that is not a
+    number."""
     for name in body:
         if name != "messages" and name not in SETTINGS:
             return f"'{name}'"
@@ -180,10 +183,27 @@ def unmaskable(body: dict) -> str | None:
                 and part["type"] == "text"
                 and isinstance(part["text"], str)
             )
-            image = isinstance(part, dict) and set(part) == {"type", "image_url"}
-            if not (text or (image and part["type"] == "image_url")):
+            if not (text or inline_image(part)):
                 return f"{where}.content[{j}]"
     return None
+
+
+def inline_image(part) -> bool:
+    """Whether a part is an image sent inline, as base64 data: a URL would be forwarded as it
+    is, and its path or query can hold a name or an e-mail address."""
+    if not (isinstance(part, dict) and set(part) == {"type", "image_url"}):
+        return False
+    image = part["image_url"]
+    if isinstance(image, dict):
+        detail = image.get("detail", "auto")
+        if not (set(image) <= {"url", "detail"} and detail in ("auto", "low", "high")):
+            return False
+        image = image.get("url")
+    return (
+        part["type"] == "image_url"
+        and isinstance(image, str)
+        and IMAGE_DATA.fullmatch(image) is not None
+    )
 
 
 def stops(body: dict) -> list[str]:

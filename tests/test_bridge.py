@@ -11,6 +11,7 @@ from alias_pii.rules import RuleDetector
 NAME = "Jean Dupont"
 IBAN = "FR76 3000 6000 0112 3456 7890 189"
 EMAIL = "jean.dupont@example.com"
+PNG = "data:image/png;base64,iVBORw0KGgo="
 LOCAL = "http://127.0.0.1:8001"
 USER_MESSAGE = {"role": "user", "content": f"Écrire à {NAME} ({EMAIL})."}
 
@@ -95,13 +96,41 @@ def test_a_value_keeps_its_alias_across_the_turns_of_a_conversation():
     ]
 
 
-def test_text_parts_are_masked_other_parts_passed_as_they_are():
+def test_text_parts_are_masked_inline_images_passed_as_they_are():
     fake = FakeMistral(reply="ok")
-    image = {"type": "image_url", "image_url": {"url": "https://example.com/x.png"}}
-    content = [{"type": "text", "text": f"Qui est {NAME} ?"}, image]
+    image = {"type": "image_url", "image_url": {"url": f"{PNG}", "detail": "low"}}
+    bare = {"type": "image_url", "image_url": PNG}
+    content = [{"type": "text", "text": f"Qui est {NAME} ?"}, image, bare]
     ask(bridge(fake), {"role": "user", "content": content})
     parts = fake.received[0]["messages"][0]["content"]
-    assert parts == [{"type": "text", "text": "Qui est [PERSON_1] ?"}, image]
+    assert parts == [{"type": "text", "text": "Qui est [PERSON_1] ?"}, image, bare]
+
+
+def test_an_image_url_that_could_hold_text_is_refused():
+    """An image URL is forwarded as it is: its path or query (`?n=Jean Dupont`), a `data:` URL
+    of another type or its parameters could carry a value. Only inline base64 images pass."""
+    fake = FakeMistral(reply="ok")
+    client = bridge(fake)
+    urls = [
+        f"https://example.com/x.png?n={NAME}",
+        "https://example.com/x.png",
+        f"data:text/plain,{NAME}",
+        f"data:image/png;name={NAME};base64,iVBORw0KGgo=",
+        f"{PNG} {NAME}",
+    ]
+    images = [{"url": url} for url in urls] + [
+        *urls,
+        {"url": PNG, "detail": NAME},
+        {"url": PNG, "alt": NAME},
+        {"url": [PNG]},
+        None,
+    ]
+    for image in images:
+        part = {"type": "image_url", "image_url": image}
+        response = ask(client, {"role": "user", "content": [part]})
+        assert response.status_code == 400, image
+        assert NAME not in response.text
+    assert fake.received == []
 
 
 def test_an_alias_the_answer_invents_is_left_as_it_is():
