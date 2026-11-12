@@ -53,7 +53,7 @@ jobs:
       - name: Build the app and the .dmg
         working-directory: desktop
         run: |
-          npx tauri build --bundles app,dmg
+          npx tauri build --bundles app,dmg -- --locked
           ls -la src-tauri/target/release/bundle/macos src-tauri/target/release/bundle/dmg
           du -sh src-tauri/target/release/bundle/macos/Alias.app
       - name: Launch the app; its bridge answers with the model; quitting stops it
@@ -68,13 +68,6 @@ jobs:
           if curl -sf localhost:8001/health; then
             echo "the bridge outlived the app"; pgrep -fl alias-pii || true; exit 1
           fi
-      - name: Keep the Cargo lockfile of this build
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: cargo-lock
-          path: desktop/src-tauri/Cargo.lock
-          if-no-files-found: ignore
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: alias-macos-dmg
