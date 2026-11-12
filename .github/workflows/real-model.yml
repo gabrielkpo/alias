@@ -1,0 +1,43 @@
+# The bridge with the published model, as `alias-pii serve` runs it: the `serve` extra (ONNX
+# Runtime, no PyTorch), the model downloaded at its pinned commit, a fictitious text masked and
+# restored through the bridge in front of a fake Mistral (tests/test_real_model.py). It downloads
+# about 600 MB, so it runs on a GitHub machine when the code it covers changes, weekly, or by hand.
+name: Real model
+on:
+  pull_request:
+    paths:
+      - "src/alias_pii/**"
+      - pyproject.toml
+      - uv.lock
+      - tests/test_real_model.py
+      - .github/workflows/real-model.yml
+  push:
+    branches: [main]
+    paths:
+      - "src/alias_pii/**"
+      - pyproject.toml
+      - uv.lock
+      - tests/test_real_model.py
+      - .github/workflows/real-model.yml
+  schedule:
+    - cron: "0 6 * * 1"  # weekly, Monday 06:00 UTC
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.7"
+      - name: Install the serve extra (no PyTorch)
+        run: uv sync --frozen --group dev --extra serve --python 3.12
+      - name: The command is installed
+        run: uv run --frozen alias-pii --help
+      - name: Published model through the bridge
+        env:
+          ALIAS_REAL_MODEL: "1"
+        run: uv run --frozen pytest -q tests/test_real_model.py
