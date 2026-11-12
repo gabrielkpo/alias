@@ -58,7 +58,7 @@ def resolve_overlaps(entities: list[Entity]) -> list[Entity]:
 
     A group of overlapping spans becomes a single span covering all of them, typed after its
     strongest member (priority, then length, then score). Dropping the weaker span instead would
-    leave its non-overlapping part in clear: "AB-0612345678-ZZ" would become "AB-[PHONE_1]-ZZ".
+    leave its non-overlapping part in clear: "AB-0199001234-ZZ" would become "AB-[PHONE_1]-ZZ".
     """
     merged: list[Entity] = []
     group: list[Entity] = []

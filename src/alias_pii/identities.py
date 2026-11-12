@@ -1,7 +1,7 @@
 """Fake identities with varied surface forms, for the synthetic dataset (docs/DATASET.md §3).
 
 An identity is drawn once per document; the templates then pick how each value is written
-("Jean Dupont", "DUPONT Jean", "J. Dupont"; "06 12 34 56 78" or "+33 6 12 34 56 78"). Every value
+("Jean Dupont", "DUPONT Jean", "J. Dupont"; "01 99 00 12 34" or "+33 1 99 00 12 34"). Every value
 is fake: Faker for names and addresses, format generators with valid checksums for the rest.
 """
 
