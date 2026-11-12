@@ -1,0 +1,38 @@
+# Alias Bridge in a container: `alias-pii serve` with the published model on ONNX Runtime (no
+# PyTorch), the model downloaded at build time so nothing is fetched at run time.
+#
+#   docker build -f Dockerfile.bridge -t alias-bridge .
+#   docker run --rm -p 127.0.0.1:8001:8001 --env-file bridge.env alias-bridge
+#
+# bridge.env (never committed) holds MISTRAL_API_KEY and ALIAS_TOKEN (32 characters or more:
+# python -c "import secrets; print(secrets.token_urlsafe(32))"); tools send ALIAS_TOKEN as their
+# API key. Another container reaching it by name adds that name to ALIAS_ALLOWED_HOSTS.
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HF_HUB_DISABLE_TELEMETRY=1
+
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY src ./src
+# The `serve` extra at the versions of uv.lock, checked against its hashes: no PyTorch.
+RUN pip install "uv==0.13.7" \
+    && uv export --frozen --no-dev --extra serve --no-emit-project -o requirements.txt \
+    && pip install --require-hashes -r requirements.txt \
+    && pip install --no-deps . \
+    && pip uninstall -y uv && rm -rf /app/src requirements.txt
+
+RUN useradd --create-home --uid 10001 alias
+USER alias
+# The published model at its pinned commit, into this user's Hugging Face cache; offline after.
+RUN alias-pii fetch
+ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+
+EXPOSE 8001
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=4)"
+# Listens on every interface inside the container; publish it on 127.0.0.1 only (see above).
+CMD ["alias-pii", "serve", "--host", "0.0.0.0"]
