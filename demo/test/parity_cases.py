@@ -31,7 +31,8 @@ EDGE_CASES = [
     "Customer ID: AB-123456, SSN 123-45-6789, NINO AB 12 34 56 C, date of birth as July 2, 1969",
     "15/04/1965 : date de naissance de Paul Martin ; GB82 WEST 1234 5698 7654 32",
     "Objet : dossier n° 2024/00421. Commande n° CMD-2024-118. N° d'adhérent : 77-1234. "
-    "ID client : CL-2024-09. Claim #CLM00912, invoice INV-2024-77, Customer ID: AC-559102.",
+    "ID client : CL-2024-09. Claim #CLM00912, invoice INV-2024-77, Customer ID: AC-559102. "
+    "Dossier médical n° 12345, dossier médical de Paul.",
     "IBAN FR76\u00a03000\u00a06000\u00a00112\u00a03456\u00a07890\u00a0189, NIR "
     "1\u202f85\u202f05\u202f78\u202f006\u202f084\u202f91, jean\u200b.dupont@example.com.",
     "Écrire à Jean Dupont, 14 rue des Lilas, 69003 Lyon. " * 120,  # several windows

@@ -166,3 +166,15 @@ def test_typographic_spaces_and_invisible_characters_do_not_hide_a_value():
         e = found[0]
         assert text[e.start : e.end] == e.text
         assert e.text[0] not in " .\u200b" and e.text[-1] not in " .\u200b"
+
+
+def test_a_qualifier_between_the_keyword_and_its_number_word():
+    """One word may qualify the file before its number word: "dossier médical n° 12345"."""
+    detect = RuleDetector().detect
+    for text, value in [
+        ("Voir le dossier médical n° 12345.", "12345"),
+        ("Dossier complet n° 2024/1234", "2024/1234"),
+        ("Customer file no. AC-559102", "AC-559102"),
+    ]:
+        assert [(e.type, e.text) for e in detect(text)] == [(EntityType.IDENTIFIER, value)], text
+    assert detect("Le dossier médical de Paul est complet.") == []
