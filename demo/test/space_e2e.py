@@ -11,8 +11,7 @@ Opens the Space, waits for the model to load, masks the page's own fictitious ex
 - no error in the console and no content security policy violation.
 
 It writes a screenshot and a JSON report (timings, aliases, hosts) for the workflow artifact.
-The model runs in Chromium on a GitHub machine (.github/workflows/space-e2e.yml), never on a
-laptop.
+The model runs in Chromium on a GitHub machine (.github/workflows/space-e2e.yml).
 
     python demo/test/space_e2e.py --url <page of the Space> --out e2e
 """

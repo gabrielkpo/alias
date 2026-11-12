@@ -31,7 +31,7 @@ prediction of the window where it sits farthest from an edge (`alias_pii.tagging
    French and English (`choice_recall` in the results file).
 3. **Tie-break** (gap under one point): lowest leak rate combined with the rules, then fastest.
 
-**Rule changed after the results (Gabriel's decision of 17/10), recorded here as such.** The
+**Rule changed after the results (decision, 2026-10-17), recorded here as such.** The
 eliminatory rule assumed that int8 quantisation keeps the quality. It does not: PyTorch dynamic
 int8 dropped mmBERT-small's precision from 0.970 to 0.337 on the test split, and the careful
 modes (head kept in float, or only the feed-forward layers in int8) reached 0.71 at best on the
@@ -69,7 +69,7 @@ It runs on a free Kaggle GPU, the same for the three candidates.
    ```
 3. In a Kaggle notebook with a GPU, attach that dataset, then:
    ```
-   !pip install -q git+https://github.com/gabrielkpo/alias "transformers>=4.51,<5" datasets accelerate
+   !pip install -q git+https://github.com/gabrielkpo/alias "transformers>=5.10,<6" datasets accelerate
    !python -m alias_pii.train --model jhu-clsp/mmBERT-small \
        --data /kaggle/input/<dataset> --out /kaggle/working/mmbert-small \
        --results /kaggle/working/training.jsonl
@@ -86,15 +86,15 @@ stay in it: their numbers go into the README results table.
 
 ## Publication
 
-The winning model may be published on Hugging Face with a model card (data, limits, measures,
-WikiNER attribution, CC BY 4.0), only after Gabriel's explicit agreement once the results are
-known. No model trained on real data is ever published.
+The winning model is published on Hugging Face as `Gabrielkph/alias-mmbert-small`, with a model
+card (data, limits, measures, WikiNER attribution, CC BY 4.0, docs/MODEL_CARD.md), after the
+results were known. No model trained on real data is ever published.
 
 ## Smoke test
 
 `--limit 300 --epochs 1` trains on 300 documents to check the whole chain before using GPU time.
-It runs on GitHub's CPU machines, not on a laptop: `gh workflow run compute.yml -f
-task=smoke-train`, or the `compute` label on a pull request.
+It runs on GitHub's CPU machines: `gh workflow run compute.yml -f task=smoke-train`, or the
+`compute` label on a pull request.
 
 ## ONNX Runtime (step 6)
 

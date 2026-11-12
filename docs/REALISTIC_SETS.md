@@ -2,7 +2,7 @@
 
 Every number so far is on text we generated (synthetic grid, public corpora converted, LLM-written
 documents). Step 7 measures Alias on documents written by people, close to its target sectors:
-banking, public administration, defence, health, insurance, HR, legal. Gabriel chose on 11/11 to
+banking, public administration, defence, health, insurance, HR, legal. Decision (2026-11-11):
 take them from **open sources** rather than personal papers (the hand-annotation tool of the
 draft `feat/real-sets` stays for later).
 
@@ -15,8 +15,7 @@ draft `feat/real-sets` stays for later).
   (`.github/workflows/open-sets.yml`, never on a push). Its validation split, when the source has
   one, checks the chain first.
 - The sources are public and their personal values are either already replaced by their
-  publisher or refilled with fake ones by us, so the measure may run on GitHub or Kaggle machines
-  (never on a laptop).
+  publisher or refilled with fake ones by us, so the measure may run on GitHub or Kaggle machines.
 - Each source is scored only on the labels it annotates (`labels` in the converted file); regions
   it annotates but Alias cannot be scored on are ignored (`ignore`). Masking, hence the leak
   rate, uses every prediction.

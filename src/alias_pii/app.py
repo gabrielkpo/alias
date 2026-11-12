@@ -5,7 +5,7 @@
 Nothing leaves the machine: the detector runs in this process, there is no outgoing call, no
 text is logged or written to disk, and each request gets a fresh alias table that is dropped
 with the response. Without `--model` (or `ALIAS_MODEL`) only the rules run: enough to develop
-the page on a laptop, not to mask names or addresses.
+the page, not to mask names or addresses.
 
 - `POST /api/mask` `{"text": "..."}` -> masked text, the spans found (type, position, alias)
   and a report counting values per type. The values themselves are never in the response: the

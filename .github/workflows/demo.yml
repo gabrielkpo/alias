@@ -1,7 +1,7 @@
 # The browser demo (demo/): unit tests of the JavaScript port, then its parity with the Python
 # detector on 300 generated validation documents and edge cases: token ids, offsets and rule
 # spans identical, full detector (ONNX model through transformers.js vs PyTorch) on at least
-# 99 % of the texts. The model runs here, on a GitHub CPU machine, never on a laptop.
+# 99 % of the texts. The model runs here, on a GitHub CPU machine.
 name: Demo
 on:
   pull_request:

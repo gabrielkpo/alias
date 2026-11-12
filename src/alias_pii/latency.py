@@ -3,9 +3,9 @@ about one second per page on a standard 4-core CPU, unquantised (int8 lost the q
 
     python -m alias_pii.latency --model <checkpoint> --data <dataset> --threads 4
 
-A page is 3,000 characters cut from the validation documents laid end to end (the test split is
-kept for its single read) (about one A4 page of
-prose). The first pages warm the model up and are not timed.
+A page is 3,000 characters (about one A4 page of prose) cut from the validation documents laid
+end to end; the test split is kept for its single read. The first pages warm the model up and
+are not timed.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 # Deploys the browser demo (demo/) to the Hugging Face Space Gabrielkph/alias, then checks the
 # deployed page end to end in headless Chromium. It runs when a release is published (called by
-# release-please.yml: the public demo changes only with a version Gabriel releases), or by hand
+# release-please.yml: the public demo changes only with a released version), or by hand
 # with a tag or branch, e.g. to roll back: gh workflow run deploy-space.yml -f ref=v0.2.0
 # The job runs in the GitHub environment "huggingface" (deployment history and the Space URL in
 # the repository's Deployments) and needs the secret HF_TOKEN: a fine-grained Hugging Face token
