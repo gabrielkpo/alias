@@ -34,7 +34,8 @@ import os
 import re
 import threading
 from collections import Counter
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -43,6 +44,7 @@ from fastapi.responses import JSONResponse, Response
 
 from alias_pii import __version__
 from alias_pii.entities import EntityType
+from alias_pii.limits import BodyLimit
 from alias_pii.masking import (
     AliasTable,
     Detector,
@@ -59,6 +61,7 @@ CHECKED = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID})
 # Values of the request looked for again, in any separator form, before sending.
 COMPACT_CHECKED = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID, EntityType.PHONE})
 MAX_CHARS = 200_000  # the whole conversation of one request
+MAX_BODY = 20_000_000  # bytes of one request, inline images included
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 # What a request may hold besides `messages`: settings with no text of their own. Any other
 # field (`prediction`, `user`, a JSON schema...) could carry personal data the bridge does not
@@ -398,6 +401,30 @@ def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> s
     return json.dumps(walk(document), ensure_ascii=False)
 
 
+def _restore_parts(parts: list, results: list[MaskResult], restored: set[str]) -> list:
+    """An answer given as a list of parts: a client shows their texts one after the other, so a
+    mark anywhere in them, once joined, leaves every part as it is; otherwise each `text` part
+    gets its values back. Other parts (thinking, references) keep their aliases."""
+    texts = [
+        part["text"]
+        for part in parts
+        if isinstance(part, dict)
+        and part.get("type") == "text"
+        and isinstance(part.get("text"), str)
+    ]
+    joined = "".join(texts)
+    if LINK_MARK.search(joined) or any(_linked(document) for document in _documents(joined)):
+        return parts
+    return [
+        {**part, "text": put_back(part["text"], results, restored)}
+        if isinstance(part, dict)
+        and part.get("type") == "text"
+        and isinstance(part.get("text"), str)
+        else part
+        for part in parts
+    ]
+
+
 def restore_answer(
     data: dict, results: list[MaskResult], json_mode: bool = False
 ) -> tuple[dict, int]:
@@ -410,6 +437,9 @@ def restore_answer(
     restored: set[str] = set()
     for choice in data.get("choices") or []:
         message = choice.get("message") if isinstance(choice, dict) else None
+        if isinstance(message, dict) and isinstance(message.get("content"), list):
+            message["content"] = _restore_parts(message["content"], results, restored)
+            continue
         if not (isinstance(message, dict) and isinstance(message.get("content"), str)):
             continue
         content = message["content"]
@@ -434,7 +464,22 @@ def create_bridge(
     (else the one the client sends); `transport`: for tests, a fake provider; `detector_name`:
     shown in `/health` and in the `X-Alias-Detector` header, so a client can check what masks
     its text."""
-    app = FastAPI(title="Alias Bridge", version=__version__, docs_url=None, redoc_url=None)
+    client = httpx.AsyncClient(base_url=upstream, transport=transport, timeout=120)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        await client.aclose()
+
+    app = FastAPI(
+        title="Alias Bridge",
+        version=__version__,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
+    )
+    app.add_middleware(BodyLimit, limit=MAX_BODY)
     hosts = set(allowed_hosts)
 
     @app.middleware("http")
@@ -455,7 +500,14 @@ def create_bridge(
         return await call_next(request)
 
     lock = threading.Lock()  # one detection at a time: CPU-bound, and the model is shared
-    client = httpx.AsyncClient(base_url=upstream, transport=transport, timeout=120)
+
+    async def upstream_call(method: str, path: str, **options) -> httpx.Response:
+        try:
+            return await client.request(method, path, **options)
+        except httpx.TimeoutException:
+            raise HTTPException(504, "Mistral did not answer in time") from None
+        except httpx.HTTPError:
+            raise HTTPException(502, "Mistral could not be reached") from None
 
     def key(request: Request) -> str:
         if api_key:
@@ -522,8 +574,11 @@ def create_bridge(
             )
         token = key(request)
         outgoing, results, counts = await run_in_threadpool(masked_request, body)
-        answer = await client.post(
-            "/v1/chat/completions", json=outgoing, headers={"Authorization": f"Bearer {token}"}
+        answer = await upstream_call(
+            "POST",
+            "/v1/chat/completions",
+            json=outgoing,
+            headers={"Authorization": f"Bearer {token}"},
         )
         if answer.status_code != 200:  # the provider's error, as it is (it only saw masked text)
             return Response(
@@ -533,7 +588,13 @@ def create_bridge(
         json_mode = isinstance(response_format, dict) and str(
             response_format.get("type", "")
         ).startswith("json")
-        data, restored = restore_answer(answer.json(), results, json_mode)
+        try:
+            data = answer.json()
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            raise HTTPException(502, "Mistral's answer is not a JSON object")
+        data, restored = restore_answer(data, results, json_mode)
         log.info("masked %s; restored %d", dict(counts), restored)
         return JSONResponse(
             data,
@@ -546,7 +607,9 @@ def create_bridge(
 
     @app.get("/v1/models")
     async def models(request: Request) -> Response:
-        answer = await client.get("/v1/models", headers={"Authorization": f"Bearer {key(request)}"})
+        answer = await upstream_call(
+            "GET", "/v1/models", headers={"Authorization": f"Bearer {key(request)}"}
+        )
         return Response(
             answer.content, answer.status_code, media_type=answer.headers.get("content-type")
         )
