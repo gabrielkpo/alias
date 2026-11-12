@@ -136,7 +136,7 @@ def measure(
                 counts["errors"] += 1
                 try:  # the bridge's own error message (fixed text, never a value)
                     detail = str(response.json().get("detail", ""))[:80]
-                except ValueError:
+                except (ValueError, AttributeError):  # not JSON, or not an object
                     detail = ""
                 code = f"{response.status_code} {detail}".strip()
                 statuses[code] = statuses.get(code, 0) + 1
