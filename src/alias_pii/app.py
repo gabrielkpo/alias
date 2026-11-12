@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from alias_pii import __version__
+from alias_pii.limits import BodyLimit
 from alias_pii.masking import Detector, mask
 from alias_pii.rules import RuleDetector
 
@@ -73,6 +74,7 @@ def create_app(
     # The interactive docs load their scripts from a CDN: off, nothing is fetched from outside.
     app = FastAPI(title="Alias", version=__version__, docs_url=None, redoc_url=None)
     lock = threading.Lock()  # one detection at a time: CPU-bound, and the model is shared
+    app.add_middleware(BodyLimit, limit=6 * max_chars + 1024)
 
     @app.middleware("http")
     async def limits_and_headers(

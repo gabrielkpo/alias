@@ -21,6 +21,9 @@ _TYPES = "|".join(t.value for t in EntityType)
 ALIAS_PATTERN = re.compile(rf"\[\s*({_TYPES})_(\d+)\s*\]")
 
 _STRICT_FORMATS = {EntityType.EMAIL, EntityType.IBAN, EntityType.NATIONAL_ID, EntityType.IDENTIFIER}
+# Types whose spaces, dots and dashes carry no meaning: one value however it is grouped.
+_SEPARATORS_MEANINGLESS = {EntityType.IBAN, EntityType.NATIONAL_ID}
+_INVISIBLE = re.compile("[\u00ad\u200b\u200c\u200d\u2060\ufeff]")
 
 
 class Detector(Protocol):
@@ -30,8 +33,11 @@ class Detector(Protocol):
 def normalize(entity: Entity) -> str:
     """Key under which two surface forms count as the same value.
 
-    "06 12 34 56 78" and "+33 6 12 34 56 78" are one phone; "Jean DUPONT" and "jean dupont" are
-    one person. Variants such as "M. Dupont" are not merged yet.
+    "01 99 00 12 34" and "+33 1 99 00 12 34" are one phone; "Jean DUPONT" and "jean dupont" are
+    one person; an IBAN or national ID is one value however it is grouped. An e-mail address
+    only ignores case, and an identifier case and spacing: "jean.dupont@" and "jeandupont@",
+    or "AB-1234" and "AB.12.34", may belong to two people. Variants such as "M. Dupont" are not
+    merged yet.
     """
     if entity.type is EntityType.PHONE:
         try:
@@ -39,8 +45,12 @@ def normalize(entity: Entity) -> str:
             return phonenumbers.format_number(number, phonenumbers.PhoneNumberFormat.E164)
         except phonenumbers.NumberParseException:
             return compact(entity.text)
-    if entity.type in _STRICT_FORMATS:
+    if entity.type in _SEPARATORS_MEANINGLESS:
         return compact(entity.text)
+    if entity.type is EntityType.EMAIL:  # a dot or dash makes another address
+        return _INVISIBLE.sub("", unicodedata.normalize("NFC", entity.text)).strip().casefold()
+    if entity.type is EntityType.IDENTIFIER:  # "AB-1234" and "AB.12.34" can be two files
+        return " ".join(_INVISIBLE.sub("", entity.text).upper().split())
     decomposed = unicodedata.normalize("NFKD", entity.text.casefold())
     without_accents = "".join(c for c in decomposed if not unicodedata.combining(c))
     return " ".join(without_accents.split())

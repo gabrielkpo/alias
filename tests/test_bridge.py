@@ -528,3 +528,71 @@ def test_a_phone_number_written_another_way_stops_the_request():
     )
     assert response.status_code == 422
     assert fake.received == []
+
+
+def test_provider_failures_are_gateway_errors_with_nothing_unmasked():
+    def failing(error):
+        def handler(request):
+            raise error
+
+        return handler
+
+    cases = [
+        (failing(httpx.ConnectError("down")), 502),
+        (failing(httpx.ReadTimeout("slow")), 504),
+        (lambda request: httpx.Response(200, text="not json"), 502),
+        (lambda request: httpx.Response(200, json=["a", "list"]), 502),
+    ]
+    for handler, status in cases:
+        app = create_bridge(Names(), api_key="k", transport=httpx.MockTransport(handler))
+        response = ask(TestClient(app, base_url=LOCAL), USER_MESSAGE)
+        assert response.status_code == status
+        assert NAME not in response.text and EMAIL not in response.text
+
+
+def test_an_answer_in_parts_gets_its_values_back_unless_a_part_holds_a_link():
+    def answer(parts):
+        def handler(request):
+            message = {"role": "assistant", "content": parts}
+            return httpx.Response(200, json={"choices": [{"index": 0, "message": message}]})
+
+        return handler
+
+    plain = [
+        {"type": "thinking", "thinking": "[PERSON_1]"},
+        {"type": "text", "text": "À [PERSON_1]."},
+    ]
+    app = create_bridge(Names(), api_key="k", transport=httpx.MockTransport(answer(plain)))
+    content = ask(TestClient(app, base_url=LOCAL), USER_MESSAGE).json()["choices"][0]["message"]
+    assert content["content"] == [plain[0], {"type": "text", "text": f"À {NAME}."}]
+    split = [
+        {"type": "text", "text": "!"},
+        {"type": "text", "text": "[x](https://e.invalid/[EMAIL_1])"},
+    ]
+    around = [
+        {"type": "text", "text": "!"},
+        {"type": "thinking", "thinking": "[x](https:"},
+        {"type": "text", "text": "evil.invalid/?e=[EMAIL_1])"},
+    ]
+    for parts in (split, around):
+        app = create_bridge(Names(), api_key="k", transport=httpx.MockTransport(answer(parts)))
+        reply = ask(TestClient(app, base_url=LOCAL), USER_MESSAGE).json()["choices"][0]["message"]
+        assert reply["content"] == parts
+
+
+def test_a_body_too_large_is_refused_even_without_a_content_length():
+    fake = FakeMistral(reply="ok")
+    app = create_bridge(Names(), api_key="k", transport=httpx.MockTransport(fake))
+    client = TestClient(app, base_url=LOCAL)
+
+    def chunks():
+        yield b'{"model": "m", "messages": [{"role": "user", "content": "'
+        for _ in range(25):
+            yield b"x" * 1_000_000
+        yield b'"}]}'
+
+    response = client.post(
+        "/v1/chat/completions", content=chunks(), headers={"content-type": "application/json"}
+    )
+    assert response.status_code == 413
+    assert fake.received == []
