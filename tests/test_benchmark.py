@@ -2,7 +2,7 @@ from alias_pii.baselines import _chunks, language_of
 from alias_pii.benchmark import report, run, score_document
 from alias_pii.entities import Entity, EntityType
 
-TEXT = "Contact: Ana Li, ana.li@example.org, 06 12 34 56 78."
+TEXT = "Contact: Ana Li, ana.li@example.org, 01 99 00 12 34."
 
 
 def entity(label, value, text=TEXT):
