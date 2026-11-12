@@ -1,6 +1,7 @@
 # Builds the CPU image and checks it serves the page and masks a text, with the rules alone and
-# with a tiny random model (the real weights are not public), the second time with no network
-# at all: the image needs nothing from outside at run time. Built on GitHub, not on a laptop.
+# with a tiny random model, the second time with no network at all: the image needs nothing from
+# outside at run time. The real model is published on Hugging Face (Gabrielkph/alias-mmbert-small);
+# the tiny random one keeps this check offline and fast. Built on a GitHub machine.
 name: Docker
 on:
   pull_request:

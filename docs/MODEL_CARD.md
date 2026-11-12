@@ -22,7 +22,8 @@ are read in windows of 512 tokens overlapping by 128.
 
 ## Training data
 
-Synthetic and public only, **no real personal data**:
+Synthetic and public only, **no private documents or private persons' data**; the public
+WikiNER corpus contains names of public figures:
 
 - documents generated from a grid of types, domains and formats with fake identities (Faker,
   MIT), every span known by construction;
@@ -41,12 +42,15 @@ training (docs/TRAINING.md in the repository).
 | 200 documents written by an LLM absent from training | 0.94 | 0.93 | 3.5 % |
 
 Strict precision and recall (label and both boundaries); leak rate: share of personal values still
-readable in full after masking. Not measured on real documents yet. CPU, unquantised: about one
-second per 3,000-character page on 4 cores. Dynamic int8 quantisation destroys its precision.
+readable in full after masking. Also measured once on public real documents, English court
+judgments of the TAB benchmark: see docs/REALISTIC_SETS.md in the repository. CPU, unquantised:
+about one second per 3,000-character page on 4 cores. Dynamic int8 quantisation destroys its
+precision.
 
 ## Limits
 
-- Measured on synthetic and LLM-written text only: real documents may hold forms it never saw.
+- Measured on synthetic and LLM-written text, and on one public set of real English judgments
+  (TAB): other real documents, French ones especially, may hold forms it never saw.
 - Out of distribution its weak spots are birth dates and national IDs. The Alias rules add
   national IDs (checksum), birth dates announced by a keyword and file numbers announced by a
   person's-file keyword ("dossier n°", "customer ID"); a birth date with no keyword can still be
