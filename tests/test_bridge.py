@@ -569,9 +569,15 @@ def test_an_answer_in_parts_gets_its_values_back_unless_a_part_holds_a_link():
         {"type": "text", "text": "!"},
         {"type": "text", "text": "[x](https://e.invalid/[EMAIL_1])"},
     ]
-    app = create_bridge(Names(), api_key="k", transport=httpx.MockTransport(answer(split)))
-    content = ask(TestClient(app, base_url=LOCAL), USER_MESSAGE).json()["choices"][0]["message"]
-    assert content["content"] == split
+    around = [
+        {"type": "text", "text": "!"},
+        {"type": "thinking", "thinking": "[x](https:"},
+        {"type": "text", "text": "evil.invalid/?e=[EMAIL_1])"},
+    ]
+    for parts in (split, around):
+        app = create_bridge(Names(), api_key="k", transport=httpx.MockTransport(answer(parts)))
+        reply = ask(TestClient(app, base_url=LOCAL), USER_MESSAGE).json()["choices"][0]["message"]
+        assert reply["content"] == parts
 
 
 def test_a_body_too_large_is_refused_even_without_a_content_length():

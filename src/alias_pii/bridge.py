@@ -401,26 +401,22 @@ def _restore_json(text: str, results: list[MaskResult], restored: set[str]) -> s
     return json.dumps(walk(document), ensure_ascii=False)
 
 
+def _text_part(part) -> bool:
+    return (
+        isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str)
+    )
+
+
 def _restore_parts(parts: list, results: list[MaskResult], restored: set[str]) -> list:
-    """An answer given as a list of parts: a client shows their texts one after the other, so a
-    mark anywhere in them, once joined, leaves every part as it is; otherwise each `text` part
-    gets its values back. Other parts (thinking, references) keep their aliases."""
-    texts = [
-        part["text"]
-        for part in parts
-        if isinstance(part, dict)
-        and part.get("type") == "text"
-        and isinstance(part.get("text"), str)
-    ]
-    joined = "".join(texts)
-    if LINK_MARK.search(joined) or any(_linked(document) for document in _documents(joined)):
+    """An answer given as a list of parts: a client may show every part's strings (text,
+    thinking...) one after another, in any order, so the parts are judged as one JSON document
+    (`_linked`), and their joined text for JSON within it; when no mark can be formed, each
+    `text` part gets its values back. Other parts keep their aliases."""
+    joined = "".join(part["text"] for part in parts if _text_part(part))
+    if _linked(parts) or any(_linked(document) for document in _documents(joined)):
         return parts
     return [
-        {**part, "text": put_back(part["text"], results, restored)}
-        if isinstance(part, dict)
-        and part.get("type") == "text"
-        and isinstance(part.get("text"), str)
-        else part
+        {**part, "text": put_back(part["text"], results, restored)} if _text_part(part) else part
         for part in parts
     ]
 
