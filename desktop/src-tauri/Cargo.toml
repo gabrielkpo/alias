@@ -1,5 +1,7 @@
 [package]
 name = "alias-desktop"
+# The app's version is the one in tauri.conf.json, set by release-please; this one stays fixed so
+# the lockfile does not change with each release.
 version = "0.1.0"
 description = "Alias Bridge as a macOS app"
 license = "MIT"

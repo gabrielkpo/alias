@@ -33,3 +33,12 @@ jobs:
       ref: ${{ needs.release-please.outputs.tag_name }}
     secrets:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}  # this one only, not the release token
+  # A published release also gets the macOS app, built and checked at that tag.
+  macos-app:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/macos-app.yml
+    with:
+      release_tag: ${{ needs.release-please.outputs.tag_name }}
