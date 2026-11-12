@@ -14,21 +14,28 @@ key, then puts the real values back in the answer. Nothing but counts is logged.
 
 What the detector misses reaches Mistral in clear (see [Limits](#limits)).
 
-## Run it (development version)
+## Run it
 
 ```
-uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>
+uv tool install "alias-pii[serve] @ git+https://github.com/gabrielkpo/alias"
+alias-pii key set      # asks for the Mistral key, stores it in the macOS keychain
+alias-pii serve        # http://127.0.0.1:8001/v1
 ```
 
-The checkpoint can also come from `ALIAS_MODEL`. Without a model the bridge does not start: the
-rules alone mask e-mails, phone numbers, IBANs, national IDs, file numbers and dates of birth
-announced as such, but no names or addresses. `--rules-only` starts it that way on purpose,
-with a warning in the log. `GET /health` and the `X-Alias-Detector` header of each answer name
+`alias-pii serve` runs the published model on ONNX Runtime, without PyTorch: the first launch
+downloads it once (about 600 MB, at a pinned revision, into the Hugging Face cache), later
+launches read it from the disk. It listens on 127.0.0.1 only. `--model <folder>` (or
+`ALIAS_MODEL`) uses a local ONNX export instead. Without a model the bridge does not run:
+`--rules-only` starts it with the rules alone on purpose, with a warning in the log; they mask
+e-mails, phone numbers, IBANs, national IDs, file numbers and dates of birth announced as such,
+but no names or addresses. `GET /health` and the `X-Alias-Detector` header of each answer name
 the detector in use (`rules+model` or `rules`).
 
-The Mistral key comes from `MISTRAL_API_KEY`, or else from the `Authorization` header the tool
-sends. The packaged command (`alias-pii serve`, key in the macOS keychain, ONNX detector without
-PyTorch), the Docker image and the macOS app come next.
+The Mistral key comes from the keychain (`alias-pii key status`, `alias-pii key delete`), else
+from `MISTRAL_API_KEY`, else from the `Authorization` header the tool sends; it is never shown,
+logged or written in clear. The development version runs from a clone with
+`uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>` (PyTorch).
+The Docker image and the macOS app come next.
 
 ```python
 from openai import OpenAI
