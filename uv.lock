@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -231,10 +231,13 @@ data = [
     { name = "pyarrow" },
 ]
 dev = [
+    { name = "faker" },
+    { name = "fastapi" },
     { name = "httpx" },
     { name = "openai" },
     { name = "pytest" },
     { name = "ruff" },
+    { name = "uvicorn" },
 ]
 onnx = [
     { name = "onnx" },
@@ -275,10 +278,13 @@ data = [
     { name = "pyarrow", specifier = ">=15" },
 ]
 dev = [
+    { name = "faker", specifier = ">=30" },
+    { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "openai", specifier = ">=1.50" },
     { name = "pytest", specifier = ">=8" },
     { name = "ruff", specifier = ">=0.6" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 onnx = [
     { name = "onnx", specifier = ">=1.16" },
