@@ -164,8 +164,9 @@ What still cannot be read is reported in
 objects. Broken, encrypted or binary files raise `UnsupportedFileError`.
 
 Known limits of the readers:
-- Invisible or special spaces inside a value (zero-width space, soft hyphen, no-break space in an
-  IBAN, narrow no-break space in a phone number) stop detection; the value stays readable.
+- Typographic spaces (no-break, narrow, thin) count as spaces and invisible characters
+  (zero-width space or joiner, soft hyphen) are skipped by the rules; the model reads the text
+  as written, so a name or address split by an invisible character may still be missed.
 - UTF-8 or Windows-1252 is decided per character from a list of characters plausible in French or
   English: anything else (CJK, Hebrew, Arabic, full-width) comes out garbled.
 - UTF-16 or UTF-32 mixed with another encoding is refused; convert the file to UTF-8.

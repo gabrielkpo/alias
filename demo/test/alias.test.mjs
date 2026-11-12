@@ -217,3 +217,19 @@ test("the spans and the report never carry the values", () => {
   const result = mask(text, [found(text, "EMAIL", "a.b@example.com")]);
   assert.ok(!JSON.stringify({ entities: result.entities, report: result.report }).includes("a.b@"));
 });
+
+test("typographic spaces and invisible characters do not hide a value", () => {
+  const texts = [
+    ["IBAN FR76\u00a03000\u00a06000\u00a00112\u00a03456\u00a07890\u00a0189 ok", "IBAN"],
+    ["NIR 1\u202f85\u202f05\u202f78\u202f006\u202f084\u202f91", "NATIONAL_ID"],
+    ["IBAN FR76 3000 6000 0112\u00ad3456 7890 189", "IBAN"],
+    ["mail jean\u200b.dupont@example.com", "EMAIL"],
+  ];
+  for (const [text, type] of texts) {
+    const found = detectRules(text);
+    assert.equal(found.length, 1, text);
+    assert.equal(found[0].type, type);
+    assert.equal(text.slice(found[0].start, found[0].end), found[0].text);
+    assert.ok(!/[\s.]/u.test(found[0].text[0]));
+  }
+});

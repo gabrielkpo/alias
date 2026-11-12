@@ -105,7 +105,7 @@ const IBAN_LENGTHS = {
 }; // prettier-ignore
 
 export function compact(value) {
-  return value.replace(/[\s.\-]/gu, "").toUpperCase();
+  return value.replace(/[\s.\-\u00ad\u200b\u200c\u200d\u2060\ufeff]/gu, "").toUpperCase();
 }
 
 export function ibanIsValid(value) {
@@ -276,9 +276,41 @@ function* birthDates(text) {
   }
 }
 
+// rules.SPACES and rules.INVISIBLE: typographic spaces read as a space, invisible characters
+// skipped, so a value written with them does not stay readable.
+const SPACES = new Set(
+  "\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000",
+);
+const INVISIBLE = new Set("\u00ad\u200b\u200c\u200d\u2060\ufeff");
+const TYPOGRAPHY = new RegExp(`[${[...SPACES, ...INVISIBLE].join("")}]`, "u");
+
+/** rules.shadow: the text as the rules read it, and each position's offset in the original. */
+export function shadow(text) {
+  let read = "";
+  const origin = [];
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (INVISIBLE.has(char)) continue;
+    read += SPACES.has(char) ? " " : char;
+    origin.push(i);
+  }
+  origin.push(text.length);
+  return [read, origin];
+}
+
+function findRaw(text) {
+  return [...emails(text), ...ibans(text), ...nationalIds(text), ...identifiers(text), ...birthDates(text)];
+}
+
 /** rules.RuleDetector.find, without the phone matcher: every rule's spans, not merged yet. */
 export function findRules(text) {
-  return [...emails(text), ...ibans(text), ...nationalIds(text), ...identifiers(text), ...birthDates(text)];
+  if (!TYPOGRAPHY.test(text)) return findRaw(text);
+  const [read, origin] = shadow(text);
+  return findRaw(read).map((e) => {
+    const start = origin[e.start];
+    const end = origin[e.end - 1] + 1;
+    return { ...e, start, end, text: text.slice(start, end) };
+  });
 }
 
 /** rules.RuleDetector.detect, without the phone matcher. */
