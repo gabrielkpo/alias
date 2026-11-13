@@ -55,23 +55,38 @@ function timeLeft(done, total) {
   return ` · about ${Math.round(seconds / 60)} min left`;
 }
 
+// The progress bar is a row of squares that light up from yellow to red.
+const PIXELS = 32;
+const COLORS = ["#FFD800", "#FFAF00", "#FF8205", "#FA500F", "#E10500"];
+for (let i = 0; i < PIXELS; i += 1) {
+  const pixel = document.createElement("span");
+  pixel.style.setProperty("--on", COLORS[Math.floor((i * COLORS.length) / PIXELS)]);
+  pixel.style.animationDelay = `${(i % 8) * 0.08}s`;
+  $("pixels").append(pixel);
+}
+
+function setPixels(fraction) {
+  const lit = Math.round(fraction * PIXELS);
+  [...$("pixels").children].forEach((pixel, i) => pixel.classList.toggle("lit", i < lit));
+}
+
 function renderLoading(model) {
-  const bar = $("bar-fill");
   setError("loading-error", model.phase === "failed" ? model.error : null);
+  const waiting = model.phase === "checking" || (model.phase === "downloading" && !model.total);
+  $("pixels").classList.toggle("waiting", waiting);
   if (model.phase === "downloading" && model.total) {
-    bar.classList.remove("unknown");
-    bar.style.width = `${Math.min(100, (100 * model.done) / model.total)}%`;
+    setPixels(Math.min(1, model.done / model.total));
     const left = timeLeft(model.done, model.total);
     $("progress-text").textContent =
-      `${megabytes(model.done)} of ${megabytes(model.total)} MB${left}`;
+      `${megabytes(model.done)} / ${megabytes(model.total)} MB${left}`;
   } else if (model.phase === "downloading") {
-    bar.classList.add("unknown");
+    setPixels(0);
     $("progress-text").textContent = `${megabytes(model.done)} MB downloaded`;
   } else if (model.phase === "failed") {
-    bar.classList.remove("unknown");
+    setPixels(0);
     $("progress-text").textContent = "The download stopped.";
   } else {
-    bar.classList.add("unknown");
+    setPixels(0);
     $("progress-text").textContent = "Looking for the model…";
   }
 }
