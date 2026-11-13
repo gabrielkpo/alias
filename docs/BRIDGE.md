@@ -67,8 +67,14 @@ protects the data, the Mistral key (stored in the keychain only once Mistral acc
 two settings to change in each tool, the base URL and the local token. After that the window
 shows whether the bridge runs, with a Restart when it stopped, the two settings to copy, and
 replacing or deleting the key. The app runs the bridge while it is open and stops it on quit.
-The command line has the same two pieces: `alias-pii fetch --progress` (progress as JSON lines)
-and `alias-pii key set --check`.
+
+The app keeps the key and the local token in one keychain item of its own ("Alias"), separate
+from the command line's: it reads it once per launch and hands both to the bridge on a pipe
+(`alias-pii serve --secrets-stdin`), so the bridge never touches the keychain and macOS has only
+the app to ask about. Since the app is signed ad hoc, macOS may ask once after an update; choose
+"Always Allow". The command line has the same pieces: `alias-pii fetch --progress` (progress as
+JSON lines), `alias-pii key check` (asks Mistral whether a key works, stores nothing) and
+`alias-pii key set --check`.
 
 The app is not notarized by Apple (ad-hoc signature only), so macOS blocks its first launch:
 allow it in System Settings, Privacy & Security, "Open Anyway". The `.dmg` is built and checked

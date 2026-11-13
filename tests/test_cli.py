@@ -263,3 +263,54 @@ def test_the_key_check_lists_mistral_models_with_the_key(monkeypatch, status, ex
     assert seen == {"url": "https://api.mistral.ai/v1/models", "auth": f"Bearer {SECRET}"}
     assert answer is None if expected is None else expected in answer
     assert answer is None or SECRET not in answer
+
+
+def test_the_app_gives_the_key_and_token_on_standard_input_never_the_keychain(monkeypatch):
+    import io
+    import json
+
+    def no_keychain(*args):
+        raise AssertionError("serve --secrets-stdin must not touch the keychain")
+
+    monkeypatch.setattr(keyring, "get_password", no_keychain)
+    monkeypatch.setattr(keyring, "set_password", no_keychain)
+
+    class Model:
+        def detect(self, text):
+            return []
+
+    served = {}
+    monkeypatch.setattr("uvicorn.run", lambda app, **options: served.update(app=app))
+    monkeypatch.setattr(cli, "published_model", lambda: "folder")
+    monkeypatch.setattr(cli, "model_detector", lambda folder: Model())
+    monkeypatch.delenv("ALIAS_MODEL", raising=False)
+    token = "t" * 40
+    line = json.dumps({"key": SECRET, "token": token}) + "\n"
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(line))
+    assert cli.main(["serve", "--secrets-stdin"]) == 0
+    client = TestClient(served["app"], base_url="http://127.0.0.1:8001")
+    assert client.post("/v1/chat/completions", json={}).status_code == 401
+    ok = client.post("/v1/chat/completions", json={}, headers={"Authorization": f"Bearer {token}"})
+    assert ok.status_code == 400  # past the token check, refused before any call to Mistral
+
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO("{}\n"))
+    assert cli.main(["serve", "--secrets-stdin"]) == 0  # no key: tools send their own
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(json.dumps({"key": SECRET}) + "\n"))
+    with pytest.raises(SystemExit):
+        cli.main(["serve", "--secrets-stdin"])  # a key without a token is refused
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO("null\n"))
+    with pytest.raises(SystemExit):
+        cli.main(["serve", "--secrets-stdin"])  # not an object: refused in one line
+
+
+def test_key_check_asks_mistral_and_stores_nothing(keychain, monkeypatch, capsys):
+    import io
+
+    monkeypatch.setattr(cli, "key_refused", lambda v: None if v == SECRET else "Mistral refused")
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(f"{SECRET}\n"))
+    assert cli.main(["key", "check", "--stdin"]) == 0
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO("bad\n"))
+    assert cli.main(["key", "check", "--stdin"]) == 1
+    assert keychain == {}
+    out = capsys.readouterr()
+    assert "Mistral refused" in out.err and SECRET not in out.out + out.err
