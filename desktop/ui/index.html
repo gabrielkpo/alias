@@ -8,34 +8,138 @@
 </head>
 <body>
   <main>
-    <h1>Alias</h1>
-    <p class="lead">Your tools talk to Mistral; the personal data stays on this Mac.</p>
-
-    <section>
-      <h2>The bridge</h2>
-      <p id="state" class="state">Starting…</p>
-      <p class="hint">On first launch the model (about 600 MB) is downloaded once.</p>
-      <p>Address for your tools: <code>http://127.0.0.1:8001/v1</code></p>
-    </section>
-
-    <section>
-      <h2>Mistral key</h2>
-      <p id="key-state">…</p>
-      <form id="key-form">
-        <input id="key" type="password" autocomplete="off" placeholder="Paste the Mistral key" aria-label="Mistral key">
-        <button type="submit">Save</button>
-      </form>
-      <button id="delete" type="button" class="secondary">Delete the key</button>
-      <p class="hint">Kept in the macOS keychain, never shown.</p>
-    </section>
-
-    <section id="token-section" hidden>
-      <h2>Local token</h2>
-      <p>With a key saved, your tools send this token as their API key instead of the Mistral key.</p>
-      <div class="row">
-        <code id="token">…</code>
-        <button id="copy" type="button">Copy</button>
+    <!-- First launch only: the detection model is downloaded once. -->
+    <section id="loading" class="screen">
+      <svg class="mark big" viewBox="0 0 11 9" shape-rendering="crispEdges" aria-hidden="true"><rect x="1" y="1" width="1" height="1" fill="#FFD800"/><rect x="2" y="1" width="1" height="1" fill="#FFD800"/><rect x="3" y="1" width="1" height="1" fill="#FFD800"/><rect x="7" y="1" width="1" height="1" fill="#FFD800"/><rect x="8" y="1" width="1" height="1" fill="#FFD800"/><rect x="9" y="1" width="1" height="1" fill="#FFD800"/><rect x="1" y="2" width="1" height="1" fill="#FFAF00"/><rect x="9" y="2" width="1" height="1" fill="#FFAF00"/><rect x="1" y="3" width="1" height="1" fill="#FFAF00"/><rect x="9" y="3" width="1" height="1" fill="#FFAF00"/><rect x="1" y="4" width="1" height="1" fill="#FF8205"/><rect x="9" y="4" width="1" height="1" fill="#FF8205"/><rect x="1" y="5" width="1" height="1" fill="#FA500F"/><rect x="9" y="5" width="1" height="1" fill="#FA500F"/><rect x="1" y="6" width="1" height="1" fill="#FA500F"/><rect x="9" y="6" width="1" height="1" fill="#FA500F"/><rect x="1" y="7" width="1" height="1" fill="#E10500"/><rect x="2" y="7" width="1" height="1" fill="#E10500"/><rect x="3" y="7" width="1" height="1" fill="#E10500"/><rect x="7" y="7" width="1" height="1" fill="#E10500"/><rect x="8" y="7" width="1" height="1" fill="#E10500"/><rect x="9" y="7" width="1" height="1" fill="#E10500"/></svg>
+      <h1>Setting up Alias</h1>
+      <p class="lead">Alias downloads its detection model once, about 600&nbsp;MB. After that it
+        works on this Mac only: what your tools send is masked here, before anything reaches
+        Mistral.</p>
+      <div id="pixels" class="pixels" role="progressbar" aria-label="Download progress"></div>
+      <p id="progress-text" class="mono">Looking for the model…</p>
+      <div id="loading-error" class="error" hidden>
+        <p class="error-text"></p>
+        <details><summary>Details</summary><pre></pre></details>
+        <button id="retry-download" type="button" class="primary">Try again <svg class="chev" viewBox="0 0 3 5" shape-rendering="crispEdges" aria-hidden="true"><path d="M0 0h1v1H0zM1 1h1v1H1zM2 2h1v1H2zM1 3h1v1H1zM0 4h1v1H0z"/></svg></button>
       </div>
+      <p class="hint">Keep Alias open until it finishes. Next time, it starts in a few seconds.</p>
+    </section>
+
+    <section id="step1" class="screen" hidden>
+      <p class="step">01 / 03</p>
+      <h1>How Alias protects your data</h1>
+      <ol class="flow">
+        <li><span>Your tool sends its request to Alias</span> instead of Mistral.</li>
+        <li><span>Alias finds the personal data</span>: names, addresses, IBANs, e-mails, phone
+          numbers… Each value becomes an alias such as <code>[PERSON_1]</code>.</li>
+        <li><span>Mistral answers with the aliases.</span> It never receives the values Alias
+          found.</li>
+        <li><span>Alias puts the real values back</span> and returns the answer to your tool.</li>
+      </ol>
+      <p class="note">What the detector misses reaches Mistral as it is: stay careful with very
+        sensitive documents.</p>
+      <div class="actions">
+        <button type="button" class="primary" data-go="step2">Continue <svg class="chev" viewBox="0 0 3 5" shape-rendering="crispEdges" aria-hidden="true"><path d="M0 0h1v1H0zM1 1h1v1H1zM2 2h1v1H2zM1 3h1v1H1zM0 4h1v1H0z"/></svg></button>
+      </div>
+    </section>
+
+    <section id="step2" class="screen" hidden>
+      <p class="step">02 / 03</p>
+      <h1>Add your Mistral key</h1>
+      <p class="lead">Alias calls Mistral with your own API key, so what you use is billed to your
+        Mistral account.</p>
+      <ol class="flow compact">
+        <li>Open <span>console.mistral.ai</span> and sign in.</li>
+        <li>Go to <span>API keys</span> and create a key.</li>
+        <li>Copy it and paste it here.</li>
+      </ol>
+      <form id="key-form" class="row">
+        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Mistral key" aria-label="Mistral key">
+        <button id="key-save" type="submit" class="primary">Save and check</button>
+      </form>
+      <p id="key-result" class="result" role="status"></p>
+      <p class="hint">Alias checks the key with Mistral, then keeps it in the macOS keychain. It is
+        never shown again, and your tools never need it.</p>
+      <div class="actions">
+        <button id="step2-back" type="button">Back</button>
+      </div>
+    </section>
+
+    <section id="step3" class="screen" hidden>
+      <p class="step">03 / 03</p>
+      <h1>Connect your tools</h1>
+      <p class="lead">In each tool that uses Mistral (a script, LibreChat, n8n…), change two
+        settings.</p>
+      <div class="panel">
+        <p class="label">Base URL <span>instead of https://api.mistral.ai/v1</span></p>
+        <div class="row">
+          <code class="field" id="step3-url">http://127.0.0.1:8001/v1</code>
+          <button type="button" data-copy="step3-url">Copy</button>
+        </div>
+        <p class="label">API key <span>instead of your Mistral key</span></p>
+        <div class="row">
+          <code class="field token">…</code>
+          <button type="button" data-copy-token>Copy</button>
+        </div>
+      </div>
+      <details class="example">
+        <summary>Example in Python</summary>
+        <pre>from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8001/v1",
+    api_key="&lt;the API key above&gt;",
+)
+answer = client.chat.completions.create(
+    model="mistral-small-latest",
+    messages=[{"role": "user", "content": "Summarize this letter: …"}],
+)
+print(answer.choices[0].message.content)</pre>
+      </details>
+      <p class="hint">Keep Alias open while you use your tools: they reach Mistral through it.</p>
+      <div class="actions">
+        <button type="button" data-go="step2">Back</button>
+        <button id="finish" type="button" class="primary">Done <svg class="chev" viewBox="0 0 3 5" shape-rendering="crispEdges" aria-hidden="true"><path d="M0 0h1v1H0zM1 1h1v1H1zM2 2h1v1H2zM1 3h1v1H1zM0 4h1v1H0z"/></svg></button>
+      </div>
+    </section>
+
+    <section id="home" class="screen" hidden>
+      <header>
+        <svg class="mark" viewBox="0 0 11 9" shape-rendering="crispEdges" aria-hidden="true"><rect x="1" y="1" width="1" height="1" fill="#FFD800"/><rect x="2" y="1" width="1" height="1" fill="#FFD800"/><rect x="3" y="1" width="1" height="1" fill="#FFD800"/><rect x="7" y="1" width="1" height="1" fill="#FFD800"/><rect x="8" y="1" width="1" height="1" fill="#FFD800"/><rect x="9" y="1" width="1" height="1" fill="#FFD800"/><rect x="1" y="2" width="1" height="1" fill="#FFAF00"/><rect x="9" y="2" width="1" height="1" fill="#FFAF00"/><rect x="1" y="3" width="1" height="1" fill="#FFAF00"/><rect x="9" y="3" width="1" height="1" fill="#FFAF00"/><rect x="1" y="4" width="1" height="1" fill="#FF8205"/><rect x="9" y="4" width="1" height="1" fill="#FF8205"/><rect x="1" y="5" width="1" height="1" fill="#FA500F"/><rect x="9" y="5" width="1" height="1" fill="#FA500F"/><rect x="1" y="6" width="1" height="1" fill="#FA500F"/><rect x="9" y="6" width="1" height="1" fill="#FA500F"/><rect x="1" y="7" width="1" height="1" fill="#E10500"/><rect x="2" y="7" width="1" height="1" fill="#E10500"/><rect x="3" y="7" width="1" height="1" fill="#E10500"/><rect x="7" y="7" width="1" height="1" fill="#E10500"/><rect x="8" y="7" width="1" height="1" fill="#E10500"/><rect x="9" y="7" width="1" height="1" fill="#E10500"/></svg>
+        <h1>Alias</h1>
+        <span id="status" class="status starting"><span class="dot"></span><span id="status-text">Starting</span></span>
+      </header>
+      <p id="status-detail" class="lead">The bridge is starting.</p>
+      <div id="bridge-error" class="error" hidden>
+        <p class="error-text"></p>
+        <details><summary>Details</summary><pre></pre></details>
+        <button id="restart" type="button" class="primary">Restart <svg class="chev" viewBox="0 0 3 5" shape-rendering="crispEdges" aria-hidden="true"><path d="M0 0h1v1H0zM1 1h1v1H1zM2 2h1v1H2zM1 3h1v1H1zM0 4h1v1H0z"/></svg></button>
+      </div>
+
+      <div class="panel">
+        <h2>Your tools</h2>
+        <p class="label">Base URL</p>
+        <div class="row">
+          <code class="field" id="home-url">http://127.0.0.1:8001/v1</code>
+          <button type="button" data-copy="home-url">Copy</button>
+        </div>
+        <p class="label">API key</p>
+        <div class="row">
+          <code class="field token">…</code>
+          <button type="button" data-copy-token>Copy</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Mistral key</h2>
+        <p class="hint">Saved in the macOS keychain. Your tools never need it.</p>
+        <div class="row">
+          <button id="replace" type="button">Replace the key</button>
+          <button id="delete" type="button" class="danger">Delete the key</button>
+        </div>
+      </div>
+
+      <p class="center-text"><button type="button" class="link" data-go="step1">Show the setup again</button></p>
     </section>
 
     <p id="message" class="message" role="status"></p>

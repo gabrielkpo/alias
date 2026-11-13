@@ -61,10 +61,14 @@ The development version runs from a clone with
 ### The macOS app
 
 Releases after 0.3.0 attach `Alias_<version>_aarch64.dmg` (Apple silicon, macOS 13 or later)
-and its SHA-256. The app runs the bridge while it is open and stops it on quit; its window shows
-whether the bridge runs and with which detector, stores or deletes the Mistral key in the
-keychain, and shows the local token to give to tools. It needs no Python: the bridge is bundled
-as one executable. The first launch downloads the model like `alias-pii serve`.
+and its SHA-256. It needs no Python: the bridge is bundled as one executable. The first launch
+shows the model download (about 600 MB, once) with its progress, then three steps: how Alias
+protects the data, the Mistral key (stored in the keychain only once Mistral accepts it), and the
+two settings to change in each tool, the base URL and the local token. After that the window
+shows whether the bridge runs, with a Restart when it stopped, the two settings to copy, and
+replacing or deleting the key. The app runs the bridge while it is open and stops it on quit.
+The command line has the same two pieces: `alias-pii fetch --progress` (progress as JSON lines)
+and `alias-pii key set --check`.
 
 The app is not notarized by Apple (ad-hoc signature only), so macOS blocks its first launch:
 allow it in System Settings, Privacy & Security, "Open Anyway". The `.dmg` is built and checked

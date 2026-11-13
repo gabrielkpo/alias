@@ -176,3 +176,90 @@ def test_an_app_passes_the_key_on_standard_input(keychain, monkeypatch, capsys):
     assert cli.main(["key", "set", "--stdin"]) == 0
     assert keychain[("alias-pii", "mistral")] == SECRET
     assert SECRET not in capsys.readouterr().out
+
+
+def test_fetch_progress_prints_json_lines_then_ready(monkeypatch, tmp_path, capsys):
+    import json
+    import time
+
+    pytest.importorskip("huggingface_hub")
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(tmp_path))
+    blobs = tmp_path / f"models--{cli.MODEL_REPO.replace('/', '--')}" / "blobs"
+    blobs.mkdir(parents=True)
+    (blobs / "left-by-an-old-download.incomplete").write_bytes(b"x" * 70)
+
+    def download():
+        for part in range(4):
+            (blobs / f"part{part}").write_bytes(b"x" * 25)
+            time.sleep(0.03)
+        return tmp_path
+
+    monkeypatch.setattr(cli, "cached_model", lambda: None)
+    monkeypatch.setattr(cli, "_model_bytes", lambda: 100)
+    monkeypatch.setattr(cli, "published_model", download)
+    assert cli.fetch_with_progress(every=0.01) == 0
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert lines[-1] == {"ready": True}
+    progress = [line for line in lines if "done" in line]
+    assert progress and all(line["total"] == 100 for line in progress)
+    done = [line["done"] for line in progress]
+    assert done == sorted(done) and 0 <= done[0] and done[-1] <= 100  # the old 70 bytes not counted
+
+
+def test_fetch_progress_says_ready_at_once_when_the_model_is_cached(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "cached_model", lambda: tmp_path)
+    assert cli.main(["fetch", "--progress"]) == 0
+    assert capsys.readouterr().out.strip() == '{"ready": true}'
+
+
+def test_fetch_progress_reports_a_failed_download(monkeypatch, tmp_path, capsys):
+    import json
+
+    pytest.importorskip("huggingface_hub")
+    monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(tmp_path))
+
+    def download():
+        raise OSError("network is unreachable")
+
+    monkeypatch.setattr(cli, "cached_model", lambda: None)
+    monkeypatch.setattr(cli, "_model_bytes", lambda: None)
+    monkeypatch.setattr(cli, "published_model", download)
+    assert cli.fetch_with_progress(every=0.01) == 1
+    last = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert last == {"error": "OSError: network is unreachable"}
+
+
+def test_a_key_mistral_refuses_is_not_stored(keychain, monkeypatch, capsys):
+    import io
+
+    refused = "Mistral refused this key. Check it and paste it again."
+    monkeypatch.setattr(cli, "key_refused", lambda value: refused if value == "bad" else None)
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO("bad\n"))
+    assert cli.main(["key", "set", "--stdin", "--check"]) == 1
+    assert keychain == {}
+    assert refused in capsys.readouterr().err
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(f"{SECRET}\n"))
+    assert cli.main(["key", "set", "--stdin", "--check"]) == 0
+    assert keychain[("alias-pii", "mistral")] == SECRET
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [(200, None), (401, "refused"), (403, "refused"), (503, "answered 503"), (None, "reached")],
+)
+def test_the_key_check_lists_mistral_models_with_the_key(monkeypatch, status, expected):
+    import httpx
+
+    seen = {}
+
+    def get(url, headers, timeout):
+        seen.update(url=url, auth=headers["Authorization"])
+        if status is None:
+            raise httpx.ConnectError("no route")
+        return httpx.Response(status)
+
+    monkeypatch.setattr(httpx, "get", get)
+    answer = cli.key_refused(SECRET)
+    assert seen == {"url": "https://api.mistral.ai/v1/models", "auth": f"Bearer {SECRET}"}
+    assert answer is None if expected is None else expected in answer
+    assert answer is None or SECRET not in answer
