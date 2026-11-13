@@ -90,7 +90,6 @@ def fetch_with_progress(every: float = 0.5) -> int:
     `{"done": bytes, "total": bytes or null}`, then `{"ready": true}` or `{"error": text}`.
     The desktop app reads them to draw its progress bar. `done` is what the model's cache folder
     gained since the start, so files left by an interrupted download are not counted."""
-    from huggingface_hub import constants
 
     def say(**fields: object) -> None:
         print(json.dumps(fields), flush=True)
@@ -98,6 +97,8 @@ def fetch_with_progress(every: float = 0.5) -> int:
     if cached_model() is not None:
         say(ready=True)
         return 0
+    from huggingface_hub import constants
+
     cache = Path(constants.HF_HUB_CACHE) / f"models--{MODEL_REPO.replace('/', '--')}"
     total, start, outcome = _model_bytes(), _folder_bytes(cache), {}
 

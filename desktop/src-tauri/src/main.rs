@@ -344,7 +344,7 @@ fn main() {
                 }
                 if let Ok(mut bridge) = alias.bridge.lock() {
                     stop(&mut bridge);
-                }
+                };
             }
         });
 }
