@@ -57,7 +57,19 @@ container too.
 
 The development version runs from a clone with
 `uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>` (PyTorch).
-The macOS app comes next.
+
+### The macOS app
+
+Releases after 0.3.0 attach `Alias_<version>_aarch64.dmg` (Apple silicon, macOS 13 or later)
+and its SHA-256. The app runs the bridge while it is open and stops it on quit; its window shows
+whether the bridge runs and with which detector, stores or deletes the Mistral key in the
+keychain, and shows the local token to give to tools. It needs no Python: the bridge is bundled
+as one executable. The first launch downloads the model like `alias-pii serve`.
+
+The app is not notarized by Apple (ad-hoc signature only), so macOS blocks its first launch:
+allow it in System Settings, Privacy & Security, "Open Anyway". The `.dmg` is built and checked
+on a GitHub macOS machine by the `macos-app` workflow, which launches the app, waits for its
+bridge to answer with the model, then quits it and checks the bridge stopped.
 
 ```python
 from openai import OpenAI
