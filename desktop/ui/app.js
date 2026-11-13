@@ -55,9 +55,9 @@ function timeLeft(done, total) {
   return ` · about ${Math.round(seconds / 60)} min left`;
 }
 
-// The progress bar is a row of squares that light up from yellow to red.
+// The progress bar is a row of squares that light up from light blue to the icon's navy.
 const PIXELS = 32;
-const COLORS = ["#FFD800", "#FFAF00", "#FF8205", "#FA500F", "#E10500"];
+const COLORS = ["#A9BDEB", "#7F9BDD", "#5577C6", "#3557A6", "#1F2A44"]; // Alias blues
 for (let i = 0; i < PIXELS; i += 1) {
   const pixel = document.createElement("span");
   pixel.style.setProperty("--on", COLORS[Math.floor((i * COLORS.length) / PIXELS)]);
