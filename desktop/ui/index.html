@@ -8,60 +8,138 @@
 </head>
 <body>
   <main>
-    <header>
-      <div class="mark" aria-hidden="true">[ ]</div>
-      <div>
-        <h1>Alias</h1>
-        <p class="lead">Your tools talk to Mistral; the personal data stays on this Mac.</p>
+    <!-- First launch only: the detection model is downloaded once. -->
+    <section id="loading" class="screen center">
+      <div class="mark big" aria-hidden="true">[ ]</div>
+      <h1>Setting up Alias</h1>
+      <p class="lead">Alias downloads its detection model once (about 600 MB). After that it
+        works on this Mac only: what your tools send is masked here, before anything reaches
+        Mistral.</p>
+      <div class="bar" role="progressbar" aria-label="Download progress">
+        <div id="bar-fill" class="bar-fill"></div>
       </div>
-    </header>
+      <p id="progress-text" class="detail">Looking for the model…</p>
+      <div id="loading-error" class="error" hidden>
+        <p class="error-text"></p>
+        <details><summary>Details</summary><pre></pre></details>
+        <button id="retry-download" type="button">Try again</button>
+      </div>
+      <p class="hint">Keep Alias open until it finishes. Next time, it starts in a few seconds.</p>
+    </section>
 
-    <section class="card">
-      <div class="card-head">
-        <h2>Bridge</h2>
-        <span id="status" class="status starting"><span class="dot"></span><span id="status-text">Starting</span></span>
+    <section id="step1" class="screen" hidden>
+      <p class="step">Step 1 of 3</p>
+      <h1>How Alias protects your data</h1>
+      <ol class="flow">
+        <li><strong>Your tool sends its request to Alias</strong> instead of Mistral.</li>
+        <li><strong>Alias finds the personal data</strong> (names, addresses, IBANs, e-mails,
+          phone numbers…) and replaces each value with an alias such as <code>[PERSON_1]</code>.</li>
+        <li><strong>Mistral answers with the aliases.</strong> It never receives the values Alias
+          found.</li>
+        <li><strong>Alias puts the real values back</strong> and returns the answer to your
+          tool.</li>
+      </ol>
+      <p class="hint">What the detector misses reaches Mistral as it is: stay careful with very
+        sensitive documents.</p>
+      <div class="actions">
+        <button type="button" data-go="step2">Continue</button>
       </div>
-      <p id="status-detail" class="detail">The first launch downloads the model (about 600 MB) once.</p>
+    </section>
+
+    <section id="step2" class="screen" hidden>
+      <p class="step">Step 2 of 3</p>
+      <h1>Add your Mistral key</h1>
+      <p>Alias calls Mistral with your own API key, so what you use is billed to your Mistral
+        account.</p>
+      <ol class="plain">
+        <li>Open <strong>console.mistral.ai</strong> and sign in.</li>
+        <li>Go to <strong>API keys</strong> and create a key.</li>
+        <li>Copy it and paste it here.</li>
+      </ol>
+      <form id="key-form" class="row">
+        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Mistral key" aria-label="Mistral key">
+        <button id="key-save" type="submit">Save and check</button>
+      </form>
+      <p id="key-result" class="result" role="status"></p>
+      <p class="hint">Alias checks the key with Mistral, then keeps it in the macOS keychain. It is
+        never shown again, and your tools never need it.</p>
+      <div class="actions">
+        <button id="step2-back" type="button" class="secondary">Back</button>
+      </div>
+    </section>
+
+    <section id="step3" class="screen" hidden>
+      <p class="step">Step 3 of 3</p>
+      <h1>Connect your tools</h1>
+      <p>In each tool that uses Mistral (a script, LibreChat, n8n…), change two settings:</p>
+      <p class="label">Base URL, instead of <code class="inline">https://api.mistral.ai/v1</code></p>
+      <div class="row">
+        <code class="field" id="step3-url">http://127.0.0.1:8001/v1</code>
+        <button type="button" class="secondary" data-copy="step3-url">Copy</button>
+      </div>
+      <p class="label">API key, instead of your Mistral key</p>
+      <div class="row">
+        <code class="field token">…</code>
+        <button type="button" class="secondary" data-copy-token>Copy</button>
+      </div>
+      <details class="example">
+        <summary>Example in Python</summary>
+        <pre>from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8001/v1",
+    api_key="&lt;the API key above&gt;",
+)
+answer = client.chat.completions.create(
+    model="mistral-small-latest",
+    messages=[{"role": "user", "content": "Summarize this letter: …"}],
+)
+print(answer.choices[0].message.content)</pre>
+      </details>
+      <p class="hint">Keep Alias open while you use your tools: they reach Mistral through it.</p>
+      <div class="actions">
+        <button type="button" class="secondary" data-go="step2">Back</button>
+        <button id="finish" type="button">Done</button>
+      </div>
+    </section>
+
+    <section id="home" class="screen" hidden>
+      <header>
+        <div class="mark" aria-hidden="true">[ ]</div>
+        <h1>Alias</h1>
+        <span id="status" class="status starting"><span class="dot"></span><span id="status-text">Starting</span></span>
+      </header>
+      <p id="status-detail" class="detail">The bridge is starting.</p>
       <div id="bridge-error" class="error" hidden>
         <p class="error-text"></p>
         <details><summary>Details</summary><pre></pre></details>
+        <button id="restart" type="button">Restart</button>
       </div>
-      <button id="restart" type="button" hidden>Restart the bridge</button>
-      <p class="label">Address for your tools</p>
-      <div class="row">
-        <code id="address">http://127.0.0.1:8001/v1</code>
-        <button type="button" class="secondary" data-copy="address">Copy</button>
-      </div>
-    </section>
 
-    <section class="card">
-      <div class="card-head">
+      <div class="card">
+        <h2>Your tools</h2>
+        <p class="label">Base URL</p>
+        <div class="row">
+          <code class="field" id="home-url">http://127.0.0.1:8001/v1</code>
+          <button type="button" class="secondary" data-copy="home-url">Copy</button>
+        </div>
+        <p class="label">API key</p>
+        <div class="row">
+          <code class="field token">…</code>
+          <button type="button" class="secondary" data-copy-token>Copy</button>
+        </div>
+      </div>
+
+      <div class="card">
         <h2>Mistral key</h2>
-        <span id="key-badge" class="badge">…</span>
+        <p class="detail">Saved in the macOS keychain. Your tools never need it.</p>
+        <div class="row">
+          <button id="replace" type="button" class="secondary">Replace the key</button>
+          <button id="delete" type="button" class="secondary danger">Delete the key</button>
+        </div>
       </div>
-      <form id="key-form" class="row">
-        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Mistral key" aria-label="Mistral key">
-        <button type="submit">Save</button>
-      </form>
-      <div class="row between">
-        <p class="hint">Kept in the macOS keychain, never shown.</p>
-        <button id="delete" type="button" class="link" hidden>Delete the key</button>
-      </div>
-      <div id="key-error" class="error" hidden>
-        <p class="error-text"></p>
-        <details><summary>Details</summary><pre></pre></details>
-      </div>
-    </section>
 
-    <section id="token-card" class="card" hidden>
-      <div class="card-head">
-        <h2>Local token</h2>
-      </div>
-      <p class="hint">Your tools send this token as their API key, instead of the Mistral key.</p>
-      <div class="row">
-        <code id="token">…</code>
-        <button type="button" class="secondary" data-copy="token">Copy</button>
-      </div>
+      <p class="center-text"><button type="button" class="link" data-go="step1">Show the setup again</button></p>
     </section>
 
     <p id="message" class="message" role="status"></p>

@@ -1,39 +1,65 @@
-// Alias, the macOS app: runs Alias Bridge (the standalone `alias-pii` executable shipped next to
-// this one) in the background while the app is open, and gives the window its commands: the
-// bridge's health, whether it still runs and its last log lines, restarting it, whether a Mistral
-// key is in the keychain, the local token, and setting or deleting the key. The key goes to
-// `alias-pii key set --stdin` on a pipe, never on a command line; the bridge restarts after a
-// change so it uses the new key. The commands are async, so
-// running the bundled executable (seconds, as it unpacks itself) never freezes the window.
+// Alias, the macOS app. It runs the standalone `alias-pii` executable shipped next to this one:
+// first `alias-pii fetch --progress`, which downloads the detection model once and reports its
+// progress as JSON lines, then `alias-pii serve`, the bridge, while the app is open. The window
+// follows both through the `state` command and sets or deletes the Mistral key, which goes to
+// `alias-pii key set --stdin --check` on a pipe (never on a command line) and is stored only if
+// Mistral accepts it; the bridge restarts after a change so it uses the new key. Commands are
+// async, so running the bundled executable (seconds, as it unpacks itself) never freezes the
+// window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::VecDeque;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tauri::{Manager, RunEvent, State};
+use serde::Serialize;
+use tauri::{AppHandle, Manager, RunEvent, State};
 
 const BRIDGE: &str = "127.0.0.1:8001";
 const LOG_LINES: usize = 40;
 
-/// The running bridge, so it can be restarted and stopped with the app, and the last lines of its
-/// error output (states and counts, never the text it masks), to show why it stopped.
-struct Bridge {
-    child: Mutex<Option<Child>>,
-    /// A new buffer for each start, so a previous bridge still writing never mixes in its lines.
-    log: Mutex<Arc<Mutex<VecDeque<String>>>>,
+/// The last lines a process wrote on its error output (states and counts, never masked text).
+type Log = Arc<Mutex<VecDeque<String>>>;
+
+/// Where the detection model stands: "checking", "downloading", "ready" or "failed".
+#[derive(Clone, Serialize)]
+struct Model {
+    phase: &'static str,
+    done: u64,
+    total: Option<u64>,
+    error: Option<String>,
 }
 
-/// What the window shows about the bridge process.
-#[derive(serde::Serialize)]
-struct BridgeState {
-    running: bool,
+impl Model {
+    fn at(phase: &'static str) -> Self {
+        Model { phase, done: 0, total: None, error: None }
+    }
+
+    fn failed(error: String) -> Self {
+        Model { error: Some(error), ..Model::at("failed") }
+    }
+}
+
+/// What the window shows: the model, and whether the bridge process runs (else why it stopped).
+#[derive(Serialize)]
+struct AppState {
+    model: Model,
+    bridge_running: bool,
     exit_code: Option<i32>,
     last_lines: Vec<String>,
+}
+
+/// The app's processes. Each start gets a new log, so an earlier process still writing never
+/// mixes its lines into the current one's.
+struct Alias {
+    fetch: Mutex<Option<Child>>,
+    bridge: Mutex<Option<Child>>,
+    log: Mutex<Log>,
+    model: Mutex<Model>,
 }
 
 /// The bundled `alias-pii` executable (Tauri's externalBin sits next to the app's executable).
@@ -43,12 +69,12 @@ fn executable() -> Result<PathBuf, String> {
     Ok(folder.join("alias-pii"))
 }
 
-/// Stops the bridge with SIGTERM, not SIGKILL: the one-file executable is a launcher that runs the
-/// bridge as its own child and passes SIGTERM on to it, while SIGKILL would stop the launcher only
-/// and leave the bridge running. SIGKILL is the fallback after five seconds.
+/// Stops a process with SIGTERM, not SIGKILL: the one-file executable is a launcher that runs the
+/// real process as its own child and passes SIGTERM on to it, while SIGKILL would stop the
+/// launcher only. SIGKILL is the fallback after five seconds.
 fn stop(child: &mut Option<Child>) {
     if let Some(mut running) = child.take() {
-        // Already exited (and maybe reaped by bridge_state): its pid may belong to another process.
+        // Already exited (and maybe reaped by `state`): its pid may belong to another process.
         if let Ok(Some(_)) = running.try_wait() {
             return;
         }
@@ -67,7 +93,7 @@ fn stop(child: &mut Option<Child>) {
     }
 }
 
-/// Reads the bridge's error output until it closes, keeping its last lines. A progress bar
+/// Reads a process's error output until it closes, keeping its last lines. A progress bar
 /// rewrites its line with `\r`, so `\r` ends a line too.
 fn keep_lines(mut from: impl Read, log: &Mutex<VecDeque<String>>) {
     let mut buffer = [0u8; 4096];
@@ -97,22 +123,85 @@ fn keep_lines(mut from: impl Read, log: &Mutex<VecDeque<String>>) {
     }
 }
 
-fn start(bridge: &Bridge) -> Result<(), String> {
-    let mut child = bridge.child.lock().map_err(|e| e.to_string())?;
-    stop(&mut child);
-    let log = Arc::new(Mutex::new(VecDeque::new()));
-    *bridge.log.lock().map_err(|e| e.to_string())? = Arc::clone(&log);
-    let mut spawned = Command::new(executable()?)
-        .arg("serve")
+/// Starts `alias-pii` with `args` in the background, its error output kept in a new log that
+/// becomes the app's current one.
+fn spawn_logged(alias: &Alias, args: &[&str], stdout: Stdio) -> Result<(Child, Log), String> {
+    let log: Log = Arc::default();
+    *alias.log.lock().map_err(|e| e.to_string())? = Arc::clone(&log);
+    let mut child = Command::new(executable()?)
+        .args(args)
         .stdin(Stdio::null())
+        .stdout(stdout)
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("the bridge did not start: {e}"))?;
-    if let Some(stderr) = spawned.stderr.take() {
-        std::thread::spawn(move || keep_lines(stderr, &log));
+        .map_err(|e| format!("Alias could not start its bridge program: {e}"))?;
+    if let Some(stderr) = child.stderr.take() {
+        let lines = Arc::clone(&log);
+        std::thread::spawn(move || keep_lines(stderr, &lines));
     }
-    *child = Some(spawned);
+    Ok((child, log))
+}
+
+fn start_bridge(alias: &Alias) -> Result<(), String> {
+    let mut bridge = alias.bridge.lock().map_err(|e| e.to_string())?;
+    stop(&mut bridge);
+    let (child, _) = spawn_logged(alias, &["serve"], Stdio::null())?;
+    *bridge = Some(child);
     Ok(())
+}
+
+fn set_model(alias: &Alias, model: Model) {
+    if let Ok(mut current) = alias.model.lock() {
+        *current = model;
+    }
+}
+
+/// Downloads the model if it is not on the disk yet, then starts the bridge. Runs on its own
+/// thread; the window follows it through `state`.
+fn prepare(app: AppHandle) {
+    let alias = app.state::<Alias>();
+    set_model(&alias, Model::at("checking"));
+    let (mut child, log) = match spawn_logged(&alias, &["fetch", "--progress"], Stdio::piped()) {
+        Ok(started) => started,
+        Err(error) => return set_model(&alias, Model::failed(error)),
+    };
+    let stdout = child.stdout.take();
+    if let Ok(mut fetch) = alias.fetch.lock() {
+        *fetch = Some(child);
+    }
+    let (mut ready, mut error) = (false, None);
+    let lines = stdout.into_iter().flat_map(|out| BufReader::new(out).lines().map_while(Result::ok));
+    for line in lines {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        if value.get("ready").and_then(|v| v.as_bool()) == Some(true) {
+            ready = true;
+        } else if let Some(text) = value.get("error").and_then(|v| v.as_str()) {
+            error = Some(text.to_string());
+        } else if let Some(done) = value.get("done").and_then(|v| v.as_u64()) {
+            let total = value.get("total").and_then(|v| v.as_u64());
+            set_model(&alias, Model { phase: "downloading", done, total, error: None });
+        }
+    }
+    if let Ok(mut fetch) = alias.fetch.lock() {
+        if let Some(mut finished) = fetch.take() {
+            let _ = finished.wait();
+        }
+    }
+    if !ready {
+        let last = log.lock().ok().and_then(|lines| lines.back().cloned());
+        let reason = error.or(last).unwrap_or_else(|| "The download stopped.".into());
+        return set_model(&alias, Model::failed(reason));
+    }
+    set_model(&alias, Model::at("ready"));
+    if let Err(error) = start_bridge(&alias) {
+        set_model(&alias, Model::failed(error));
+    }
+}
+
+fn model_ready(alias: &Alias) -> bool {
+    alias.model.lock().map(|m| m.phase == "ready").unwrap_or(false)
 }
 
 /// Runs `alias-pii` with `args`, optionally writing `input` on its standard input.
@@ -154,28 +243,37 @@ async fn health() -> Result<String, String> {
     Ok(body.to_string())
 }
 
-/// Whether the bridge process still runs, its exit code if it stopped, and its last log lines.
+/// The model's state, whether the bridge process still runs, its exit code and last log lines.
 #[tauri::command]
-async fn bridge_state(bridge: State<'_, Bridge>) -> Result<BridgeState, String> {
-    let (running, exit_code) = {
-        let mut child = bridge.child.lock().map_err(|e| e.to_string())?;
-        match child.as_mut().map(Child::try_wait) {
+async fn state(alias: State<'_, Alias>) -> Result<AppState, String> {
+    let model = alias.model.lock().map_err(|e| e.to_string())?.clone();
+    let (bridge_running, exit_code) = {
+        let mut bridge = alias.bridge.lock().map_err(|e| e.to_string())?;
+        match bridge.as_mut().map(Child::try_wait) {
             Some(Ok(None)) => (true, None),
             Some(Ok(Some(status))) => (false, status.code()),
             _ => (false, None),
         }
     };
-    let log = Arc::clone(&*bridge.log.lock().map_err(|e| e.to_string())?);
+    let log = Arc::clone(&*alias.log.lock().map_err(|e| e.to_string())?);
     let last_lines = match log.lock() {
         Ok(lines) => lines.iter().skip(lines.len().saturating_sub(8)).cloned().collect(),
         Err(_) => Vec::new(),
     };
-    Ok(BridgeState { running, exit_code, last_lines })
+    Ok(AppState { model, bridge_running, exit_code, last_lines })
 }
 
+/// Starts again what failed: the download if the model is missing, else the bridge.
 #[tauri::command]
-async fn restart_bridge(bridge: State<'_, Bridge>) -> Result<(), String> {
-    start(&bridge)
+async fn retry(app: AppHandle, alias: State<'_, Alias>) -> Result<(), String> {
+    if model_ready(&alias) {
+        return start_bridge(&alias);
+    }
+    let busy = alias.fetch.lock().map(|f| f.is_some()).unwrap_or(true);
+    if !busy {
+        std::thread::spawn(move || prepare(app));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -188,46 +286,55 @@ async fn token() -> Result<String, String> {
     run(&["key", "token"], None)
 }
 
+/// Stores the key if Mistral accepts it, then restarts the bridge so it uses the key.
 #[tauri::command]
-async fn set_key(key: String, bridge: State<'_, Bridge>) -> Result<String, String> {
+async fn set_key(key: String, alias: State<'_, Alias>) -> Result<String, String> {
     let key = key.trim();
     if key.is_empty() {
-        return Err("no key given".into());
+        return Err("Paste a key first.".into());
     }
-    let message = run(&["key", "set", "--stdin"], Some(key))?;
-    start(&bridge)?;
+    let message = run(&["key", "set", "--stdin", "--check"], Some(key))?;
+    if model_ready(&alias) {
+        start_bridge(&alias)?;
+    }
     Ok(message)
 }
 
 #[tauri::command]
-async fn delete_key(bridge: State<'_, Bridge>) -> Result<String, String> {
+async fn delete_key(alias: State<'_, Alias>) -> Result<String, String> {
     let message = run(&["key", "delete"], None)?;
-    start(&bridge)?;
+    if model_ready(&alias) {
+        start_bridge(&alias)?;
+    }
     Ok(message)
 }
 
 fn main() {
     tauri::Builder::default()
-        .manage(Bridge { child: Mutex::new(None), log: Mutex::new(Arc::default()) })
+        .manage(Alias {
+            fetch: Mutex::new(None),
+            bridge: Mutex::new(None),
+            log: Mutex::new(Arc::default()),
+            model: Mutex::new(Model::at("checking")),
+        })
         .setup(|app| {
-            start(&app.state::<Bridge>()).map_err(Box::<dyn std::error::Error>::from)?;
+            let handle = app.handle().clone();
+            std::thread::spawn(move || prepare(handle));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            health,
-            bridge_state,
-            restart_bridge,
-            key_status,
-            token,
-            set_key,
-            delete_key
+            health, state, retry, key_status, token, set_key, delete_key
         ])
         .build(tauri::generate_context!())
         .expect("the app could not start")
         .run(|app, event| {
             if let RunEvent::Exit = event {
-                if let Ok(mut child) = app.state::<Bridge>().child.lock() {
-                    stop(&mut child);
+                let alias = app.state::<Alias>();
+                if let Ok(mut fetch) = alias.fetch.lock() {
+                    stop(&mut fetch);
+                }
+                if let Ok(mut bridge) = alias.bridge.lock() {
+                    stop(&mut bridge);
                 }
             }
         });

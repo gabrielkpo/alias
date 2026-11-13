@@ -6,6 +6,7 @@
     alias-pii key status   # whether a key is stored (it is never shown)
     alias-pii key delete
     alias-pii fetch        # download the model now (a container image does it at build time)
+    alias-pii fetch --progress   # the same, with a JSON line of progress every half second (an app)
 
 The detector is the published model run by ONNX Runtime, without PyTorch: it is downloaded once,
 at a pinned revision (about 600 MB, into the Hugging Face cache), then read from the disk.
@@ -20,10 +21,12 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import logging
 import os
 import secrets
 import sys
+import threading
 from pathlib import Path
 
 MODEL_REPO = "Gabrielkph/alias-mmbert-small"
@@ -41,8 +44,8 @@ PORT = 8001
 log = logging.getLogger("alias.cli")
 
 
-def published_model() -> Path:
-    """The published model's folder, downloaded on the first call only."""
+def cached_model() -> Path | None:
+    """The published model's folder if it is already on the disk, else None (no network)."""
     from huggingface_hub import snapshot_download
     from huggingface_hub.errors import LocalEntryNotFoundError
 
@@ -50,8 +53,90 @@ def published_model() -> Path:
     try:
         return Path(snapshot_download(MODEL_REPO, local_files_only=True, **options))
     except LocalEntryNotFoundError:
-        print(f"Downloading the model {MODEL_REPO} once (about 600 MB)...", file=sys.stderr)
-        return Path(snapshot_download(MODEL_REPO, **options))
+        return None
+
+
+def published_model() -> Path:
+    """The published model's folder, downloaded on the first call only."""
+    from huggingface_hub import snapshot_download
+
+    cached = cached_model()
+    if cached is not None:
+        return cached
+    print(f"Downloading the model {MODEL_REPO} once (about 600 MB)...", file=sys.stderr)
+    return Path(snapshot_download(MODEL_REPO, revision=MODEL_REVISION, allow_patterns=MODEL_FILES))
+
+
+def _folder_bytes(folder: Path) -> int:
+    """Bytes of the regular files under `folder` (the cache's links are not counted twice)."""
+    if not folder.is_dir():
+        return 0
+    return sum(p.stat().st_size for p in folder.rglob("*") if p.is_file() and not p.is_symlink())
+
+
+def _model_bytes() -> int | None:
+    """Size of the model's files at the pinned revision, asked to the Hub; None if unknown."""
+    from huggingface_hub import HfApi
+
+    try:
+        files = HfApi().get_paths_info(MODEL_REPO, MODEL_FILES, revision=MODEL_REVISION)
+    except Exception:  # the size only draws a progress bar: the download reports real errors
+        return None
+    return sum(getattr(f, "size", 0) or 0 for f in files) or None
+
+
+def fetch_with_progress(every: float = 0.5) -> int:
+    """Downloads the model like `fetch`, printing one JSON line every `every` seconds:
+    `{"done": bytes, "total": bytes or null}`, then `{"ready": true}` or `{"error": text}`.
+    The desktop app reads them to draw its progress bar. `done` is what the model's cache folder
+    gained since the start, so files left by an interrupted download are not counted."""
+    from huggingface_hub import constants
+
+    def say(**fields: object) -> None:
+        print(json.dumps(fields), flush=True)
+
+    if cached_model() is not None:
+        say(ready=True)
+        return 0
+    cache = Path(constants.HF_HUB_CACHE) / f"models--{MODEL_REPO.replace('/', '--')}"
+    total, start, outcome = _model_bytes(), _folder_bytes(cache), {}
+
+    def download() -> None:
+        try:
+            published_model()
+        except Exception as error:  # reported to the app as one line, then the exit code
+            outcome["error"] = f"{type(error).__name__}: {error}"
+
+    worker = threading.Thread(target=download, daemon=True)
+    worker.start()
+    while worker.is_alive():
+        done = max(_folder_bytes(cache) - start, 0)
+        say(done=min(done, total) if total else done, total=total)
+        worker.join(every)
+    if "error" in outcome:
+        say(error=outcome["error"])
+        return 1
+    say(ready=True)
+    return 0
+
+
+def key_refused(value: str) -> str | None:
+    """None when Mistral accepts the key (listing the models costs nothing), else why not."""
+    import httpx
+
+    from alias_pii.bridge import UPSTREAM
+
+    try:
+        answer = httpx.get(
+            f"{UPSTREAM}/v1/models", headers={"Authorization": f"Bearer {value}"}, timeout=15
+        )
+    except httpx.HTTPError:
+        return "Mistral could not be reached. Check the connection and try again."
+    if answer.status_code in (401, 403):
+        return "Mistral refused this key. Check it and paste it again."
+    if answer.status_code >= 400:
+        return f"Mistral answered {answer.status_code}. Try again in a moment."
+    return None
 
 
 def model_detector(folder: Path):
@@ -124,16 +209,22 @@ def parser() -> argparse.ArgumentParser:
         default=[h for h in os.environ.get("ALIAS_ALLOWED_HOSTS", "").split(",") if h.strip()],
         help="a Host name tools may use besides localhost (another container's view of it)",
     )
-    commands.add_parser("fetch", help="download the published model now (it is kept on disk)")
+    fetch = commands.add_parser("fetch", help="download the published model now (kept on disk)")
+    fetch.add_argument(
+        "--progress", action="store_true", help="print the progress as JSON lines (an app)"
+    )
     key = commands.add_parser("key", help="the Mistral key in the OS keychain")
     key.add_argument("action", choices=["set", "status", "delete", "token"])
     key.add_argument(
         "--stdin", action="store_true", help="set: read the key from standard input (an app)"
     )
+    key.add_argument(
+        "--check", action="store_true", help="set: store the key only if Mistral accepts it"
+    )
     return root
 
 
-def key_command(action: str, from_stdin: bool = False) -> int:
+def key_command(action: str, from_stdin: bool = False, check: bool = False) -> int:
     import keyring
     from keyring.errors import KeyringError, PasswordDeleteError
 
@@ -153,6 +244,10 @@ def key_command(action: str, from_stdin: bool = False) -> int:
                 value = getpass.getpass("Mistral API key (not shown): ").strip()
             if not value:
                 print("No key given: nothing stored.", file=sys.stderr)
+                return 1
+            refused = key_refused(value) if check else None
+            if refused:
+                print(refused, file=sys.stderr)
                 return 1
             keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, value)
             print(f"Key stored in {keyring.get_keyring().name}.")
@@ -216,8 +311,10 @@ def serve_command(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.command == "key":
-        return key_command(args.action, args.stdin)
+        return key_command(args.action, args.stdin, args.check)
     if args.command == "fetch":
+        if args.progress:
+            return fetch_with_progress()
         print(published_model())
         return 0
     return serve_command(args)
