@@ -1,24 +1,38 @@
 // Alias, the macOS app: runs Alias Bridge (the standalone `alias-pii` executable shipped next to
-// this one) in the background while the app is open, and gives the window four commands: the
-// bridge's health, whether a Mistral key is in the keychain, the local token, and setting or
-// deleting the key. The key goes to `alias-pii key set --stdin` on a pipe, never on a command
+// this one) in the background while the app is open, and gives the window its commands: the
+// bridge's health, whether it still runs and its last log lines, restarting it, whether a Mistral
+// key is in the keychain, the local token, and setting or deleting the key. The key goes to `alias-pii key set --stdin` on a pipe, never on a command
 // line; the bridge restarts after a change so it uses the new key. The commands are async, so
 // running the bundled executable (seconds, as it unpacks itself) never freezes the window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tauri::{Manager, RunEvent, State};
 
 const BRIDGE: &str = "127.0.0.1:8001";
+const LOG_LINES: usize = 40;
 
-/// The running bridge, so it can be restarted and stopped with the app.
-struct Bridge(Mutex<Option<Child>>);
+/// The running bridge, so it can be restarted and stopped with the app, and the last lines of its
+/// error output (states and counts, never the text it masks), to show why it stopped.
+struct Bridge {
+    child: Mutex<Option<Child>>,
+    log: Arc<Mutex<VecDeque<String>>>,
+}
+
+/// What the window shows about the bridge process.
+#[derive(serde::Serialize)]
+struct BridgeState {
+    running: bool,
+    exit_code: Option<i32>,
+    last_lines: Vec<String>,
+}
 
 /// The bundled `alias-pii` executable (Tauri's externalBin sits next to the app's executable).
 fn executable() -> Result<PathBuf, String> {
@@ -47,14 +61,52 @@ fn stop(child: &mut Option<Child>) {
     }
 }
 
+/// Reads the bridge's error output until it closes, keeping its last lines. A progress bar
+/// rewrites its line with `\r`, so `\r` ends a line too.
+fn keep_lines(mut from: impl Read, log: &Mutex<VecDeque<String>>) {
+    let mut buffer = [0u8; 4096];
+    let mut line = Vec::new();
+    loop {
+        let read = match from.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => read,
+        };
+        for &byte in &buffer[..read] {
+            if byte != b'\n' && byte != b'\r' {
+                line.push(byte);
+                continue;
+            }
+            let text = String::from_utf8_lossy(&line).trim().to_string();
+            line.clear();
+            if text.is_empty() {
+                continue;
+            }
+            if let Ok(mut lines) = log.lock() {
+                if lines.len() == LOG_LINES {
+                    lines.pop_front();
+                }
+                lines.push_back(text);
+            }
+        }
+    }
+}
+
 fn start(bridge: &Bridge) -> Result<(), String> {
-    let mut child = bridge.0.lock().map_err(|e| e.to_string())?;
+    let mut child = bridge.child.lock().map_err(|e| e.to_string())?;
     stop(&mut child);
-    let spawned = Command::new(executable()?)
+    if let Ok(mut lines) = bridge.log.lock() {
+        lines.clear();
+    }
+    let mut spawned = Command::new(executable()?)
         .arg("serve")
         .stdin(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("the bridge did not start: {e}"))?;
+    if let Some(stderr) = spawned.stderr.take() {
+        let log = Arc::clone(&bridge.log);
+        std::thread::spawn(move || keep_lines(stderr, &log));
+    }
     *child = Some(spawned);
     Ok(())
 }
@@ -98,6 +150,29 @@ async fn health() -> Result<String, String> {
     Ok(body.to_string())
 }
 
+/// Whether the bridge process still runs, its exit code if it stopped, and its last log lines.
+#[tauri::command]
+async fn bridge_state(bridge: State<'_, Bridge>) -> Result<BridgeState, String> {
+    let (running, exit_code) = {
+        let mut child = bridge.child.lock().map_err(|e| e.to_string())?;
+        match child.as_mut().map(Child::try_wait) {
+            Some(Ok(None)) => (true, None),
+            Some(Ok(Some(status))) => (false, status.code()),
+            _ => (false, None),
+        }
+    };
+    let last_lines = match bridge.log.lock() {
+        Ok(lines) => lines.iter().skip(lines.len().saturating_sub(8)).cloned().collect(),
+        Err(_) => Vec::new(),
+    };
+    Ok(BridgeState { running, exit_code, last_lines })
+}
+
+#[tauri::command]
+async fn restart_bridge(bridge: State<'_, Bridge>) -> Result<(), String> {
+    start(&bridge)
+}
+
 #[tauri::command]
 async fn key_status() -> Result<String, String> {
     run(&["key", "status"], None)
@@ -128,17 +203,25 @@ async fn delete_key(bridge: State<'_, Bridge>) -> Result<String, String> {
 
 fn main() {
     tauri::Builder::default()
-        .manage(Bridge(Mutex::new(None)))
+        .manage(Bridge { child: Mutex::new(None), log: Arc::new(Mutex::new(VecDeque::new())) })
         .setup(|app| {
             start(&app.state::<Bridge>()).map_err(Box::<dyn std::error::Error>::from)?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![health, key_status, token, set_key, delete_key])
+        .invoke_handler(tauri::generate_handler![
+            health,
+            bridge_state,
+            restart_bridge,
+            key_status,
+            token,
+            set_key,
+            delete_key
+        ])
         .build(tauri::generate_context!())
         .expect("the app could not start")
         .run(|app, event| {
             if let RunEvent::Exit = event {
-                if let Ok(mut child) = app.state::<Bridge>().0.lock() {
+                if let Ok(mut child) = app.state::<Bridge>().child.lock() {
                     stop(&mut child);
                 }
             }

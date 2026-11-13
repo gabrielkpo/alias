@@ -8,33 +8,59 @@
 </head>
 <body>
   <main>
-    <h1>Alias</h1>
-    <p class="lead">Your tools talk to Mistral; the personal data stays on this Mac.</p>
+    <header>
+      <div class="mark" aria-hidden="true">[ ]</div>
+      <div>
+        <h1>Alias</h1>
+        <p class="lead">Your tools talk to Mistral; the personal data stays on this Mac.</p>
+      </div>
+    </header>
 
-    <section>
-      <h2>The bridge</h2>
-      <p id="state" class="state">Starting…</p>
-      <p class="hint">On first launch the model (about 600 MB) is downloaded once.</p>
-      <p>Address for your tools: <code>http://127.0.0.1:8001/v1</code></p>
+    <section class="card">
+      <div class="card-head">
+        <h2>Bridge</h2>
+        <span id="status" class="status starting"><span class="dot"></span><span id="status-text">Starting</span></span>
+      </div>
+      <p id="status-detail" class="detail">The first launch downloads the model (about 600 MB) once.</p>
+      <div id="bridge-error" class="error" hidden>
+        <p class="error-text"></p>
+        <details><summary>Details</summary><pre></pre></details>
+      </div>
+      <button id="restart" type="button" hidden>Restart the bridge</button>
+      <p class="label">Address for your tools</p>
+      <div class="row">
+        <code id="address">http://127.0.0.1:8001/v1</code>
+        <button type="button" class="secondary" data-copy="address">Copy</button>
+      </div>
     </section>
 
-    <section>
-      <h2>Mistral key</h2>
-      <p id="key-state">…</p>
-      <form id="key-form">
-        <input id="key" type="password" autocomplete="off" placeholder="Paste the Mistral key" aria-label="Mistral key">
+    <section class="card">
+      <div class="card-head">
+        <h2>Mistral key</h2>
+        <span id="key-badge" class="badge">…</span>
+      </div>
+      <form id="key-form" class="row">
+        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Mistral key" aria-label="Mistral key">
         <button type="submit">Save</button>
       </form>
-      <button id="delete" type="button" class="secondary">Delete the key</button>
-      <p class="hint">Kept in the macOS keychain, never shown.</p>
+      <div class="row between">
+        <p class="hint">Kept in the macOS keychain, never shown.</p>
+        <button id="delete" type="button" class="link" hidden>Delete the key</button>
+      </div>
+      <div id="key-error" class="error" hidden>
+        <p class="error-text"></p>
+        <details><summary>Details</summary><pre></pre></details>
+      </div>
     </section>
 
-    <section id="token-section" hidden>
-      <h2>Local token</h2>
-      <p>With a key saved, your tools send this token as their API key instead of the Mistral key.</p>
+    <section id="token-card" class="card" hidden>
+      <div class="card-head">
+        <h2>Local token</h2>
+      </div>
+      <p class="hint">Your tools send this token as their API key, instead of the Mistral key.</p>
       <div class="row">
         <code id="token">…</code>
-        <button id="copy" type="button">Copy</button>
+        <button type="button" class="secondary" data-copy="token">Copy</button>
       </div>
     </section>
 
