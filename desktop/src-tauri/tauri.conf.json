@@ -32,6 +32,7 @@
     "externalBin": ["binaries/alias-pii"],
     "macOS": {
       "signingIdentity": "-",
+      "hardenedRuntime": false,
       "minimumSystemVersion": "13.0"
     }
   }
