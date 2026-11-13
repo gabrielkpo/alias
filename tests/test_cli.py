@@ -298,6 +298,9 @@ def test_the_app_gives_the_key_and_token_on_standard_input_never_the_keychain(mo
     monkeypatch.setattr(cli.sys, "stdin", io.StringIO(json.dumps({"key": SECRET}) + "\n"))
     with pytest.raises(SystemExit):
         cli.main(["serve", "--secrets-stdin"])  # a key without a token is refused
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO("null\n"))
+    with pytest.raises(SystemExit):
+        cli.main(["serve", "--secrets-stdin"])  # not an object: refused in one line
 
 
 def test_key_check_asks_mistral_and_stores_nothing(keychain, monkeypatch, capsys):

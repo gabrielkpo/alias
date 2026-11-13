@@ -304,6 +304,8 @@ def serve_command(args: argparse.Namespace) -> int:
         # The desktop app owns the keychain item and passes its content on a pipe: this process
         # never touches the keychain, so macOS never asks the user about it.
         secrets_given = json.loads(sys.stdin.readline() or "{}")
+        if not isinstance(secrets_given, dict):
+            raise SystemExit('--secrets-stdin expects one JSON object: {"key": ..., "token": ...}')
         api_key = secrets_given.get("key") or None
         token = secrets_given.get("token") if api_key else None
         if api_key and (not token or len(token) < 32):
