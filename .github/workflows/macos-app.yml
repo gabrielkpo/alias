@@ -80,8 +80,9 @@ jobs:
         working-directory: desktop/src-tauri/target/release/bundle/macos/Alias.app/Contents/MacOS
         run: |
           for exe in alias-desktop alias-pii; do
-            flags=$(codesign -dv "$exe" 2>&1 | grep -o 'flags=[^ ]*')
-            echo "$exe: $flags"
+            flags=$(codesign -dv "$exe" 2>&1 | grep -o 'flags=[^ ]*' || true)
+            echo "$exe: ${flags:-not signed}"
+            if [ -z "$flags" ]; then echo "::error::$exe is not signed"; exit 1; fi
             if [[ "$flags" == *runtime* ]]; then echo "::error::$exe has the hardened runtime"; exit 1; fi
           done
       - name: Launch the app; its bridge answers with the model; quitting stops it
