@@ -13,6 +13,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -60,6 +61,8 @@ struct Alias {
     bridge: Mutex<Option<Child>>,
     log: Mutex<Log>,
     model: Mutex<Model>,
+    /// Set when the app quits, so a download finishing at that moment starts no bridge.
+    exiting: AtomicBool,
 }
 
 /// The bundled `alias-pii` executable (Tauri's externalBin sits next to the app's executable).
@@ -145,6 +148,9 @@ fn spawn_logged(alias: &Alias, args: &[&str], stdout: Stdio) -> Result<(Child, L
 fn start_bridge(alias: &Alias) -> Result<(), String> {
     let mut bridge = alias.bridge.lock().map_err(|e| e.to_string())?;
     stop(&mut bridge);
+    if alias.exiting.load(Ordering::SeqCst) {
+        return Ok(());
+    }
     let (child, _) = spawn_logged(alias, &["serve"], Stdio::null())?;
     *bridge = Some(child);
     Ok(())
@@ -194,9 +200,10 @@ fn prepare(app: AppHandle) {
         let reason = error.or(last).unwrap_or_else(|| "The download stopped.".into());
         return set_model(&alias, Model::failed(reason));
     }
-    set_model(&alias, Model::at("ready"));
-    if let Err(error) = start_bridge(&alias) {
-        set_model(&alias, Model::failed(error));
+    // The bridge first, so the window never sees a ready model without a bridge process.
+    match start_bridge(&alias) {
+        Ok(()) => set_model(&alias, Model::at("ready")),
+        Err(error) => set_model(&alias, Model::failed(error)),
     }
 }
 
@@ -316,6 +323,7 @@ fn main() {
             bridge: Mutex::new(None),
             log: Mutex::new(Arc::default()),
             model: Mutex::new(Model::at("checking")),
+            exiting: AtomicBool::new(false),
         })
         .setup(|app| {
             let handle = app.handle().clone();
@@ -330,6 +338,7 @@ fn main() {
         .run(|app, event| {
             if let RunEvent::Exit = event {
                 let alias = app.state::<Alias>();
+                alias.exiting.store(true, Ordering::SeqCst);
                 if let Ok(mut fetch) = alias.fetch.lock() {
                     stop(&mut fetch);
                 }
