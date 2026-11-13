@@ -1,8 +1,9 @@
 // Alias, the macOS app: runs Alias Bridge (the standalone `alias-pii` executable shipped next to
 // this one) in the background while the app is open, and gives the window its commands: the
 // bridge's health, whether it still runs and its last log lines, restarting it, whether a Mistral
-// key is in the keychain, the local token, and setting or deleting the key. The key goes to `alias-pii key set --stdin` on a pipe, never on a command
-// line; the bridge restarts after a change so it uses the new key. The commands are async, so
+// key is in the keychain, the local token, and setting or deleting the key. The key goes to
+// `alias-pii key set --stdin` on a pipe, never on a command line; the bridge restarts after a
+// change so it uses the new key. The commands are async, so
 // running the bundled executable (seconds, as it unpacks itself) never freezes the window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -23,7 +24,8 @@ const LOG_LINES: usize = 40;
 /// error output (states and counts, never the text it masks), to show why it stopped.
 struct Bridge {
     child: Mutex<Option<Child>>,
-    log: Arc<Mutex<VecDeque<String>>>,
+    /// A new buffer for each start, so a previous bridge still writing never mixes in its lines.
+    log: Mutex<Arc<Mutex<VecDeque<String>>>>,
 }
 
 /// What the window shows about the bridge process.
@@ -46,6 +48,10 @@ fn executable() -> Result<PathBuf, String> {
 /// and leave the bridge running. SIGKILL is the fallback after five seconds.
 fn stop(child: &mut Option<Child>) {
     if let Some(mut running) = child.take() {
+        // Already exited (and maybe reaped by bridge_state): its pid may belong to another process.
+        if let Ok(Some(_)) = running.try_wait() {
+            return;
+        }
         if let Ok(pid) = libc::pid_t::try_from(running.id()) {
             // SAFETY: kill(2) on the pid of a child this process started and has not reaped yet.
             unsafe { libc::kill(pid, libc::SIGTERM) };
@@ -94,9 +100,8 @@ fn keep_lines(mut from: impl Read, log: &Mutex<VecDeque<String>>) {
 fn start(bridge: &Bridge) -> Result<(), String> {
     let mut child = bridge.child.lock().map_err(|e| e.to_string())?;
     stop(&mut child);
-    if let Ok(mut lines) = bridge.log.lock() {
-        lines.clear();
-    }
+    let log = Arc::new(Mutex::new(VecDeque::new()));
+    *bridge.log.lock().map_err(|e| e.to_string())? = Arc::clone(&log);
     let mut spawned = Command::new(executable()?)
         .arg("serve")
         .stdin(Stdio::null())
@@ -104,7 +109,6 @@ fn start(bridge: &Bridge) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("the bridge did not start: {e}"))?;
     if let Some(stderr) = spawned.stderr.take() {
-        let log = Arc::clone(&bridge.log);
         std::thread::spawn(move || keep_lines(stderr, &log));
     }
     *child = Some(spawned);
@@ -161,7 +165,8 @@ async fn bridge_state(bridge: State<'_, Bridge>) -> Result<BridgeState, String> 
             _ => (false, None),
         }
     };
-    let last_lines = match bridge.log.lock() {
+    let log = Arc::clone(&*bridge.log.lock().map_err(|e| e.to_string())?);
+    let last_lines = match log.lock() {
         Ok(lines) => lines.iter().skip(lines.len().saturating_sub(8)).cloned().collect(),
         Err(_) => Vec::new(),
     };
@@ -203,7 +208,7 @@ async fn delete_key(bridge: State<'_, Bridge>) -> Result<String, String> {
 
 fn main() {
     tauri::Builder::default()
-        .manage(Bridge { child: Mutex::new(None), log: Arc::new(Mutex::new(VecDeque::new())) })
+        .manage(Bridge { child: Mutex::new(None), log: Mutex::new(Arc::default()) })
         .setup(|app| {
             start(&app.state::<Bridge>()).map_err(Box::<dyn std::error::Error>::from)?;
             Ok(())
