@@ -72,6 +72,19 @@ jobs:
           npx tauri build --bundles app,dmg -- --locked
           ls -la src-tauri/target/release/bundle/macos src-tauri/target/release/bundle/dmg
           du -sh src-tauri/target/release/bundle/macos/Alias.app
+      # The hardened runtime enforces library validation: the bridge executable then cannot load
+      # the Python it unpacks (signed apart), and dies at start on a Mac with SIP on. GitHub's
+      # macOS machines run with SIP off, so the launch check below would not see it: check the
+      # signature flags instead.
+      - name: The executables are signed without the hardened runtime
+        working-directory: desktop/src-tauri/target/release/bundle/macos/Alias.app/Contents/MacOS
+        run: |
+          for exe in alias-desktop alias-pii; do
+            flags=$(codesign -dv "$exe" 2>&1 | grep -o 'flags=[^ ]*' || true)
+            echo "$exe: ${flags:-not signed}"
+            if [ -z "$flags" ]; then echo "::error::$exe is not signed"; exit 1; fi
+            if [[ "$flags" == *runtime* ]]; then echo "::error::$exe has the hardened runtime"; exit 1; fi
+          done
       - name: Launch the app; its bridge answers with the model; quitting stops it
         run: |
           app=desktop/src-tauri/target/release/bundle/macos/Alias.app
