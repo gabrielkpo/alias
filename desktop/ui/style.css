@@ -40,6 +40,11 @@
   box-sizing: border-box;
 }
 
+/* `hidden` wins over every display rule below (buttons are inline-flex). */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);

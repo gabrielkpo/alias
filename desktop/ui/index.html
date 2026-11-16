@@ -132,7 +132,12 @@ print(answer.choices[0].message.content)</pre>
 
       <div class="panel">
         <h2>Mistral key</h2>
-        <p class="hint">Saved in the macOS keychain. Your tools never need it.</p>
+        <p id="key-detail" class="hint">Saved in the macOS keychain. Your tools never need it.</p>
+        <div id="key-error" class="error" hidden>
+          <p class="error-text"></p>
+          <details><summary>Details</summary><pre></pre></details>
+          <button id="keychain-retry" type="button" class="primary">Try again</button>
+        </div>
         <div class="row">
           <button id="replace" type="button">Replace the key</button>
           <button id="delete" type="button" class="danger">Delete the key</button>

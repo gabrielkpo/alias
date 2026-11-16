@@ -1,11 +1,13 @@
 // Alias, the macOS app. It runs the standalone `alias-pii` executable shipped next to this one:
 // first `alias-pii fetch --progress`, which downloads the detection model once and reports its
 // progress as JSON lines, then `alias-pii serve`, the bridge, while the app is open. The window
-// follows both through the `state` command and sets or deletes the Mistral key, which goes to
-// `alias-pii key set --stdin --check` on a pipe (never on a command line) and is stored only if
-// Mistral accepts it; the bridge restarts after a change so it uses the new key. Commands are
-// async, so running the bundled executable (seconds, as it unpacks itself) never freezes the
-// window.
+// follows both through the `state` command. The app alone uses the macOS keychain: one item
+// of its own holds the Mistral key and the local token, read once per launch and kept in memory.
+// The bridge gets both on a pipe (`serve --secrets-stdin`) and never touches the keychain, so
+// macOS has one program to ask about, the app, which created the item. A new key is checked with
+// Mistral first (`alias-pii key check --stdin`, on a pipe, never on a command line); the bridge
+// restarts after a change so it uses the new key. Commands are async, so running the bundled
+// executable (seconds, as it unpacks itself) never freezes the window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::VecDeque;
@@ -17,11 +19,37 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, RunEvent, State};
 
 const BRIDGE: &str = "127.0.0.1:8001";
 const LOG_LINES: usize = 40;
+/// The app's keychain item (not the command line's `alias-pii` items).
+const KEYCHAIN_SERVICE: &str = "Alias";
+const KEYCHAIN_ACCOUNT: &str = "bridge";
+
+/// What the app's keychain item holds: the Mistral key and the local token tools send instead.
+#[derive(Clone, Serialize, Deserialize)]
+struct Secrets {
+    key: String,
+    token: String,
+}
+
+/// The keychain item as last read: not read yet, absent, read, or unreadable (and why).
+#[derive(Clone)]
+enum Keychain {
+    Unread,
+    Missing,
+    Stored(Secrets),
+    Unreadable(String),
+}
+
+/// What the window shows about the key.
+#[derive(Serialize)]
+struct KeyState {
+    stored: bool,
+    error: Option<String>,
+}
 
 /// The last lines a process wrote on its error output (states and counts, never masked text).
 type Log = Arc<Mutex<VecDeque<String>>>;
@@ -63,6 +91,73 @@ struct Alias {
     model: Mutex<Model>,
     /// Set when the app quits, so a download finishing at that moment starts no bridge.
     exiting: AtomicBool,
+    keychain: Mutex<Keychain>,
+}
+
+fn keychain_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT).map_err(|e| e.to_string())
+}
+
+/// Reads the app's keychain item into memory (the only read of a launch, unless the user asks
+/// to try again after refusing access).
+fn load_keychain(alias: &Alias) -> Keychain {
+    fn read_item() -> Result<String, KeychainError> {
+        let entry = keychain_entry()?;
+        Ok(entry.get_password()?)
+    }
+    let read = match read_item() {
+        Ok(text) => match serde_json::from_str::<Secrets>(&text) {
+            Ok(secrets) => Keychain::Stored(secrets),
+            Err(_) => {
+                Keychain::Unreadable("The keychain item is damaged: save the key again.".into())
+            }
+        },
+        Err(KeychainError::Missing) => Keychain::Missing,
+        Err(KeychainError::Other(error)) => {
+            Keychain::Unreadable(format!("Alias could not read the macOS keychain: {error}"))
+        }
+    };
+    if let Ok(mut current) = alias.keychain.lock() {
+        *current = read.clone();
+    }
+    read
+}
+
+/// A keychain failure: no item yet, or anything else (access refused, keychain locked…).
+enum KeychainError {
+    Missing,
+    Other(String),
+}
+
+impl From<keyring::Error> for KeychainError {
+    fn from(error: keyring::Error) -> Self {
+        match error {
+            keyring::Error::NoEntry => KeychainError::Missing,
+            other => KeychainError::Other(other.to_string()),
+        }
+    }
+}
+
+impl From<String> for KeychainError {
+    fn from(error: String) -> Self {
+        KeychainError::Other(error)
+    }
+}
+
+/// 32 random bytes as hex: the local token tools send as their API key.
+fn new_token() -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut random| random.read_exact(&mut bytes))
+        .map_err(|e| e.to_string())?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn stored_secrets(alias: &Alias) -> Option<Secrets> {
+    match alias.keychain.lock().ok()?.clone() {
+        Keychain::Stored(secrets) => Some(secrets),
+        _ => None,
+    }
 }
 
 /// The bundled `alias-pii` executable (Tauri's externalBin sits next to the app's executable).
@@ -128,12 +223,17 @@ fn keep_lines(mut from: impl Read, log: &Mutex<VecDeque<String>>) {
 
 /// Starts `alias-pii` with `args` in the background, its error output kept in a new log that
 /// becomes the app's current one.
-fn spawn_logged(alias: &Alias, args: &[&str], stdout: Stdio) -> Result<(Child, Log), String> {
+fn spawn_logged(
+    alias: &Alias,
+    args: &[&str],
+    stdout: Stdio,
+    input: Option<String>,
+) -> Result<(Child, Log), String> {
     let log: Log = Arc::default();
     *alias.log.lock().map_err(|e| e.to_string())? = Arc::clone(&log);
     let mut child = Command::new(executable()?)
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(stdout)
         .stderr(Stdio::piped())
         .spawn()
@@ -141,6 +241,9 @@ fn spawn_logged(alias: &Alias, args: &[&str], stdout: Stdio) -> Result<(Child, L
     if let Some(stderr) = child.stderr.take() {
         let lines = Arc::clone(&log);
         std::thread::spawn(move || keep_lines(stderr, &lines));
+    }
+    if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
+        stdin.write_all(format!("{text}\n").as_bytes()).map_err(|e| e.to_string())?;
     }
     Ok((child, log))
 }
@@ -151,7 +254,13 @@ fn start_bridge(alias: &Alias) -> Result<(), String> {
     if alias.exiting.load(Ordering::SeqCst) {
         return Ok(());
     }
-    let (child, _) = spawn_logged(alias, &["serve"], Stdio::null())?;
+    // The key and token on a pipe, or `{}` without a key (tools then send their own key).
+    let secrets = match stored_secrets(alias) {
+        Some(secrets) => serde_json::to_string(&secrets).map_err(|e| e.to_string())?,
+        None => "{}".into(),
+    };
+    let args = ["serve", "--secrets-stdin"];
+    let (child, _) = spawn_logged(alias, &args, Stdio::null(), Some(secrets))?;
     *bridge = Some(child);
     Ok(())
 }
@@ -167,7 +276,8 @@ fn set_model(alias: &Alias, model: Model) {
 fn prepare(app: AppHandle) {
     let alias = app.state::<Alias>();
     set_model(&alias, Model::at("checking"));
-    let (mut child, log) = match spawn_logged(&alias, &["fetch", "--progress"], Stdio::piped()) {
+    let fetch = spawn_logged(&alias, &["fetch", "--progress"], Stdio::piped(), None);
+    let (mut child, log) = match fetch {
         Ok(started) => started,
         Err(error) => return set_model(&alias, Model::failed(error)),
     };
@@ -176,7 +286,8 @@ fn prepare(app: AppHandle) {
         *fetch = Some(child);
     }
     let (mut ready, mut error) = (false, None);
-    let lines = stdout.into_iter().flat_map(|out| BufReader::new(out).lines().map_while(Result::ok));
+    let lines =
+        stdout.into_iter().flat_map(|out| BufReader::new(out).lines().map_while(Result::ok));
     for line in lines {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
@@ -200,6 +311,7 @@ fn prepare(app: AppHandle) {
         let reason = error.or(last).unwrap_or_else(|| "The download stopped.".into());
         return set_model(&alias, Model::failed(reason));
     }
+    load_keychain(&alias);
     // The bridge first, so the window never sees a ready model without a bridge process.
     match start_bridge(&alias) {
         Ok(()) => set_model(&alias, Model::at("ready")),
@@ -283,37 +395,69 @@ async fn retry(app: AppHandle, alias: State<'_, Alias>) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether a key is stored, from memory (the keychain is not asked again).
 #[tauri::command]
-async fn key_status() -> Result<String, String> {
-    run(&["key", "status"], None)
+async fn key_status(alias: State<'_, Alias>) -> Result<KeyState, String> {
+    let keychain = alias.keychain.lock().map_err(|e| e.to_string())?.clone();
+    Ok(match keychain {
+        Keychain::Stored(_) => KeyState { stored: true, error: None },
+        Keychain::Unreadable(error) => KeyState { stored: false, error: Some(error) },
+        Keychain::Missing | Keychain::Unread => KeyState { stored: false, error: None },
+    })
 }
 
 #[tauri::command]
-async fn token() -> Result<String, String> {
-    run(&["key", "token"], None)
+async fn token(alias: State<'_, Alias>) -> Result<String, String> {
+    stored_secrets(&alias).map(|s| s.token).ok_or_else(|| "Add a key first.".into())
 }
 
-/// Stores the key if Mistral accepts it, then restarts the bridge so it uses the key.
+/// Reads the keychain item again (after the user refused access, or unlocked the keychain),
+/// then restarts the bridge with what it found.
+#[tauri::command]
+async fn retry_keychain(alias: State<'_, Alias>) -> Result<KeyState, String> {
+    load_keychain(&alias);
+    if model_ready(&alias) {
+        start_bridge(&alias)?;
+    }
+    key_status(alias).await
+}
+
+/// Stores the key if Mistral accepts it, keeping the local token tools already use, then
+/// restarts the bridge so it uses the key.
 #[tauri::command]
 async fn set_key(key: String, alias: State<'_, Alias>) -> Result<String, String> {
     let key = key.trim();
     if key.is_empty() {
         return Err("Paste a key first.".into());
     }
-    let message = run(&["key", "set", "--stdin", "--check"], Some(key))?;
+    run(&["key", "check", "--stdin"], Some(key))?;
+    let token = match stored_secrets(&alias) {
+        Some(secrets) => secrets.token,
+        None => new_token()?,
+    };
+    let secrets = Secrets { key: key.to_string(), token };
+    let text = serde_json::to_string(&secrets).map_err(|e| e.to_string())?;
+    keychain_entry()?
+        .set_password(&text)
+        .map_err(|e| format!("Alias could not save the key in the macOS keychain: {e}"))?;
+    *alias.keychain.lock().map_err(|e| e.to_string())? = Keychain::Stored(secrets);
     if model_ready(&alias) {
         start_bridge(&alias)?;
     }
-    Ok(message)
+    Ok("Mistral accepted the key. It is saved.".into())
 }
 
 #[tauri::command]
 async fn delete_key(alias: State<'_, Alias>) -> Result<String, String> {
-    let message = run(&["key", "delete"], None)?;
+    match keychain_entry()?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => {}
+        Err(error) => return Err(format!("Alias could not delete the key: {error}")),
+    }
+    *alias.keychain.lock().map_err(|e| e.to_string())? = Keychain::Missing;
     if model_ready(&alias) {
         start_bridge(&alias)?;
     }
-    Ok(message)
+    Ok("Key deleted.".into())
 }
 
 fn main() {
@@ -324,6 +468,7 @@ fn main() {
             log: Mutex::new(Arc::default()),
             model: Mutex::new(Model::at("checking")),
             exiting: AtomicBool::new(false),
+            keychain: Mutex::new(Keychain::Unread),
         })
         .setup(|app| {
             let handle = app.handle().clone();
@@ -331,7 +476,14 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            health, state, retry, key_status, token, set_key, delete_key
+            health,
+            state,
+            retry,
+            key_status,
+            token,
+            retry_keychain,
+            set_key,
+            delete_key
         ])
         .build(tauri::generate_context!())
         .expect("the app could not start")

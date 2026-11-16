@@ -122,24 +122,36 @@ async function renderHome(state) {
   }
 }
 
-async function keyStored() {
+// The key as the app knows it, from memory: {stored, error}. The keychain is not asked again.
+async function keyState() {
   try {
-    return (await invoke("key_status")).startsWith("A key is stored");
-  } catch {
-    return false;
+    return await invoke("key_status");
+  } catch (error) {
+    return { stored: false, error: String(error) };
   }
+}
+
+function renderKey(key) {
+  setError("key-error", key.error || null);
+  $("key-detail").hidden = Boolean(key.error);
+  $("key-detail").textContent = key.stored
+    ? "Saved in the macOS keychain. Your tools never need it."
+    : "No key saved: Alias passes on the key each tool sends.";
+  $("replace").textContent = key.stored ? "Replace the key" : "Add a key";
+  $("delete").hidden = !key.stored;
 }
 
 async function loadToken() {
+  let token = "Add a key first";
   try {
-    const token = await invoke("token");
-    for (const field of document.querySelectorAll(".token")) field.textContent = token;
+    token = await invoke("token");
   } catch {
-    for (const field of document.querySelectorAll(".token")) field.textContent = "Save a key first";
+    // No key, so no token yet: the field says so.
   }
+  for (const field of document.querySelectorAll(".token")) field.textContent = token;
 }
 
-let ticking = false; // one refresh at a time: asking the keychain takes seconds
+let ticking = false; // one refresh at a time
 async function tick() {
   if (ticking) return;
   ticking = true;
@@ -150,8 +162,14 @@ async function tick() {
       renderLoading(state.model);
       return;
     }
-    if (screen === "loading") show((await keyStored()) ? "home" : "step1");
-    if (screen === "home") await renderHome(state);
+    if (screen === "loading") {
+      const key = await keyState();
+      show(key.stored || key.error ? "home" : "step1");
+    }
+    if (screen === "home") {
+      renderKey(await keyState());
+      await renderHome(state);
+    }
   } catch {
     // The next refresh tries again.
   } finally {
@@ -211,6 +229,15 @@ $("delete").addEventListener("click", async () => {
     show("step2");
   } catch (error) {
     say(brief(error));
+  }
+});
+
+$("keychain-retry").addEventListener("click", async () => {
+  try {
+    renderKey(await invoke("retry_keychain"));
+    await loadToken();
+  } catch (error) {
+    setError("key-error", error);
   }
 });
 

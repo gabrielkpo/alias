@@ -198,6 +198,12 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="no model: names and addresses reach Mistral in clear",
     )
+    serve.add_argument(
+        "--secrets-stdin",
+        action="store_true",
+        help='read {"key": ..., "token": ...} as one JSON line on standard input, not the '
+        "keychain (the desktop app, which keeps them in its own keychain item)",
+    )
     serve.add_argument("--port", type=int, default=PORT)
     serve.add_argument(
         "--host",
@@ -215,17 +221,26 @@ def parser() -> argparse.ArgumentParser:
         "--progress", action="store_true", help="print the progress as JSON lines (an app)"
     )
     key = commands.add_parser("key", help="the Mistral key in the OS keychain")
-    key.add_argument("action", choices=["set", "status", "delete", "token"])
+    key.add_argument("action", choices=["set", "status", "delete", "token", "check"])
     key.add_argument(
         "--stdin", action="store_true", help="set: read the key from standard input (an app)"
     )
     key.add_argument(
         "--check", action="store_true", help="set: store the key only if Mistral accepts it"
     )
+    # `key check --stdin`: ask Mistral whether a key works, without storing it (the app stores it)
     return root
 
 
 def key_command(action: str, from_stdin: bool = False, check: bool = False) -> int:
+    if action == "check":  # no keychain: the key comes on standard input and is not stored
+        value = sys.stdin.readline().strip() if from_stdin else getpass.getpass("Key: ").strip()
+        refused = key_refused(value) if value else "No key given."
+        if refused:
+            print(refused, file=sys.stderr)
+            return 1
+        print("Mistral accepted the key.")
+        return 0
     import keyring
     from keyring.errors import KeyringError, PasswordDeleteError
 
@@ -284,16 +299,31 @@ def serve_command(args: argparse.Namespace) -> int:
         folder = Path(args.model) if args.model else published_model()
         detector, name = model_detector(folder), "rules+model"
         log.info("detector: %s", name)
-    api_key = stored_key() or os.environ.get("MISTRAL_API_KEY")
     token = None
-    if api_key:
+    if args.secrets_stdin:
+        # The desktop app owns the keychain item and passes its content on a pipe: this process
+        # never touches the keychain, so macOS never asks the user about it.
+        secrets_given = json.loads(sys.stdin.readline() or "{}")
+        if not isinstance(secrets_given, dict):
+            raise SystemExit('--secrets-stdin expects one JSON object: {"key": ..., "token": ...}')
+        api_key = secrets_given.get("key") or None
+        token = secrets_given.get("token") if api_key else None
+        if api_key and (not token or len(token) < 32):
+            raise SystemExit("--secrets-stdin: a key needs a local token of 32 characters or more")
+        if api_key:
+            log.info("key and local token given by the app")
+        else:
+            log.info("no key given by the app: each tool's own key is used")
+    else:
+        api_key = stored_key() or os.environ.get("MISTRAL_API_KEY")
+    if api_key and token is None:
         # The bridge spends this key for whoever calls it: only a tool given the local token may.
         token, stored = local_token()
         if stored:
             log.info("tools send the local token as their API key: see alias-pii key token")
         else:  # no keychain: the token lives for this run only, so it is shown here
             print(f"Local token for this run (the tools' API key): {token}", file=sys.stderr)
-    else:
+    elif not api_key and not args.secrets_stdin:
         log.info("no stored key: each tool's own key is used (alias-pii key set to store one)")
     loopback = args.host in ("127.0.0.1", "::1", "localhost")
     if not loopback and not token:
