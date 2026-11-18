@@ -32,3 +32,19 @@ updates:
     # demo/app.js loads the same transformers.js version from jsDelivr: bump both together
     commit-message:
       prefix: "chore(deps)"
+  # The macOS app (desktop/): its Rust crates and the Tauri command line
+  - package-ecosystem: cargo
+    directory: /desktop/src-tauri
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      desktop-rust:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"
