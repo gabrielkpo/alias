@@ -180,9 +180,10 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   none of the 203 personal values reached Mistral in clear; of the 208 aliases sent, Mistral
   kept 178 in its summaries and all 178 came back restored, with no alias left in any answer;
   17,258 tokens in all; the bridge added 0.12 s per document (median). Record:
-  [results/bridge-measure-2026-11-12.json](../results/bridge-measure-2026-11-12.json). On
-  synthetic text the detector misses little; on real text it misses more (docs/RESULTS.md), and
-  what it misses reaches Mistral in clear.
+  [results/bridge-measure-2026-11-12.json](../results/bridge-measure-2026-11-12.json). These
+  documents come from the same generator as the training data (shared templates and names): an
+  in-distribution figure. On such text the detector misses little; on real text it misses more
+  (docs/RESULTS.md), and what it misses reaches Mistral in clear.
 - <a id="limits"></a>**Limits**: no detector is perfect; what the detector misses (a name it
   does not recognise) reaches Mistral in clear. The leak rates measured so far are in the README.
 - **Outside the entity types**: payment card numbers are not detected, nor any value outside the

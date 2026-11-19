@@ -128,3 +128,16 @@ identifier precision goes from 0.988 to 0.985) and **is now the Alias detector**
 validation splits is nil: the model already finds these identifiers there. What it fixes are
 the ones the model misses, such as the demo's "dossier n° 2024/00421"; how often that happens on
 real documents is for step 7 to say.
+
+## Entity types
+
+The types the detector reports, and what finds each one.
+
+| Label | Content | Detected by |
+|---|---|---|
+| `PERSON`, `ADDRESS` | need context | model |
+| `EMAIL`, `PHONE` | e-mail (accented domains too); French, UK and US numbers | model (the rules find them too and are not kept here, see above; the bridge keeps them: docs/BRIDGE.md) |
+| `IBAN` | any country | rules (mod 97, length per country) and model |
+| `NATIONAL_ID` | `FR_NIR`, `US_SSN`, `UK_NINO` | rules (checksum) and model |
+| `IDENTIFIER` | file, contract or customer number after a keyword | model; rules after a person's-file keyword |
+| `BIRTH_DATE` | date of birth | rules after a keyword ("né(e) le", "DOB"), model otherwise |
