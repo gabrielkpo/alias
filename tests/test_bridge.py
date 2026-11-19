@@ -670,3 +670,13 @@ def test_with_a_local_token_only_tools_that_send_it_spend_the_key():
         create_bridge(Names(), local_token="t0k3n")
     with pytest.raises(ValueError):
         create_bridge(Names(), api_key="k", local_token="")
+
+
+@pytest.mark.parametrize("separator", ["\n", "\t", ".", "‑"])
+def test_an_iban_split_by_another_separator_never_reaches_the_provider(separator):
+    fake = FakeMistral()
+    iban = IBAN.replace(" 0112 ", f" 0112{separator}")
+    message = {"role": "user", "content": f"Virement sur {iban} demain."}
+    assert ask(bridge(fake), message).status_code == 200
+    sent = json.dumps(fake.received, ensure_ascii=False)
+    assert "0112" not in sent and "[IBAN_1]" in sent
