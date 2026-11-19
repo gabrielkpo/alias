@@ -11,6 +11,7 @@ from alias_pii.bridge import LOCAL_HOSTS, host_name  # noqa: E402
         ("127.0.0.1:8001", "127.0.0.1"),
         ("localhost", "localhost"),
         ("localhost:8001", "localhost"),
+        ("LocalHost:8001", "localhost"),
         ("[::1]:8001", "::1"),
         ("[::1]", "::1"),
         ("evil.example:8001", "evil.example"),
@@ -19,8 +20,8 @@ from alias_pii.bridge import LOCAL_HOSTS, host_name  # noqa: E402
     ],
 )
 def test_the_host_header_is_read_without_its_port(header, host):
-    """An IPv6 literal without a port (`[::1]`) used to lose its last character and be
-    refused; a broken one is never read as a local host."""
+    """An IPv6 literal without a port (`[::1]`) used to be read as `:` and refused, and host
+    names are case-insensitive; a broken header is never read as a local host."""
     assert host_name(header) == host
 
 

@@ -492,9 +492,10 @@ def stream_events(data: dict) -> Iterator[str]:
 
 
 def host_name(header: str) -> str:
-    """The host of a `Host` header without its port: `127.0.0.1:8001` and `localhost` as they
-    are, an IPv6 literal with or without a port (`[::1]:8001`, `[::1]`) without its brackets."""
-    header = header.strip()
+    """The host of a `Host` header, lowercased and without its port: `127.0.0.1:8001` and
+    `localhost` as they are, an IPv6 literal with or without a port (`[::1]:8001`, `[::1]`)
+    without its brackets."""
+    header = header.strip().lower()
     if header.startswith("["):
         return header[1 : header.find("]")] if "]" in header else ""
     return header.rsplit(":", 1)[0] if header.count(":") == 1 else header
