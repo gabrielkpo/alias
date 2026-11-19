@@ -97,14 +97,29 @@ def test_a_value_keeps_its_alias_across_the_turns_of_a_conversation():
     ]
 
 
-def test_text_parts_are_masked_inline_images_passed_as_they_are():
-    fake = FakeMistral(reply="ok")
+def test_inline_images_are_refused_unless_allowed_then_counted():
+    """An image is never masked: refused by default, forwarded only when the bridge allows it,
+    and then counted in X-Alias-Unmasked-Images so the client knows."""
     image = {"type": "image_url", "image_url": {"url": PNG, "detail": "low"}}
     bare = {"type": "image_url", "image_url": PNG}
     content = [{"type": "text", "text": f"Qui est {NAME} ?"}, image, bare]
-    ask(bridge(fake), {"role": "user", "content": content})
+    fake = FakeMistral(reply="ok")
+    refused = ask(bridge(fake), {"role": "user", "content": content})
+    assert refused.status_code == 400 and "--allow-images" in refused.text
+    assert fake.received == []
+    app = create_bridge(
+        Names(), api_key="k", transport=httpx.MockTransport(fake), allow_images=True
+    )
+    answer = ask(TestClient(app, base_url=LOCAL), {"role": "user", "content": content})
+    assert answer.headers["X-Alias-Unmasked-Images"] == "2"
     parts = fake.received[0]["messages"][0]["content"]
     assert parts == [{"type": "text", "text": "Qui est [PERSON_1] ?"}, image, bare]
+    svg = {"type": "image_url", "image_url": "data:image/svg+xml;base64,PHN2Zy8+"}
+    content = [{"type": "text", "text": "Voir"}, svg]
+    assert (
+        ask(TestClient(app, base_url=LOCAL), {"role": "user", "content": content}).status_code
+        == 400
+    )
 
 
 def test_an_image_url_that_could_hold_text_is_refused():

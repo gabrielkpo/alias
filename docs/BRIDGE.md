@@ -110,9 +110,12 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   bridge keeps no state. Once a value has an alias, every other whole-word occurrence of it in
   the request (any case) gets the same alias, even where the detector missed it.
 - **Message parts**: the text of `content`, or of its `{"type": "text"}` parts, is masked.
-  An image may only come inline (`image_url` holding `data:image/...;base64,...`) and passes as
-  it is: neither what it shows nor its metadata (author, location) is masked. An image given by
-  URL is refused (400), since the URL itself could hold a name or an address.
+  An image is never masked (neither what it shows nor its metadata: author, location), so it is
+  refused (400) unless the bridge is started with `--allow-images` (or `ALIAS_ALLOW_IMAGES=1`).
+  Then it may only come inline, as PNG, JPEG, GIF or WebP data (`image_url` holding
+  `data:image/png;base64,...`), passes as it is, and the answer's `X-Alias-Unmasked-Images`
+  header counts the images sent. An image given by URL, or an SVG (which is text), is always
+  refused (400).
 - **Nothing unmasked goes through**: besides `messages` (keys `role`, `content`, `prefix`), a
   request may only hold settings without text of their own (`model`, `temperature`, `top_p`,
   `max_tokens`, `random_seed`, `n`, `presence_penalty`, `frequency_penalty`, `safe_prompt`,
