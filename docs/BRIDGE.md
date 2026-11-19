@@ -105,7 +105,10 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 - **Conversations**: one alias table per request, aliases given in order of appearance. A tool
   resends the whole history at each turn, so a value keeps its alias from turn to turn and the
   bridge keeps no state. Once a value has an alias, every other whole-word occurrence of it in
-  the request (any case) gets the same alias, even where the detector missed it.
+  the request gets the same alias, even where the detector missed it: written with any white
+  space between its words, in any case for e-mails, phones and identifiers, but only as found,
+  in capitals or in title case for names and addresses (a first name such as Claire is also a
+  common word).
 - **Message parts**: the text of `content`, or of its `{"type": "text"}` parts, is masked.
   An image may only come inline (`image_url` holding `data:image/...;base64,...`) and passes as
   it is: neither what it shows nor its metadata (author, location) is masked. An image given by
