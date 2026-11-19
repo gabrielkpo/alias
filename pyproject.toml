@@ -49,6 +49,7 @@ dev = [
     "faker>=30",
     "fastapi>=0.115",
     "httpx>=0.27",
+    "huggingface_hub>=0.34",
     "keyring>=25",
     "openai>=1.50",
     "pytest>=8",
