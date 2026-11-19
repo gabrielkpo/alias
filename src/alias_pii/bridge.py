@@ -65,6 +65,10 @@ COMPACT_CHECKED = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID, EntityType
 MAX_CHARS = 200_000  # the whole conversation of one request
 MAX_BODY = 20_000_000  # bytes of one request, inline images included
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+# What a model id looks like ("mistral-small-latest", "ft:open-mistral-7b:abc:def"): anything
+# else in `model` would be free text forwarded unmasked.
+MODEL_ID = re.compile(r"[A-Za-z0-9._:/-]{1,100}")
+
 # What a request may hold besides `messages`: settings with no text of their own. Any other
 # field (`prediction`, `user`, a JSON schema...) could carry personal data the bridge does not
 # mask, so the request is refused rather than forwarded with it.
@@ -191,7 +195,10 @@ def unmaskable(body: dict) -> str | None:
     for name in body:
         if name != "messages" and name not in SETTINGS:
             return f"'{name}'"
-    if not isinstance(body.get("model", ""), str):
+    # A model id, not text: free text there would be forwarded unmasked.
+    if "model" in body and not (
+        isinstance(body["model"], str) and MODEL_ID.fullmatch(body["model"])
+    ):
         return "'model'"
     for name in SETTINGS - {"model", "response_format", "stop"}:
         value = body.get(name)
@@ -259,6 +266,30 @@ def inline_image(part) -> bool:
 def stops(body: dict) -> list[str]:
     stop = body.get("stop")
     return [stop] if isinstance(stop, str) else list(stop or [])
+
+
+def _folded(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def unmasked_fields(body: dict) -> list[str]:
+    """The request's text outside the messages, forwarded as it is: the stop sequences and the
+    model id."""
+    model = body.get("model")
+    return stops(body) + ([model] if isinstance(model, str) else [])
+
+
+def aliased_value_outside(body: dict, results: list[MaskResult]) -> bool:
+    """Whether a stop sequence or the model id holds, as a whole word, a value this request
+    aliased in its messages (in any case and spacing): the detector may miss it in such a short
+    string, and these fields cannot be masked."""
+    values = {_folded(e.text) for result in results for e in result.entities} - {""}
+    fields = [_folded(field) for field in unmasked_fields(body)]
+    return any(
+        re.search(rf"(?<!\w){re.escape(value)}(?!\w)", field)
+        for field in fields
+        for value in values
+    )
 
 
 def check_masked(masked: list[str], results: list[MaskResult]) -> None:
@@ -577,12 +608,18 @@ def create_bridge(
         if size > max_chars:
             raise HTTPException(413, f"conversation too long: at most {max_chars} characters")
         with lock:
-            # A stop sequence cannot be masked without changing what it stops on.
-            if any(detector.detect(stop) for stop in stops(body)):
+            # A stop sequence cannot be masked without changing what it stops on, nor a model id.
+            if any(detector.detect(field) for field in unmasked_fields(body)):
                 raise HTTPException(
-                    422, "a stop sequence holds personal data, which cannot be masked: not sent"
+                    422,
+                    "a stop sequence or the model holds personal data, which cannot be "
+                    "masked: not sent",
                 )
             masked, results, counts = mask_messages(messages, detector)
+        if aliased_value_outside(body, results):
+            raise HTTPException(
+                422, "a stop sequence or the model holds a value aliased in the messages: not sent"
+            )
         try:
             check_masked(texts(masked), results)
         except LeftInClear:
