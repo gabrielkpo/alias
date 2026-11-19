@@ -501,15 +501,18 @@ def create_bridge(
     detector_name: str = "custom",
     local_token: str | None = None,
     instance: str | None = None,
+    idle_token: str | None = None,
 ) -> FastAPI:
     """The bridge around one detector, loaded once by the caller. `api_key`: the Mistral key
     (else the one the client sends); `transport`: for tests, a fake provider; `detector_name`:
     shown in `/health` and in the `X-Alias-Detector` header, so a client can check what masks
     its text; `local_token`: when the bridge holds the key, the token each tool must send as its
     own API key (`Authorization: Bearer <token>`), so another program or account on the machine
-    cannot spend the key."""
+    cannot spend the key; `idle_token`: that token while the bridge holds no key, so a tool still
+    sending it gets 401 instead of having it forwarded to Mistral as if it were a key."""
     if local_token is not None and not (api_key and local_token):
         raise ValueError("a local token needs a non-empty token and the bridge's own Mistral key")
+    idle = f"Bearer {idle_token}".encode() if idle_token and not api_key else None
     expected = f"Bearer {local_token}".encode() if local_token else None
     client = httpx.AsyncClient(base_url=upstream, transport=transport, timeout=120)
 
@@ -565,6 +568,10 @@ def create_bridge(
         if api_key:
             return api_key
         auth = request.headers.get("authorization", "")
+        if idle and hmac.compare_digest(auth.encode(), idle):
+            raise HTTPException(
+                401, "Alias holds no Mistral key: add one (the local token is not a Mistral key)"
+            )
         if auth.lower().startswith("bearer ") and auth[7:].strip():
             return auth[7:].strip()
         raise HTTPException(401, "no Mistral API key: set one for the bridge or send it")
