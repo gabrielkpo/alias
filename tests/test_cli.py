@@ -314,3 +314,35 @@ def test_key_check_asks_mistral_and_stores_nothing(keychain, monkeypatch, capsys
     assert keychain == {}
     out = capsys.readouterr()
     assert "Mistral refused" in out.err and SECRET not in out.out + out.err
+
+
+def test_the_app_names_its_bridge_and_health_says_so(monkeypatch):
+    import io
+    import json
+
+    class Model:
+        def detect(self, text):
+            return []
+
+    served = {}
+    monkeypatch.setattr("uvicorn.run", lambda app, **options: served.update(app=app))
+    monkeypatch.setattr(cli, "published_model", lambda: "folder")
+    monkeypatch.setattr(cli, "model_detector", lambda folder: Model())
+    monkeypatch.delenv("ALIAS_MODEL", raising=False)
+    line = json.dumps({"instance": "a1b2c3"}) + "\n"
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(line))
+    assert cli.main(["serve", "--secrets-stdin"]) == 0
+    health = TestClient(served["app"], base_url="http://127.0.0.1:8001").get("/health").json()
+    assert health["instance"] == "a1b2c3" and health["detector"] == "rules+model"
+    monkeypatch.setattr(cli.sys, "stdin", io.StringIO(json.dumps({"instance": 7}) + "\n"))
+    with pytest.raises(SystemExit):
+        cli.main(["serve", "--secrets-stdin"])
+
+
+def test_the_bridge_stops_when_the_app_closes_its_standard_input():
+    import io
+
+    stopped = []
+    watcher = cli.stop_when_closed(io.StringIO("more\nlines\n"), stop=lambda: stopped.append(1))
+    watcher.join(timeout=5)
+    assert stopped == [1]

@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import secrets
+import signal
 import sys
 import threading
 from pathlib import Path
@@ -206,6 +207,12 @@ def parser() -> argparse.ArgumentParser:
         help='read {"key": ..., "token": ...} as one JSON line on standard input, not the '
         "keychain (the desktop app, which keeps them in its own keychain item)",
     )
+    serve.add_argument(
+        "--stop-on-stdin-close",
+        action="store_true",
+        help="stop when standard input closes (the app keeps it open while it runs, so the "
+        "bridge stops with the app, even when the app is killed)",
+    )
     serve.add_argument("--port", type=int, default=PORT)
     serve.add_argument(
         "--host",
@@ -285,6 +292,22 @@ def key_command(action: str, from_stdin: bool = False, check: bool = False) -> i
     return 0
 
 
+def stop_when_closed(stream, stop=None) -> threading.Thread:
+    """Watches `stream` and calls `stop` (SIGTERM to this process by default, which uvicorn
+    handles as a normal shutdown) when it reaches its end. The desktop app keeps the bridge's
+    standard input open while it runs; when the app ends, even killed, the pipe closes."""
+
+    def watch() -> None:
+        while stream.readline():
+            pass
+        log.info("standard input closed: the app is gone, stopping")
+        (stop or (lambda: os.kill(os.getpid(), signal.SIGTERM)))()
+
+    watcher = threading.Thread(target=watch, name="stdin-watcher", daemon=True)
+    watcher.start()
+    return watcher
+
+
 def serve_command(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -301,7 +324,7 @@ def serve_command(args: argparse.Namespace) -> int:
         folder = Path(args.model) if args.model else published_model()
         detector, name = model_detector(folder), "rules+model"
         log.info("detector: %s", name)
-    token = None
+    token = instance = None
     if args.secrets_stdin:
         # The desktop app owns the keychain item and passes its content on a pipe: this process
         # never touches the keychain, so macOS never asks the user about it.
@@ -310,6 +333,9 @@ def serve_command(args: argparse.Namespace) -> int:
             raise SystemExit('--secrets-stdin expects one JSON object: {"key": ..., "token": ...}')
         api_key = secrets_given.get("key") or None
         token = secrets_given.get("token") if api_key else None
+        instance = secrets_given.get("instance") or None
+        if instance is not None and not isinstance(instance, str):
+            raise SystemExit("--secrets-stdin: instance must be a string")
         if api_key and (not token or len(token) < 32):
             raise SystemExit("--secrets-stdin: a key needs a local token of 32 characters or more")
         if api_key:
@@ -334,8 +360,15 @@ def serve_command(args: argparse.Namespace) -> int:
         raise SystemExit(f"--host {args.host} needs the bridge's own key and a local token")
     hosts = (*LOCAL_HOSTS, *(h.strip() for h in args.allowed_host))
     app = create_bridge(
-        detector, api_key=api_key, detector_name=name, local_token=token, allowed_hosts=hosts
+        detector,
+        api_key=api_key,
+        detector_name=name,
+        local_token=token,
+        allowed_hosts=hosts,
+        instance=instance,
     )
+    if args.stop_on_stdin_close:
+        stop_when_closed(sys.stdin)
     print(f"Alias Bridge on http://{args.host}:{args.port}/v1", file=sys.stderr)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
     return 0

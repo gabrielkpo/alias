@@ -100,11 +100,12 @@ function setStatus(kind, label, detail) {
 async function renderHome(state) {
   let health = null;
   try {
-    health = JSON.parse(await invoke("health"));
+    health = await invoke("health"); // {ours, detector}
   } catch {
     // Not answering yet, or stopped: the process state says which.
   }
-  if (health) {
+  const ours = Boolean(health && health.ours && state.bridge_running);
+  if (ours && health.detector === "rules+model") {
     setStatus(
       "ok",
       "Protecting",
@@ -112,6 +113,22 @@ async function renderHome(state) {
         "before they reach Mistral.",
     );
     setError("bridge-error", null);
+  } else if (ours) {
+    setStatus(
+      "stopped",
+      "Not protecting",
+      `The bridge runs without the model (detector: ${health.detector || "unknown"}): names ` +
+        "and addresses would reach Mistral.",
+    );
+    setError("bridge-error", "The bridge started without its detection model.");
+  } else if (health) {
+    setStatus(
+      "stopped",
+      "Port in use",
+      "Another program answers on 127.0.0.1:8001, so Alias's bridge cannot start there. " +
+        "Quit that program, then restart the bridge.",
+    );
+    setError("bridge-error", state.last_lines.join("\n") || "Another program holds port 8001.");
   } else if (state.bridge_running) {
     setStatus("starting", "Starting", "The bridge is starting; it takes a few seconds.");
     setError("bridge-error", null);
