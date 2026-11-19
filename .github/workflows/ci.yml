@@ -16,7 +16,7 @@ jobs:
           version: "0.13.7"
       # The commands of the README, with the versions of uv.lock: what a contributor runs.
       - name: Install
-        run: uv sync --frozen --group dev --python 3.12
+        run: uv sync --locked --group dev --python 3.12
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .
       - run: uv run --frozen pytest

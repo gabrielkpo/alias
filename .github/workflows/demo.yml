@@ -24,10 +24,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "22"
-      - name: Install Python
-        run: |
-          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3"
-          pip install -e ".[model]" faker "huggingface_hub>=0.24"
+      - name: Install Python (the versions of uv.lock, PyTorch CPU)
+        run: sh packaging/install-locked.sh --extra model --group data
       - name: Install Node
         working-directory: demo
         # onnxruntime-node's install script downloads CUDA binaries from NuGet by default: not
@@ -39,7 +37,7 @@ jobs:
         working-directory: demo
         run: npm test
       - name: Download the published model (weights, ONNX export, tokenizer)
-        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Gabrielkph/alias-mmbert-small', revision='v1.0', local_dir='model')"
+        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Gabrielkph/alias-mmbert-small', revision='41638ca5485ab9b963e7e900914fe417bc314907', local_dir='model')"
       - name: Python reference (rules, tokenizer, rules + model)
         run: python demo/test/parity_cases.py --tokenizer model --model model --out cases.json
       - name: Parity of the JavaScript port
