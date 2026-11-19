@@ -56,7 +56,7 @@ from alias_pii.masking import (
     mask,
     restore,
 )
-from alias_pii.rules import RuleDetector
+from alias_pii.rules import SPACES, RuleDetector
 
 UPSTREAM = "https://api.mistral.ai"
 # Values the rules prove by a checksum: if one is still readable after masking, the request stops.
@@ -182,18 +182,71 @@ def mask_messages(
     known = list({e.text: e for result in results for e in result.entities}.values())
     if not known:
         return out, results, counts
-    known.sort(key=lambda e: len(e.text), reverse=True)  # the longest value first
-    pattern = re.compile(
-        "|".join(rf"(?P<v{i}>(?<!\w){re.escape(e.text)}(?!\w))" for i, e in enumerate(known)),
-        re.IGNORECASE,
-    )
+    sweep = Sweep(known)
 
-    def alias(match: re.Match[str]) -> str:
-        entity = known[int(match.lastgroup[1:])]
+    def alias(entity) -> str:
         counts[entity.type.value] += 1
         return table.alias_for(entity)
 
-    return _each_text(out, lambda text: pattern.sub(alias, text)), results, counts
+    return _each_text(out, lambda text: sweep.replace(text, alias)), results, counts
+
+
+# White space a value may be written with elsewhere in the request: any run of spaces, tabs,
+# line breaks and typographic spaces stands for the single space of the value as found.
+_GAP = rf"(?:\s|[{''.join(sorted(SPACES))}])+"
+_WORD = re.compile(r"\w+")
+
+
+class Sweep:
+    """Finds, in a text, every whole-word occurrence of values already aliased in the request:
+    written with any white space between their words, in any case, except a one-word name or
+    address, only as found, in capitals or in title case (a first name such as Claire is also a
+    common word: "une réponse claire" stays as is).
+
+    Cost: one scan of the text's words, each looked up in an index of the values' first words,
+    instead of trying every value at every position (values x characters)."""
+
+    def __init__(self, known: list) -> None:
+        self.index: dict[str, list[tuple[int, re.Pattern[str], object]]] = {}
+        for entity in sorted(known, key=lambda e: len(e.text), reverse=True):
+            first = _WORD.search(entity.text)
+            if first is None:
+                continue
+            self.index.setdefault(first.group().casefold(), []).append(
+                (first.start(), self._pattern(entity.text, entity.type), entity)
+            )
+
+    @staticmethod
+    def _pattern(value: str, type_) -> re.Pattern[str]:
+        def spaced(text: str) -> str:
+            return _GAP.join(re.escape(part) for part in text.split())
+
+        # A one-word name can be a common word ("claire", "pierre"): only as found, in capitals
+        # or in title case. A longer name or an address is no phrase of its own: any case.
+        if type_ in (EntityType.PERSON, EntityType.ADDRESS) and len(value.split()) == 1:
+            forms = dict.fromkeys([value, value.upper(), value.title()])
+            body = "|".join(spaced(form) for form in forms)
+            return re.compile(rf"(?<!\w)(?:{body})(?!\w)")
+        return re.compile(rf"(?<!\w)(?:{spaced(value)})(?!\w)", re.IGNORECASE)
+
+    def replace(self, text: str, alias) -> str:
+        out: list[str] = []
+        cursor = 0
+        for word in _WORD.finditer(text):
+            if word.start() < cursor:
+                continue
+            for offset, pattern, entity in self.index.get(word.group().casefold(), ()):
+                start = word.start() - offset
+                if start < cursor:
+                    continue
+                match = pattern.match(text, start)
+                if match:
+                    out.append(text[cursor:start])
+                    out.append(alias(entity))
+                    cursor = match.end()
+                    break
+        out.append(text[cursor:])
+        return "".join(out)
 
 
 def unmaskable(body: dict, allow_images: bool = False) -> str | None:
