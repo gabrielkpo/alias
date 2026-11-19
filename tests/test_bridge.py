@@ -692,7 +692,35 @@ def test_a_stop_sequence_holding_an_aliased_value_is_refused():
     for stop in [f"\n{NAME}:", [f"{NAME.upper()}"], ["jean  dupont"]]:
         assert ask(client, message, stop=stop).status_code == 422, stop
     assert ask(client, message, stop=["\nConseiller:"]).status_code == 200
+    assert ask(client, message, model="jean.dupont").status_code == 200  # dots are not spaces
+    assert ask(client, message, model="Jean-Dupont-v2").status_code == 200
     assert NAME not in json.dumps(fake.received)
+
+
+def test_a_model_id_holding_an_aliased_value_is_refused():
+    fake = FakeMistral()
+    app = create_bridge(NameAfterTitle(), api_key="k", transport=httpx.MockTransport(fake))
+    client = TestClient(app, base_url=LOCAL)
+    message = {"role": "user", "content": f"M. {NAME}, IBAN {IBAN}."}
+    assert ask(client, message, model="FR7630006000011234567890189").status_code == 422
+    assert ask(client, message, stop=["IBAN FR76 3000"]).status_code == 200  # a part is no value
+    assert IBAN not in json.dumps(fake.received)
+
+
+def test_a_stop_sequence_matches_whole_words_only():
+    fake = FakeMistral()
+    claire = "Claire"
+    found = Entity(EntityType.PERSON, 0, len(claire), claire, source="fake")
+
+    class FindsClaire:
+        def detect(self, text):
+            return [found] if text.split()[:1] == [claire] else []
+
+    app = create_bridge(FindsClaire(), api_key="k", transport=httpx.MockTransport(fake))
+    client = TestClient(app, base_url=LOCAL)
+    message = {"role": "user", "content": f"{claire} écrit."}
+    assert ask(client, message, stop=["Clairement:"]).status_code == 200
+    assert ask(client, message, stop=["Dit claire:"]).status_code == 422
 
 
 @pytest.mark.parametrize("model", [EMAIL, "Jean Dupont", "m" * 101, 3])
