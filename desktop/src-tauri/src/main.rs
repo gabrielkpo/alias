@@ -202,7 +202,8 @@ fn stop(child: &mut Option<Child>) {
 }
 
 /// Reads a process's error output until it closes, keeping its last lines. A progress bar
-/// rewrites its line with `\r`, so `\r` ends a line too.
+/// rewrites its line with `\r`, so `\r` ends a line too, and a last line without an end of line
+/// is kept as well (a process that dies mid-line).
 fn keep_lines(mut from: impl Read, log: &Mutex<VecDeque<String>>) {
     let mut buffer = [0u8; 4096];
     let mut line = Vec::new();
@@ -212,22 +213,28 @@ fn keep_lines(mut from: impl Read, log: &Mutex<VecDeque<String>>) {
             Ok(read) => read,
         };
         for &byte in &buffer[..read] {
-            if byte != b'\n' && byte != b'\r' {
+            if byte == b'\n' || byte == b'\r' {
+                keep_line(&mut line, log);
+            } else {
                 line.push(byte);
-                continue;
-            }
-            let text = String::from_utf8_lossy(&line).trim().to_string();
-            line.clear();
-            if text.is_empty() {
-                continue;
-            }
-            if let Ok(mut lines) = log.lock() {
-                if lines.len() == LOG_LINES {
-                    lines.pop_front();
-                }
-                lines.push_back(text);
             }
         }
+    }
+    keep_line(&mut line, log);
+}
+
+/// Adds a line to the log unless it is blank, dropping the oldest past `LOG_LINES`.
+fn keep_line(line: &mut Vec<u8>, log: &Mutex<VecDeque<String>>) {
+    let text = String::from_utf8_lossy(line).trim().to_string();
+    line.clear();
+    if text.is_empty() {
+        return;
+    }
+    if let Ok(mut lines) = log.lock() {
+        if lines.len() == LOG_LINES {
+            lines.pop_front();
+        }
+        lines.push_back(text);
     }
 }
 
@@ -522,4 +529,62 @@ fn main() {
                 };
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines_of(output: &[u8]) -> Vec<String> {
+        let log = Mutex::new(VecDeque::new());
+        keep_lines(output, &log);
+        log.into_inner().unwrap().into_iter().collect()
+    }
+
+    #[test]
+    fn keeps_lines_ended_by_newline_or_carriage_return() {
+        let output = b"Downloading 10%\rDownloading 50%\r\nready\n\n  \n";
+        assert_eq!(lines_of(output), ["Downloading 10%", "Downloading 50%", "ready"]);
+    }
+
+    #[test]
+    fn keeps_a_last_line_without_an_end_of_line() {
+        assert_eq!(lines_of(b"starting\nerror: port in use"), ["starting", "error: port in use"]);
+    }
+
+    #[test]
+    fn keeps_only_the_last_lines() {
+        let output: String = (0..LOG_LINES + 5).map(|i| format!("line {i}\n")).collect();
+        let lines = lines_of(output.as_bytes());
+        assert_eq!(lines.len(), LOG_LINES);
+        assert_eq!(lines[0], "line 5");
+        assert_eq!(lines[LOG_LINES - 1], format!("line {}", LOG_LINES + 4));
+    }
+
+    #[test]
+    fn a_token_is_64_hex_characters_and_new_each_time() {
+        let first = new_token().unwrap();
+        assert_eq!(first.len(), 64);
+        assert!(first.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert_ne!(first, new_token().unwrap());
+    }
+
+    #[test]
+    fn the_keychain_item_round_trips_as_json() {
+        let secrets = Secrets { key: "k".into(), token: "t".into() };
+        let json = serde_json::to_string(&secrets).unwrap();
+        assert_eq!(json, r#"{"key":"k","token":"t"}"#);
+        let back: Secrets = serde_json::from_str(&json).unwrap();
+        assert_eq!((back.key, back.token), ("k".to_string(), "t".to_string()));
+    }
+
+    #[test]
+    fn stop_ends_a_running_child_and_ignores_none() {
+        let mut child = Some(Command::new("sleep").arg("30").spawn().unwrap());
+        let started = std::time::Instant::now();
+        stop(&mut child);
+        assert!(child.is_none());
+        assert!(started.elapsed() < Duration::from_secs(5));
+        stop(&mut None);
+    }
 }
