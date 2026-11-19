@@ -126,9 +126,11 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 - **Links stay masked**: restored inside a link or an image, a value would leave the machine,
   for example if the answer follows instructions hidden in a pasted document. Markdown and HTML
   have too many forms to follow one by one, so the bridge errs on the side of masking:
-  - from a link or URL mark (`](`, `//`, `www.`) to the end of its paragraph, aliases keep their
-    alias form; the text before the mark (link text included) and other paragraphs get the
-    values back;
+  - from a link or URL mark (`](`, `//`, `www.`, a scheme such as `mailto:`, `ftp:` or `http:`
+    without slashes, a bare domain followed by `/`, `?` or `#`) to the end of its paragraph,
+    aliases keep their alias form; the text before the mark (link text included) and other
+    paragraphs get the values back. A value that is itself a URL (a file number such as
+    `www.host/a1`) is restored, but nothing after it in its paragraph;
   - from the first image (`![`), `<` followed by anything but a space, `=` or a digit, or
     backslash, nothing more is restored: an image is fetched as soon as it is shown, an HTML
     block can run across blank lines, and a client decoding the answer as JSON, JSON5 or YAML

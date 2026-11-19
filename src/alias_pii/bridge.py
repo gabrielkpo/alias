@@ -48,6 +48,7 @@ from alias_pii import __version__
 from alias_pii.entities import EntityType
 from alias_pii.limits import BodyLimit
 from alias_pii.masking import (
+    ALIAS_PATTERN,
     AliasTable,
     Detector,
     MaskResult,
@@ -88,10 +89,11 @@ MESSAGE_KEYS = frozenset({"role", "content", "prefix"})
 ROLES = frozenset({"system", "user", "assistant"})
 # An image may only come inline: base64 data and nothing else, so no text rides in its URL.
 IMAGE_DATA = re.compile(r"data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]*")
-# Where answer text may become a request of the client's own. A link (`](`) or a bare URL (`//`,
-# `www.`) only works inside its paragraph (inline markdown never crosses a blank line) and needs
-# a click, so from such a mark to the end of the paragraph aliases stay masked. From any of these
-# to the end of the text, nothing more is restored (`FAR`):
+# Where answer text may become a request of the client's own. A link (`](`) or a URL (`//`,
+# `www.`, a scheme such as `mailto:` or `http:` without slashes, or a bare domain followed by a
+# path, query or fragment: `evil.example/?q=`) only works inside its paragraph (inline markdown
+# never crosses a blank line) and needs a click, so from such a mark to the end of the paragraph
+# aliases stay masked. From any of these to the end of the text, nothing more is restored (`FAR`):
 # - an image (`![`): it is fetched as soon as it is shown;
 # - a reference definition (`]:`), from the start of the text: an image anywhere in the answer
 #   can use it, and its label may hold an alias, across a blank line a YAML decoder removes;
@@ -101,7 +103,9 @@ IMAGE_DATA = re.compile(r"data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]*")
 # - a backslash: a client decoding the answer as JSON, JSON5 or YAML turns `\u003c` into `<`,
 #   `\/\/` into `//`, and drops a backslash before a line break, all marks hidden here.
 FAR = re.compile(r"!\[|(?<=\]):|<(?![\s=\d])|\\")
-NEAR = re.compile(r"(?<=\])\(|//|www\.", re.IGNORECASE)
+SCHEME = r"\b(?:https?|ftps?|mailto|file|data|tel|sms|javascript|wss?|ssh|git|irc):"
+BARE_URL = r"\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}[/?#]"
+NEAR = re.compile(rf"(?<=\])\(|//|www\.|{SCHEME}|{BARE_URL}", re.IGNORECASE)
 LINK_MARK = re.compile(f"{FAR.pattern}|{NEAR.pattern}", re.IGNORECASE)
 DEFINITION = re.compile(r"(?<=\]):")
 PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
@@ -296,12 +300,26 @@ def link_spans(text: str) -> list[tuple[int, int]]:
 def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
     """The text with the values of this request's aliases put back, except in links and what
     follows them (`link_spans`): an alias there stays masked, so a client loading a link or an
-    image sends no value."""
+    image sends no value. A restored value can itself be a URL (a file number such as
+    `www.host/a1`): after it, to the end of its paragraph, nothing more is restored."""
 
-    def plain(segment: str) -> str:
+    def restored_text(segment: str) -> str:
         back = restore(segment, *results)
         restored.update(back.restored)
         return back.text
+
+    def plain(segment: str) -> str:
+        for match in ALIAS_PATTERN.finditer(segment):
+            value = restore(match.group(), *results).text
+            if value != match.group() and (LINK_MARK.search(value) or NEAR.search(value)):
+                end = PARAGRAPH_END.search(segment, match.end())
+                stop = end.start() if end else len(segment)
+                return (
+                    restored_text(segment[: match.end()])
+                    + segment[match.end() : stop]
+                    + (plain(segment[stop:]) if end else "")
+                )
+        return restored_text(segment)
 
     parts: list[str] = []
     cursor = 0
