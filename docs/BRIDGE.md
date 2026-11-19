@@ -79,6 +79,11 @@ hoc, macOS may ask once after an update; choose "Always Allow". The command line
 pieces: `alias-pii fetch --progress` (progress as JSON lines), `alias-pii key check` (asks
 Mistral whether a key works, stores nothing) and `alias-pii key set --check`.
 
+Each release's `.dmg` comes with a build provenance attestation: it proves the file was built
+by this repository's `macos-app` workflow, from the release's commit. Check it before opening
+the file with `gh attestation verify Alias_<version>_aarch64.dmg --repo gabrielkpo/alias`; a
+file is never replaced once attached to a release.
+
 The app is not notarized by Apple (ad-hoc signature only), so macOS blocks its first launch:
 allow it in System Settings, Privacy & Security, "Open Anyway". The `.dmg` is built and checked
 on a GitHub macOS machine by the `macos-app` workflow, which launches the app, waits for its
