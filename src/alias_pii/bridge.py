@@ -86,8 +86,10 @@ SETTINGS = frozenset(
 )
 MESSAGE_KEYS = frozenset({"role", "content", "prefix"})
 ROLES = frozenset({"system", "user", "assistant"})
-# An image may only come inline: base64 data and nothing else, so no text rides in its URL.
-IMAGE_DATA = re.compile(r"data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]*")
+# An image may only come inline, as base64 data of a raster format and nothing else, so no text
+# rides in its URL (an SVG is text). Images are never masked: they are refused unless the bridge
+# was started with `allow_images` (`--allow-images`).
+IMAGE_DATA = re.compile(r"data:image/(?:png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]*")
 # Where answer text may become a request of the client's own. A link (`](`) or a bare URL (`//`,
 # `www.`) only works inside its paragraph (inline markdown never crosses a blank line) and needs
 # a click, so from such a mark to the end of the paragraph aliases stay masked. From any of these
@@ -183,7 +185,7 @@ def mask_messages(
     return _each_text(out, lambda text: pattern.sub(alias, text)), results, counts
 
 
-def unmaskable(body: dict) -> str | None:
+def unmaskable(body: dict, allow_images: bool = False) -> str | None:
     """Where the request holds text the bridge would forward without masking it, else None: a
     field that is not a setting, a message key other than role/content/prefix, a content that
     is neither text nor text and inline image parts, a JSON schema, a setting that is not a
@@ -233,8 +235,12 @@ def unmaskable(body: dict) -> str | None:
                 and part["type"] == "text"
                 and isinstance(part["text"], str)
             )
-            if not (text or inline_image(part)):
+            if text:
+                continue
+            if not inline_image(part):
                 return f"{where}.content[{j}]"
+            if not allow_images:
+                return f"{where}.content[{j}] (an image, sent as it is: start with --allow-images)"
     return None
 
 
@@ -253,6 +259,18 @@ def inline_image(part) -> bool:
         part["type"] == "image_url"
         and isinstance(image, str)
         and IMAGE_DATA.fullmatch(image) is not None
+    )
+
+
+def image_parts(body: dict) -> int:
+    """How many inline images the request holds (forwarded unmasked)."""
+    messages = body.get("messages")
+    return sum(
+        1
+        for message in (messages if isinstance(messages, list) else [])
+        if isinstance(message, dict) and isinstance(message.get("content"), list)
+        for part in message["content"]
+        if inline_image(part)
     )
 
 
@@ -501,6 +519,7 @@ def create_bridge(
     detector_name: str = "custom",
     local_token: str | None = None,
     instance: str | None = None,
+    allow_images: bool = False,
 ) -> FastAPI:
     """The bridge around one detector, loaded once by the caller. `api_key`: the Mistral key
     (else the one the client sends); `transport`: for tests, a fake provider; `detector_name`:
@@ -620,7 +639,7 @@ def create_bridge(
         ):
             # Tool definitions and call arguments are not masked yet: refuse rather than leak.
             raise HTTPException(501, "tool calls are not supported yet")
-        where = unmaskable(body)
+        where = unmaskable(body, allow_images)
         if where:
             raise HTTPException(
                 400, f"{where} is not supported: its text would reach Mistral unmasked"
@@ -660,6 +679,8 @@ def create_bridge(
             "X-Alias-Restored": str(restored),
             "X-Alias-Detector": detector_name,
         }
+        if allow_images:  # what went to Mistral without masking, for the client to see
+            headers["X-Alias-Unmasked-Images"] = str(image_parts(body))
         if streaming:
             return StreamingResponse(
                 stream_events(data), media_type="text/event-stream", headers=headers

@@ -211,6 +211,12 @@ def parser() -> argparse.ArgumentParser:
         help="stop when standard input closes (the app keeps it open while it runs, so the "
         "bridge stops with the app, even when the app is killed)",
     )
+    serve.add_argument(
+        "--allow-images",
+        action="store_true",
+        default=os.environ.get("ALIAS_ALLOW_IMAGES") == "1",
+        help="forward inline images, which are NOT masked (refused by default)",
+    )
     serve.add_argument("--port", type=int, default=PORT)
     serve.add_argument(
         "--host",
@@ -364,7 +370,10 @@ def serve_command(args: argparse.Namespace) -> int:
         local_token=token,
         allowed_hosts=hosts,
         instance=instance,
+        allow_images=args.allow_images,
     )
+    if args.allow_images:
+        log.warning("inline images are forwarded unmasked (--allow-images)")
     if args.stop_on_stdin_close:
         stop_when_closed(sys.stdin)
     print(f"Alias Bridge on http://{args.host}:{args.port}/v1", file=sys.stderr)
