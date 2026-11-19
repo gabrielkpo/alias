@@ -81,3 +81,30 @@ def test_a_dropped_rule_type_does_not_absorb_a_kept_one():
     assert [(e.type, e.text) for e in RulesAndModel(Nothing()).detect(text)] == [
         (EntityType.IDENTIFIER, "2015550123")
     ]
+
+
+def test_the_bridge_keeps_rule_contacts_the_model_misses(tmp_path, monkeypatch):
+    """In the bridge an e-mail or phone the model misses must not reach the provider in clear:
+    the rules' contacts are kept there (BRIDGE_RULE_TYPES), unlike in the benchmark."""
+    import sys
+    import types
+
+    from alias_pii import cli
+
+    class MissesEverything:
+        def __init__(self, *args, **options):
+            pass
+
+        def detect(self, text):
+            return []
+
+    # No ONNX Runtime needed: the exporter module is replaced by a model that finds nothing.
+    fake = types.SimpleNamespace(OnnxDetector=MissesEverything)
+    monkeypatch.setitem(sys.modules, "alias_pii.onnx_export", fake)
+    (tmp_path / "onnx").mkdir()
+    (tmp_path / "onnx" / "model.onnx").write_bytes(b"")
+    text = "Contact : jean.dupont@example.com ou 01 99 00 12 34."
+    found = {e.type for e in cli.model_detector(tmp_path).detect(text)}
+    assert {EntityType.EMAIL, EntityType.PHONE} <= found
+    benchmark = RulesAndModel(MissesEverything())  # default RULE_TYPES: contacts left to the model
+    assert not {e.type for e in benchmark.detect(text)} & {EntityType.EMAIL, EntityType.PHONE}

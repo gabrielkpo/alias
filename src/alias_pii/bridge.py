@@ -531,6 +531,7 @@ def create_bridge(
     allowed_hosts: tuple[str, ...] = LOCAL_HOSTS,
     detector_name: str = "custom",
     local_token: str | None = None,
+    instance: str | None = None,
 ) -> FastAPI:
     """The bridge around one detector, loaded once by the caller. `api_key`: the Mistral key
     (else the one the client sends); `transport`: for tests, a fake provider; `detector_name`:
@@ -631,12 +632,15 @@ def create_bridge(
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {
+        answer = {
             "status": "ok",
             "upstream": upstream,
             "version": __version__,
             "detector": detector_name,
         }
+        if instance:  # the id the desktop app gave this bridge, so it knows it is its own
+            answer["instance"] = instance
+        return answer
 
     @app.post("/v1/chat/completions")
     async def chat(request: Request) -> Response:

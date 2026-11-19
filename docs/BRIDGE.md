@@ -71,10 +71,13 @@ replacing or deleting the key. The app runs the bridge while it is open and stop
 The app keeps the key and the local token in one keychain item of its own ("Alias"), separate
 from the command line's: it reads it once per launch and hands both to the bridge on a pipe
 (`alias-pii serve --secrets-stdin`), so the bridge never touches the keychain and macOS has only
-the app to ask about. Since the app is signed ad hoc, macOS may ask once after an update; choose
-"Always Allow". The command line has the same pieces: `alias-pii fetch --progress` (progress as
-JSON lines), `alias-pii key check` (asks Mistral whether a key works, stores nothing) and
-`alias-pii key set --check`.
+the app to ask about. The app also gives each bridge it starts a random id, which `/health`
+echoes: the window says "Protecting" only when its own bridge answers with the model, not when
+another program holds the port. The bridge stops when the app ends, even if it is killed, because
+it watches the pipe the app keeps open (`--stop-on-stdin-close`). Since the app is signed ad
+hoc, macOS may ask once after an update; choose "Always Allow". The command line has the same
+pieces: `alias-pii fetch --progress` (progress as JSON lines), `alias-pii key check` (asks
+Mistral whether a key works, stores nothing) and `alias-pii key set --check`.
 
 The app is not notarized by Apple (ad-hoc signature only), so macOS blocks its first launch:
 allow it in System Settings, Privacy & Security, "Open Anyway". The `.dmg` is built and checked
@@ -99,6 +102,9 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 
 ## How it behaves
 
+- **Detector**: the published model plus the rules. Unlike the benchmark detector, the bridge
+  also keeps the rules' e-mails and phones: a company mailbox masked by mistake comes back in the
+  answer, while a personal one the model missed would reach Mistral in clear.
 - **Conversations**: one alias table per request, aliases given in order of appearance. A tool
   resends the whole history at each turn, so a value keeps its alias from turn to turn and the
   bridge keeps no state. Once a value has an alias, every other whole-word occurrence of it in

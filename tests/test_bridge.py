@@ -728,3 +728,13 @@ def test_the_model_field_must_be_a_model_id(model):
     fake = FakeMistral()
     assert ask(bridge(fake), USER_MESSAGE, model=model).status_code == 400
     assert fake.received == []
+
+
+@pytest.mark.parametrize("separator", ["\n", "\t", ".", "‑"])
+def test_an_iban_split_by_another_separator_never_reaches_the_provider(separator):
+    fake = FakeMistral()
+    iban = IBAN.replace(" 0112 ", f" 0112{separator}")
+    message = {"role": "user", "content": f"Virement sur {iban} demain."}
+    assert ask(bridge(fake), message).status_code == 200
+    sent = json.dumps(fake.received, ensure_ascii=False)
+    assert "0112" not in sent and "[IBAN_1]" in sent
