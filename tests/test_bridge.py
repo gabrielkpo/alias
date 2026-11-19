@@ -698,3 +698,18 @@ def test_a_restored_value_that_is_itself_a_url_restores_nothing_after_it():
     content = ask(bridge(fake), {"role": "user", "content": text}).json()
     content = content["choices"][0]["message"]["content"]
     assert content == f"Voir www.evil.invalid/a1?q=[EMAIL_1]\n\nContact : {EMAIL}."
+
+
+def test_a_scheme_split_across_json_strings_restores_nothing():
+    fake = FakeMistral(reply='{"a": "voir mailto", "b": ":x@evil.invalid?q=[EMAIL_1]"}')
+    content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
+    assert EMAIL not in content
+
+
+def test_many_paragraphs_with_a_url_value_restore_without_recursion():
+    reply = "\n\n".join(["Voir [IDENTIFIER_1]?q=[EMAIL_1]"] * 1500)
+    fake = FakeMistral(reply=reply)
+    text = f"dossier www.evil.invalid/a1 ; mail {EMAIL}"
+    response = ask(bridge(fake), {"role": "user", "content": text})
+    assert response.status_code == 200
+    assert EMAIL not in response.json()["choices"][0]["message"]["content"]

@@ -103,7 +103,9 @@ IMAGE_DATA = re.compile(r"data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]*")
 # - a backslash: a client decoding the answer as JSON, JSON5 or YAML turns `\u003c` into `<`,
 #   `\/\/` into `//`, and drops a backslash before a line break, all marks hidden here.
 FAR = re.compile(r"!\[|(?<=\]):|<(?![\s=\d])|\\")
-SCHEME = r"\b(?:https?|ftps?|mailto|file|data|tel|sms|javascript|wss?|ssh|git|irc):"
+SCHEMES = ("http", "https", "ftp", "ftps", "mailto", "file", "data", "tel", "sms", "javascript",
+           "ws", "wss", "ssh", "git", "irc")  # fmt: skip
+SCHEME = rf"\b(?:{'|'.join(SCHEMES)}):"
 BARE_URL = r"\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}[/?#]"
 NEAR = re.compile(rf"(?<=\])\(|//|www\.|{SCHEME}|{BARE_URL}", re.IGNORECASE)
 LINK_MARK = re.compile(f"{FAR.pattern}|{NEAR.pattern}", re.IGNORECASE)
@@ -112,7 +114,8 @@ PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
 # A mark a client could form by joining two strings of a JSON document in any order: one string
 # ends with its start, another starts with its end. An image also needs `](` or a definition
 # (`]:`), so `![` split in two is caught through them; a split `<` is a string ending with `<`.
-SPLIT_MARKS = ("](", "]:", "//", "www.")
+# A bare domain split in two is not caught: any word can end one string and `.fr/` start another.
+SPLIT_MARKS = ("](", "]:", "//", "www.", *(f"{scheme}:" for scheme in SCHEMES))
 OPENING = re.compile(r"[\[{]")
 log = logging.getLogger("alias.bridge")
 
@@ -309,17 +312,20 @@ def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
         return back.text
 
     def plain(segment: str) -> str:
+        out: list[str] = []
+        cursor = 0
         for match in ALIAS_PATTERN.finditer(segment):
+            if match.start() < cursor:  # inside a paragraph already kept masked
+                continue
             value = restore(match.group(), *results).text
             if value != match.group() and (LINK_MARK.search(value) or NEAR.search(value)):
                 end = PARAGRAPH_END.search(segment, match.end())
                 stop = end.start() if end else len(segment)
-                return (
-                    restored_text(segment[: match.end()])
-                    + segment[match.end() : stop]
-                    + (plain(segment[stop:]) if end else "")
-                )
-        return restored_text(segment)
+                out.append(restored_text(segment[cursor : match.end()]))
+                out.append(segment[match.end() : stop])
+                cursor = stop
+        out.append(restored_text(segment[cursor:]))
+        return "".join(out)
 
     parts: list[str] = []
     cursor = 0
