@@ -37,6 +37,9 @@ def test_the_local_token_is_refused_not_forwarded_when_the_bridge_holds_no_key()
         "/v1/chat/completions", json=BODY, headers={"Authorization": f"Bearer {TOKEN}"}
     )
     assert refused.status_code == 401 and "no Mistral key" in refused.text
+    for header in (f"bearer {TOKEN}", f"BEARER   {TOKEN}  "):
+        answer = client.post("/v1/chat/completions", json=BODY, headers={"Authorization": header})
+        assert answer.status_code == 401, header
     own = client.post("/v1/chat/completions", json=BODY, headers={"Authorization": "Bearer own"})
     assert own.status_code == 200
     assert seen == ["Bearer own"]
