@@ -92,6 +92,16 @@ struct Alias {
     /// Set when the app quits, so a download finishing at that moment starts no bridge.
     exiting: AtomicBool,
     keychain: Mutex<Keychain>,
+    /// A random id given to the bridge at each start and echoed by its `/health`, so the window
+    /// only trusts its own bridge, not any program answering on the port.
+    instance: String,
+}
+
+/// What `/health` says, checked against the app's own bridge.
+#[derive(Serialize)]
+struct Health {
+    ours: bool,
+    detector: String,
 }
 
 fn keychain_entry() -> Result<keyring::Entry, String> {
@@ -243,7 +253,14 @@ fn spawn_logged(
         std::thread::spawn(move || keep_lines(stderr, &lines));
     }
     if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
-        stdin.write_all(format!("{text}\n").as_bytes()).map_err(|e| e.to_string())?;
+        if let Err(error) = stdin.write_all(format!("{text}\n").as_bytes()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("Alias could not talk to its bridge program: {error}"));
+        }
+        // Kept open while the process runs: when the app ends, even killed, the pipe closes and
+        // the bridge (`--stop-on-stdin-close`) stops with it.
+        child.stdin = Some(stdin);
     }
     Ok((child, log))
 }
@@ -254,12 +271,14 @@ fn start_bridge(alias: &Alias) -> Result<(), String> {
     if alias.exiting.load(Ordering::SeqCst) {
         return Ok(());
     }
-    // The key and token on a pipe, or `{}` without a key (tools then send their own key).
+    // The key, the token and the instance id on a pipe; without a key, the id alone (tools
+    // then send their own key).
     let secrets = match stored_secrets(alias) {
-        Some(secrets) => serde_json::to_string(&secrets).map_err(|e| e.to_string())?,
-        None => "{}".into(),
-    };
-    let args = ["serve", "--secrets-stdin"];
+        Some(s) => serde_json::json!({"key": s.key, "token": s.token, "instance": alias.instance}),
+        None => serde_json::json!({"instance": alias.instance}),
+    }
+    .to_string();
+    let args = ["serve", "--secrets-stdin", "--stop-on-stdin-close"];
     let (child, _) = spawn_logged(alias, &args, Stdio::null(), Some(secrets))?;
     *bridge = Some(child);
     Ok(())
@@ -346,10 +365,10 @@ fn run(args: &[&str], input: Option<&str>) -> Result<String, String> {
     }
 }
 
-/// The bridge's `/health` answer (JSON text), read over a plain socket: the bridge refuses
-/// requests from a web page, which the window is.
+/// The bridge's `/health` answer, read over a plain socket (the bridge refuses requests from a
+/// web page, which the window is), and whether it comes from the app's own bridge.
 #[tauri::command]
-async fn health() -> Result<String, String> {
+async fn health(alias: State<'_, Alias>) -> Result<Health, String> {
     let address: SocketAddr = BRIDGE.parse().map_err(|_| "bad address")?;
     let mut stream =
         TcpStream::connect_timeout(&address, Duration::from_secs(2)).map_err(|e| e.to_string())?;
@@ -359,7 +378,10 @@ async fn health() -> Result<String, String> {
     let mut answer = String::new();
     stream.read_to_string(&mut answer).map_err(|e| e.to_string())?;
     let body = answer.split("\r\n\r\n").nth(1).ok_or("no answer from the bridge")?;
-    Ok(body.to_string())
+    let value: serde_json::Value =
+        serde_json::from_str(body).map_err(|_| "not an answer from a bridge")?;
+    let text = |field: &str| value.get(field).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    Ok(Health { ours: text("instance") == alias.instance, detector: text("detector") })
 }
 
 /// The model's state, whether the bridge process still runs, its exit code and last log lines.
@@ -469,6 +491,7 @@ fn main() {
             model: Mutex::new(Model::at("checking")),
             exiting: AtomicBool::new(false),
             keychain: Mutex::new(Keychain::Unread),
+            instance: new_token().expect("no randomness on this Mac"),
         })
         .setup(|app| {
             let handle = app.handle().clone();
