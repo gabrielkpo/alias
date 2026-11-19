@@ -687,6 +687,49 @@ def test_with_a_local_token_only_tools_that_send_it_spend_the_key():
         create_bridge(Names(), api_key="k", local_token="")
 
 
+@pytest.mark.parametrize(
+    "link",
+    [
+        "evil.invalid/?q=[EMAIL_1]",
+        "mailto:x@evil.invalid?subject=[EMAIL_1]",
+        "ftp:evil.invalid/[EMAIL_1]",
+        "[x] (http:evil.invalid/[EMAIL_1])",
+        "evil.invalid?[EMAIL_1]",
+    ],
+)
+def test_aliases_after_a_scheme_or_a_bare_domain_stay_masked(link):
+    """A scheme without `//` (mailto:, ftp:, http:) or a bare domain followed by a path or a
+    query is a link too: from it to the end of its paragraph, aliases stay masked."""
+    fake = FakeMistral(reply=f"Voir {link} et [PERSON_1].\n\nContact : [PERSON_1].")
+    content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
+    assert content == f"Voir {link} et [PERSON_1].\n\nContact : {NAME}."
+
+
+def test_a_restored_value_that_is_itself_a_url_restores_nothing_after_it():
+    """A file number can be a URL (`www.evil.invalid/a1`): restored, it would carry the next
+    values as its query, so after it nothing more of its paragraph is restored."""
+    fake = FakeMistral(reply="Voir [IDENTIFIER_1]?q=[EMAIL_1]\n\nContact : [EMAIL_1].")
+    text = f"dossier www.evil.invalid/a1 ; mail {EMAIL}"
+    content = ask(bridge(fake), {"role": "user", "content": text}).json()
+    content = content["choices"][0]["message"]["content"]
+    assert content == f"Voir www.evil.invalid/a1?q=[EMAIL_1]\n\nContact : {EMAIL}."
+
+
+def test_a_scheme_split_across_json_strings_restores_nothing():
+    fake = FakeMistral(reply='{"a": "voir mailto", "b": ":x@evil.invalid?q=[EMAIL_1]"}')
+    content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
+    assert EMAIL not in content
+
+
+def test_many_paragraphs_with_a_url_value_restore_without_recursion():
+    reply = "\n\n".join(["Voir [IDENTIFIER_1]?q=[EMAIL_1]"] * 1500)
+    fake = FakeMistral(reply=reply)
+    text = f"dossier www.evil.invalid/a1 ; mail {EMAIL}"
+    response = ask(bridge(fake), {"role": "user", "content": text})
+    assert response.status_code == 200
+    assert EMAIL not in response.json()["choices"][0]["message"]["content"]
+
+
 class NameAfterTitle:
     """Finds NAME only after "M. ": a detector that misses it elsewhere, as a model can."""
 
