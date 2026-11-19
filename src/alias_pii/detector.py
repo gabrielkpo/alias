@@ -11,6 +11,10 @@ The rules' e-mails, phones and other identifiers are left out: they also catch c
 mailboxes, switchboards, orders and invoice numbers, which the model learnt to leave in clear.
 Adding them all dropped the precision from 0.97 to 0.79 on the synthetic validation split for
 no leak gained there (docs/DETECTOR.md, variants 1 to 3).
+
+The bridge does keep the rules' e-mails and phones (`BRIDGE_RULE_TYPES`): there, a company
+mailbox masked by mistake costs nothing (the answer gets it back), while a personal one the
+model misses would reach the provider in clear. The benchmark keeps `RULE_TYPES`.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ from alias_pii.masking import Detector
 from alias_pii.rules import RuleDetector
 
 RULE_TYPES = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID, EntityType.BIRTH_DATE})
+# What the bridge keeps from the rules: leaks matter there, extra aliases are restored.
+BRIDGE_RULE_TYPES = RULE_TYPES | {EntityType.EMAIL, EntityType.PHONE}
 
 # Variant 3 (docs/DETECTOR.md): the rules' identifiers announced by a keyword naming a person's
 # file. Orders, invoices, tickets, references and accounts are left out: on the validation
