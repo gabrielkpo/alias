@@ -40,13 +40,14 @@ permissions:
   contents: read
 jobs:
   # The app's Rust code is formatted (rustfmt, on its own: a quick answer before the long build).
+  # Not on a release rebuild, like the lints below.
   rust-format:
+    if: ${{ !inputs.release_tag }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.release_tag }}
           persist-credentials: false
       - name: cargo fmt --check
         working-directory: desktop/src-tauri
