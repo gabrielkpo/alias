@@ -97,6 +97,16 @@ jobs:
           if curl -sf localhost:8001/health; then
             echo "the bridge outlived the app"; pgrep -fl alias-pii || true; exit 1
           fi
+      - name: Killing the app (no clean quit) stops its bridge too
+        run: |
+          open desktop/src-tauri/target/release/bundle/macos/Alias.app
+          for i in $(seq 90); do curl -sf localhost:8001/health > health.json && break; sleep 2; done
+          grep -q '"instance":' health.json
+          pkill -9 -f 'Alias.app/Contents/MacOS/alias-desktop'
+          for i in $(seq 30); do curl -sf localhost:8001/health > /dev/null || break; sleep 1; done
+          if curl -sf localhost:8001/health; then
+            echo "the bridge outlived the killed app"; pgrep -fl alias-pii || true; exit 1
+          fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: alias-macos-dmg
