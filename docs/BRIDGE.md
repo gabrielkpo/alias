@@ -102,6 +102,9 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 
 ## How it behaves
 
+- **Detector**: the published model plus the rules. Unlike the benchmark detector, the bridge
+  also keeps the rules' e-mails and phones: a company mailbox masked by mistake comes back in the
+  answer, while a personal one the model missed would reach Mistral in clear.
 - **Conversations**: one alias table per request, aliases given in order of appearance. A tool
   resends the whole history at each turn, so a value keeps its alias from turn to turn and the
   bridge keeps no state. Once a value has an alias, every other whole-word occurrence of it in
@@ -118,7 +121,9 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   `max_tokens`, `random_seed`, `n`, `presence_penalty`, `frequency_penalty`, `safe_prompt`,
   `stream`, `stop`, `response_format` of type `text` or `json_object`). Anything else (a message
   `name`, `prediction`, a JSON schema, `user`, another part type, an image URL) is refused (400)
-  rather than sent unmasked. A `stop` sequence holding personal data is refused too (422).
+  rather than sent unmasked. `model` must look like a model id (letters, digits, `._:/-`, at
+  most 100), else 400. A `stop` sequence or a `model` holding personal data, or a value aliased
+  in the messages (as a whole word, in any case or spacing), is refused too (422).
 - **Check before sending**: if the rules still find an IBAN or a national ID in the masked text,
   or an IBAN, national ID or phone number of the request is still readable with other
   separators (`01.99.00.12.34` for `01 99 00 12 34`), the request is refused (422) and nothing

@@ -142,14 +142,16 @@ def key_refused(value: str) -> str | None:
 
 
 def model_detector(folder: Path):
-    """Rules plus the ONNX model found in `folder` (`onnx/model.onnx` or `model.onnx`)."""
-    from alias_pii.detector import RulesAndModel
+    """Rules plus the ONNX model found in `folder` (`onnx/model.onnx` or `model.onnx`), keeping
+    the rules' e-mails and phones as well: in the bridge a missed one would leave in clear."""
+    from alias_pii.detector import BRIDGE_RULE_TYPES, RulesAndModel
     from alias_pii.onnx_export import OnnxDetector
 
     model_file = "onnx/model.onnx" if (folder / "onnx" / "model.onnx").is_file() else "model.onnx"
     if not (folder / model_file).is_file():
         raise SystemExit(f"no ONNX model in {folder}: export one with alias_pii.onnx_export")
-    return RulesAndModel(OnnxDetector(str(folder), model_file=model_file))
+    model = OnnxDetector(str(folder), model_file=model_file)
+    return RulesAndModel(model, rule_types=BRIDGE_RULE_TYPES)
 
 
 def stored_key() -> str | None:
