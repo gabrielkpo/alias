@@ -136,7 +136,7 @@ The types the detector reports, and what finds each one.
 | Label | Content | Detected by |
 |---|---|---|
 | `PERSON`, `ADDRESS` | need context | model |
-| `EMAIL`, `PHONE` | e-mail (accented domains too); French, UK and US numbers | model (the rules find them too and are not kept here, see above; the bridge keeps them: docs/BRIDGE.md) |
+| `EMAIL`, `PHONE` | e-mail (accented domains too); French, UK and US numbers | model (the rules find them too but are not kept, see "Second variant" above; the bridge keeps them: docs/BRIDGE.md) |
 | `IBAN` | any country | rules (mod 97, length per country) and model |
 | `NATIONAL_ID` | `FR_NIR`, `US_SSN`, `UK_NINO` | rules (checksum) and model |
 | `IDENTIFIER` | file, contract or customer number after a keyword | model; rules after a person's-file keyword |
