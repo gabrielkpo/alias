@@ -670,3 +670,33 @@ def test_with_a_local_token_only_tools_that_send_it_spend_the_key():
         create_bridge(Names(), local_token="t0k3n")
     with pytest.raises(ValueError):
         create_bridge(Names(), api_key="k", local_token="")
+
+
+class NameAfterTitle:
+    """Finds NAME only after "M. ": a detector that misses it elsewhere, as a model can."""
+
+    def detect(self, text):
+        found = RuleDetector().detect(text)
+        start = text.find(f"M. {NAME}")
+        if start != -1:
+            start += 3
+            found.append(Entity(EntityType.PERSON, start, start + len(NAME), NAME, source="fake"))
+        return sorted(found, key=lambda e: e.start)
+
+
+def test_a_stop_sequence_holding_an_aliased_value_is_refused():
+    fake = FakeMistral()
+    app = create_bridge(NameAfterTitle(), api_key="k", transport=httpx.MockTransport(fake))
+    client = TestClient(app, base_url=LOCAL)
+    message = {"role": "user", "content": f"M. {NAME} et son conseiller."}
+    for stop in [f"\n{NAME}:", [f"{NAME.upper()}"], ["jean  dupont"]]:
+        assert ask(client, message, stop=stop).status_code == 422, stop
+    assert ask(client, message, stop=["\nConseiller:"]).status_code == 200
+    assert NAME not in json.dumps(fake.received)
+
+
+@pytest.mark.parametrize("model", [EMAIL, "Jean Dupont", "m" * 101, 3])
+def test_the_model_field_must_be_a_model_id(model):
+    fake = FakeMistral()
+    assert ask(bridge(fake), USER_MESSAGE, model=model).status_code == 400
+    assert fake.received == []

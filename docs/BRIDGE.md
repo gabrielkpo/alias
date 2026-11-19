@@ -112,7 +112,9 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
   `max_tokens`, `random_seed`, `n`, `presence_penalty`, `frequency_penalty`, `safe_prompt`,
   `stream`, `stop`, `response_format` of type `text` or `json_object`). Anything else (a message
   `name`, `prediction`, a JSON schema, `user`, another part type, an image URL) is refused (400)
-  rather than sent unmasked. A `stop` sequence holding personal data is refused too (422).
+  rather than sent unmasked. `model` must look like a model id (letters, digits, `._:/-`, at
+  most 100), else 400. A `stop` sequence holding personal data, or a value aliased in the
+  messages (in any case or spacing), is refused too (422).
 - **Check before sending**: if the rules still find an IBAN or a national ID in the masked text,
   or an IBAN, national ID or phone number of the request is still readable with other
   separators (`01.99.00.12.34` for `01 99 00 12 34`), the request is refused (422) and nothing
