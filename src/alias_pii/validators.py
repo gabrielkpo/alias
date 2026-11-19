@@ -1,8 +1,10 @@
-"""Checksum validators for strict formats. Inputs may contain spaces, dots or dashes."""
+"""Checksum validators for strict formats. Inputs may contain separators: white space, dots,
+slashes, dashes of any kind and invisible characters; full-width digits read as digits."""
 
 from __future__ import annotations
 
 import re
+import unicodedata
 
 # Total IBAN length per country (ISO 13616 registry), for the countries most likely to appear
 # in French and English documents. Other countries fall back to the generic 15-34 range.
@@ -12,11 +14,16 @@ IBAN_LENGTHS = {
     "SE": 24,
 }  # fmt: skip
 
-_SEPARATORS = re.compile(r"[\s.\-\u00ad\u200b\u200c\u200d\u2060\ufeff]")
+# The separators the rules read through (rules.SPACES, DASHES, INVISIBLE), so one value written
+# two ways compacts to the same string.
+_SEPARATORS = re.compile(
+    r"[\s./\-\u00ad\u061c\u180e\u200b-\u200f\u2010-\u2015\u202a-\u202e\u2060-\u2064"
+    r"\u2066-\u2069\u2212\ufe58\ufe63\uff0d\ufeff]"
+)
 
 
 def compact(value: str) -> str:
-    return _SEPARATORS.sub("", value).upper()
+    return _SEPARATORS.sub("", unicodedata.normalize("NFKC", value)).upper()
 
 
 def iban_is_valid(value: str) -> bool:

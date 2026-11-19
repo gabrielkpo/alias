@@ -142,14 +142,16 @@ def key_refused(value: str) -> str | None:
 
 
 def model_detector(folder: Path):
-    """Rules plus the ONNX model found in `folder` (`onnx/model.onnx` or `model.onnx`)."""
-    from alias_pii.detector import RulesAndModel
+    """Rules plus the ONNX model found in `folder` (`onnx/model.onnx` or `model.onnx`), keeping
+    the rules' e-mails and phones as well: in the bridge a missed one would leave in clear."""
+    from alias_pii.detector import BRIDGE_RULE_TYPES, RulesAndModel
     from alias_pii.onnx_export import OnnxDetector
 
     model_file = "onnx/model.onnx" if (folder / "onnx" / "model.onnx").is_file() else "model.onnx"
     if not (folder / model_file).is_file():
         raise SystemExit(f"no ONNX model in {folder}: export one with alias_pii.onnx_export")
-    return RulesAndModel(OnnxDetector(str(folder), model_file=model_file))
+    model = OnnxDetector(str(folder), model_file=model_file)
+    return RulesAndModel(model, rule_types=BRIDGE_RULE_TYPES)
 
 
 def stored_key() -> str | None:
@@ -210,6 +212,12 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="stop when standard input closes (the app keeps it open while it runs, so the "
         "bridge stops with the app, even when the app is killed)",
+    )
+    serve.add_argument(
+        "--allow-images",
+        action="store_true",
+        default=os.environ.get("ALIAS_ALLOW_IMAGES") == "1",
+        help="forward inline images, which are NOT masked (refused by default)",
     )
     serve.add_argument("--port", type=int, default=PORT)
     serve.add_argument(
@@ -364,7 +372,10 @@ def serve_command(args: argparse.Namespace) -> int:
         local_token=token,
         allowed_hosts=hosts,
         instance=instance,
+        allow_images=args.allow_images,
     )
+    if args.allow_images:
+        log.warning("inline images are forwarded unmasked (--allow-images)")
     if args.stop_on_stdin_close:
         stop_when_closed(sys.stdin)
     print(f"Alias Bridge on http://{args.host}:{args.port}/v1", file=sys.stderr)
