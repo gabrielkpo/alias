@@ -102,6 +102,9 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 
 ## How it behaves
 
+- **Detector**: the published model plus the rules. Unlike the benchmark detector, the bridge
+  also keeps the rules' e-mails and phones: a company mailbox masked by mistake comes back in the
+  answer, while a personal one the model missed would reach Mistral in clear.
 - **Conversations**: one alias table per request, aliases given in order of appearance. A tool
   resends the whole history at each turn, so a value keeps its alias from turn to turn and the
   bridge keeps no state. Once a value has an alias, every other whole-word occurrence of it in
