@@ -186,9 +186,9 @@ _WORD = re.compile(r"\w+")
 
 class Sweep:
     """Finds, in a text, every whole-word occurrence of values already aliased in the request:
-    written with any white space between their words; in any case for e-mails, phones and
-    identifiers, but only as found, in capitals or in title case for names and addresses (a
-    first name such as Claire is also a common word: "une réponse claire" stays as is).
+    written with any white space between their words, in any case, except a one-word name or
+    address, only as found, in capitals or in title case (a first name such as Claire is also a
+    common word: "une réponse claire" stays as is).
 
     Cost: one scan of the text's words, each looked up in an index of the values' first words,
     instead of trying every value at every position (values x characters)."""
@@ -208,7 +208,9 @@ class Sweep:
         def spaced(text: str) -> str:
             return _GAP.join(re.escape(part) for part in text.split())
 
-        if type_ in (EntityType.PERSON, EntityType.ADDRESS):
+        # A one-word name can be a common word ("claire", "pierre"): only as found, in capitals
+        # or in title case. A longer name or an address is no phrase of its own: any case.
+        if type_ in (EntityType.PERSON, EntityType.ADDRESS) and len(value.split()) == 1:
             forms = dict.fromkeys([value, value.upper(), value.title()])
             body = "|".join(spaced(form) for form in forms)
             return re.compile(rf"(?<!\w)(?:{body})(?!\w)")

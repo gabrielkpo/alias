@@ -92,3 +92,13 @@ def test_the_sweep_stays_fast_with_many_values():
     swept = Sweep(values).replace(text, lambda entity: "[EMAIL]")
     assert time.perf_counter() - start < 1.0
     assert "@example.com" not in swept.rsplit(" ", 1)[0]
+
+
+def test_a_name_of_several_words_is_swept_in_any_case():
+    fake = FakeMistral()
+    app = create_bridge(NameAfterTitle(), api_key="k", transport=httpx.MockTransport(fake))
+    message = {"role": "user", "content": f"M. {NAME} écrit. Relancer jean dupont."}
+    assert ask(TestClient(app, base_url=LOCAL), message).status_code == 200
+    assert fake.received[0]["messages"][0]["content"] == (
+        "M. [PERSON_1] écrit. Relancer [PERSON_1]."
+    )
