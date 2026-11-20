@@ -115,7 +115,9 @@ def measure(
             ],
             0,
         )
-        overhead, models, statuses = [], set(), {}
+        overhead: list[float] = []
+        models: set[str] = set()
+        statuses: dict[str, int] = {}
         for document in documents:
             if counts["tokens_in"] + counts["tokens_out"] >= budget:
                 break

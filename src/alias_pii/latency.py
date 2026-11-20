@@ -16,7 +16,7 @@ import statistics
 import time
 from pathlib import Path
 
-from alias_pii.benchmark import load
+from alias_pii.benchmark import Detector, load
 
 PAGE = 3000
 
@@ -63,6 +63,7 @@ def main() -> None:
 
     torch.set_num_threads(args.threads)
     mode = None if args.quantize == "none" else args.quantize
+    detector: Detector
     if args.onnx:
         from alias_pii.onnx_export import OnnxDetector
 

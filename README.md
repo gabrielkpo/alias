@@ -168,7 +168,8 @@ recall: what it misses reaches the LLM in clear.
 - libphonenumber rejects unallocated ranges, so a number from a very recent range can be missed.
 
 ## Development
-- `uv sync --group dev`, then `uv run pytest`, `uv run ruff check .` and `uv run ruff format .`.
+- `uv sync --group dev`, then with `uv run`, as CI: `pytest --cov` (80 % minimum), `mypy`,
+  `ruff check .`, `ruff format .`.
 - Pre-commit runs ruff and gitleaks: `pre-commit install`.
 - One pull request per change, Conventional Commits titles, squash merge; each PR goes through a
   security review and a code review, and CI must be green. Releases: release-please.

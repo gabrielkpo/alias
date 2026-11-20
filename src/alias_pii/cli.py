@@ -40,7 +40,8 @@ MODEL_FILES = [
     "special_tokens_map.json",
 ]
 KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT = "alias-pii", "mistral"
-TOKEN_ACCOUNT = "local-token"  # what tools send to the bridge when it holds the Mistral key
+# What tools send to the bridge when it holds the Mistral key (the name of a keychain account).
+TOKEN_ACCOUNT = "local-token"  # noqa: S105
 PORT = 8001
 log = logging.getLogger("alias.cli")
 

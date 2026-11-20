@@ -156,7 +156,12 @@ def _each_text(messages: list[dict], change: Callable[[str], str]) -> list[dict]
 
 def texts(messages: list[dict]) -> list[str]:
     found: list[str] = []
-    _each_text(messages, lambda text: found.append(text) or text)
+
+    def keep(text: str) -> str:
+        found.append(text)
+        return text
+
+    _each_text(messages, keep)
     return found
 
 
@@ -597,7 +602,7 @@ def stream_events(data: dict) -> Iterator[str]:
     choices = [c for c in data.get("choices") or [] if isinstance(c, dict)]
     for number, choice in enumerate(choices):
         index = choice.get("index", number)
-        message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+        message = choice["message"] if isinstance(choice.get("message"), dict) else {}
         role = message.get("role", "assistant")
         content = message.get("content")
         yield event(

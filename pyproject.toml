@@ -50,8 +50,10 @@ dev = [
     "fastapi>=0.115",
     "httpx>=0.27",
     "keyring>=25",
+    "mypy>=1.13",
     "openai>=1.50",
     "pytest>=8",
+    "pytest-cov>=6",
     "ruff>=0.6",
     "uvicorn>=0.30",
 ]
@@ -77,9 +79,28 @@ line-length = 100
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+select = ["E", "F", "I", "B", "UP", "S"]
+# S311: `random` draws fictitious data and samples, never secrets.
+ignore = ["S311"]
 
 [tool.ruff.lint.per-file-ignores]
 # Phrase banks are data: one sentence per item reads better than wrapped strings.
 "src/alias_pii/documents.py" = ["E501"]
 "src/alias_pii/phrasebank.py" = ["E501"]
+# Tests assert, use fixed fake secrets and run local commands.
+"tests/**" = ["S101", "S104", "S105", "S106", "S108", "S603", "S607"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+# The optional heavy libraries (torch, transformers, onnxruntime, gliner...) ship partial or no types.
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[tool.coverage.run]
+source = ["alias_pii"]
+
+[tool.coverage.report]
+# 84 % when this threshold was set; training and export code needs a GPU or the model and is
+# covered less.
+fail_under = 80

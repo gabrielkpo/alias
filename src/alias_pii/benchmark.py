@@ -45,7 +45,7 @@ class Counts:
             setattr(self, name, getattr(self, name) + getattr(other, name))
 
     def scores(self) -> dict[str, float | int]:
-        def ratio(a: int, b: int) -> float:
+        def ratio(a: float, b: float) -> float:
             return a / b if b else 0.0
 
         p, r = ratio(self.strict, self.predicted), ratio(self.strict, self.gold)

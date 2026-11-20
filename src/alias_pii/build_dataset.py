@@ -137,10 +137,10 @@ def datasheet(splits: dict, seed: int) -> str:
         header = f"| {axis} | " + " | ".join(splits) + " |"
         lines += ["", f"## Documents by {axis.replace('_', ' ')}", "", header]
         lines.append("|---|" + "---|" * len(splits))
-        counts = {s: Counter(getattr(d, axis) for d in docs) for s, (docs, _, _) in splits.items()}
-        for value in sorted(set().union(*(c.keys() for c in counts.values()))):
-            lines.append(f"| {value} | " + " | ".join(str(counts[s][value]) for s in splits) + " |")
-    rejections = Counter()
+        tally = {s: Counter(getattr(d, axis) for d in docs) for s, (docs, _, _) in splits.items()}
+        for value in sorted(set().union(*(c.keys() for c in tally.values()))):
+            lines.append(f"| {value} | " + " | ".join(str(tally[s][value]) for s in splits) + " |")
+    rejections: Counter[str] = Counter()
     for _, rejected, _ in splits.values():
         rejections.update(rejected)
     lines += ["", "## Rejections by reason", ""]

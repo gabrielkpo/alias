@@ -98,7 +98,7 @@ def main() -> None:
     with (args.out / f"{name}.jsonl").open("w", encoding="utf-8") as f:
         for document in documents:
             f.write(json.dumps(document, ensure_ascii=False) + "\n")
-    labels = {}
+    labels: dict[str, int] = {}
     for document in documents:
         for span in document["spans"]:
             labels[span["label"]] = labels.get(span["label"], 0) + 1
