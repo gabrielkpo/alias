@@ -29,6 +29,8 @@ jobs:
       TAB_COMMIT: 558e09e26d6b36f5f78440074e6a233946d98bd9
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.12"
