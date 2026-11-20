@@ -99,9 +99,16 @@ jobs:
           fi
       - name: Killing the app (no clean quit) stops its bridge too
         run: |
-          open desktop/src-tauri/target/release/bundle/macos/Alias.app
+          # The app quit above may still be closing (the likely cause of rare failures here):
+          # `open` would then only bring it back instead of starting it again.
+          for i in $(seq 30); do pgrep -f 'Alias.app/Contents/MacOS/' > /dev/null || break; sleep 1; done
+          open -n desktop/src-tauri/target/release/bundle/macos/Alias.app
           for i in $(seq 90); do curl -sf localhost:8001/health > health.json && break; sleep 2; done
-          grep -q '"instance":' health.json
+          if ! grep -q '"instance":' health.json; then
+            echo "::error::the app, opened again, started no bridge"
+            pgrep -fl 'Alias.app/Contents/MacOS/' || true
+            lsof -nP -iTCP:8001 || true; curl -s localhost:8001/health || true; exit 1
+          fi
           pkill -9 -f 'Alias.app/Contents/MacOS/alias-desktop'
           for i in $(seq 30); do curl -sf localhost:8001/health > /dev/null || break; sleep 1; done
           if curl -sf localhost:8001/health; then
