@@ -36,7 +36,9 @@ from `MISTRAL_API_KEY`, else from the `Authorization` header the tool sends; it 
 logged or written in clear. When the bridge holds the key (keychain or variable), any program on
 the machine could otherwise spend it: each tool must then send the bridge's **local token** as its
 API key (`alias-pii key token` shows it; it is created once and kept in the keychain), and a
-request without it gets 401. Mistral still receives the real key, never the token.
+request without it gets 401. Mistral still receives the real key, never the token. Without a
+key (deleted, or never set), a tool still sending the token gets 401 too: the bridge never
+forwards it to Mistral as if it were a key.
 
 ### In a container
 
@@ -56,7 +58,9 @@ refuses unknown `Host` names. `alias-pii fetch` downloads the model ahead of tim
 container too.
 
 The development version runs from a clone with
-`uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>` (PyTorch).
+`uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>` (PyTorch). It
+listens on 127.0.0.1 only and, holding `MISTRAL_API_KEY`, prints a local token for the run that
+tools must send, like `alias-pii serve`.
 
 ### The macOS app
 

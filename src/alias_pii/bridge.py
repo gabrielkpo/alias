@@ -1,7 +1,8 @@
 """Alias Bridge: a local endpoint, compatible with Mistral's (and OpenAI's) chat API, that masks
 every message before it leaves the machine and puts the real values back in the answer.
 
-    uv run --extra app python -m alias_pii.bridge --model <checkpoint>
+    alias-pii serve                                          # the published model (ONNX)
+    uv run --extra app python -m alias_pii.bridge --model <checkpoint>   # development (PyTorch)
 
 The user's tool keeps its code and only changes its base URL, from `https://api.mistral.ai/v1`
 to `http://127.0.0.1:8001/v1`. For `POST /v1/chat/completions` the bridge:
@@ -34,6 +35,7 @@ import json
 import logging
 import os
 import re
+import sys
 import threading
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
@@ -627,6 +629,7 @@ def create_bridge(
     detector_name: str = "custom",
     local_token: str | None = None,
     instance: str | None = None,
+    idle_token: str | None = None,
     allow_images: bool = False,
 ) -> FastAPI:
     """The bridge around one detector, loaded once by the caller. `api_key`: the Mistral key
@@ -634,9 +637,11 @@ def create_bridge(
     shown in `/health` and in the `X-Alias-Detector` header, so a client can check what masks
     its text; `local_token`: when the bridge holds the key, the token each tool must send as its
     own API key (`Authorization: Bearer <token>`), so another program or account on the machine
-    cannot spend the key."""
+    cannot spend the key; `idle_token`: that token while the bridge holds no key, so a tool still
+    sending it gets 401 instead of having it forwarded to Mistral as if it were a key."""
     if local_token is not None and not (api_key and local_token):
         raise ValueError("a local token needs a non-empty token and the bridge's own Mistral key")
+    idle = idle_token.encode() if idle_token and not api_key else None
     expected = f"Bearer {local_token}".encode() if local_token else None
     client = httpx.AsyncClient(base_url=upstream, transport=transport, timeout=120)
 
@@ -692,8 +697,13 @@ def create_bridge(
         if api_key:
             return api_key
         auth = request.headers.get("authorization", "")
-        if auth.lower().startswith("bearer ") and auth[7:].strip():
-            return auth[7:].strip()
+        sent = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        if idle and hmac.compare_digest(sent.encode(), idle):
+            raise HTTPException(
+                401, "Alias holds no Mistral key: add one (the local token is not a Mistral key)"
+            )
+        if sent:
+            return sent
         raise HTTPException(401, "no Mistral API key: set one for the bridge or send it")
 
     def masked_request(body: dict) -> tuple[dict, list[MaskResult], Counter]:
@@ -823,7 +833,6 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="no model: names and addresses reach Mistral in clear",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="0.0.0.0 only inside a container")
     parser.add_argument("--port", type=int, default=8001)
     args = parser.parse_args(argv)
     if args.model and args.rules_only:
@@ -837,6 +846,11 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main() -> None:
+    """The development entry point (a PyTorch checkpoint). It listens on 127.0.0.1 only and,
+    holding MISTRAL_API_KEY, asks tools for a local token made for this run, as `alias-pii serve`
+    does; everything else (keychain, container, published model) is `alias-pii serve`'s."""
+    import secrets
+
     from alias_pii.app import load_detector
 
     args = options()
@@ -848,8 +862,12 @@ def main() -> None:
         log.warning("rules only: names and addresses are NOT masked and reach Mistral in clear")
     else:
         log.info("detector: %s", name)
-    app = create_bridge(detector, api_key=os.environ.get("MISTRAL_API_KEY"), detector_name=name)
-    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    api_key = os.environ.get("MISTRAL_API_KEY")
+    token = secrets.token_urlsafe(32) if api_key else None
+    if token:  # the bridge spends the key for whoever calls it: only a tool given this token may
+        print(f"Local token for this run (the tools' API key): {token}", file=sys.stderr)
+    app = create_bridge(detector, api_key=api_key, detector_name=name, local_token=token)
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 
 if __name__ == "__main__":
