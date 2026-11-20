@@ -36,7 +36,9 @@ from `MISTRAL_API_KEY`, else from the `Authorization` header the tool sends; it 
 logged or written in clear. When the bridge holds the key (keychain or variable), any program on
 the machine could otherwise spend it: each tool must then send the bridge's **local token** as its
 API key (`alias-pii key token` shows it; it is created once and kept in the keychain), and a
-request without it gets 401. Mistral still receives the real key, never the token.
+request without it gets 401. Mistral still receives the real key, never the token. Without a
+key (deleted, or never set), a tool still sending the token gets 401 too: the bridge never
+forwards it to Mistral as if it were a key.
 
 ### In a container
 
