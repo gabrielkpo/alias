@@ -21,14 +21,9 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
 
 from alias_pii.entities import Entity, EntityType
-from alias_pii.masking import find_leaks
-
-
-class Detector(Protocol):
-    def detect(self, text: str) -> list[Entity]: ...
+from alias_pii.masking import Detector, find_leaks
 
 
 @dataclass
@@ -45,7 +40,7 @@ class Counts:
             setattr(self, name, getattr(self, name) + getattr(other, name))
 
     def scores(self) -> dict[str, float | int]:
-        def ratio(a: int, b: int) -> float:
+        def ratio(a: float, b: float) -> float:
             return a / b if b else 0.0
 
         p, r = ratio(self.strict, self.predicted), ratio(self.strict, self.gold)

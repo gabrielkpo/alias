@@ -65,7 +65,8 @@ def spans_from_tokens(text: str, tokens: list[tuple[int, int, int]]) -> list[Ent
     """Character spans from sorted (start, end, tag id) tokens. An `I` continues the open span
     when it has the same label; an `I` without an open span of its label starts one (the model
     sometimes misses the `B`). Spans are trimmed of surrounding whitespace."""
-    entities, open_span = [], None  # open_span: [label, start, end]
+    entities: list[Entity] = []
+    open_span: list | None = None  # [label, start, end]
 
     def close() -> None:
         if open_span:

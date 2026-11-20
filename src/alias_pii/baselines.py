@@ -13,6 +13,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from alias_pii.entities import Entity, EntityType, resolve_overlaps
+from alias_pii.masking import Detector
 from alias_pii.rules import RuleDetector
 
 _FRENCH = re.compile(r"\b(le|la|les|des|du|est|et|une|pour|vous|nous|dans|avec)\b", re.I)
@@ -156,7 +157,7 @@ class MistralZeroShot:
         for item in items if isinstance(items, list) else []:
             if not isinstance(item, dict):
                 continue
-            label, value = item.get("label"), str(item.get("text") or "").strip()
+            label, value = str(item.get("label")), str(item.get("text") or "").strip()
             if label not in EntityType.__members__ or not value:
                 continue
             # whole occurrences only: "Li" must not label the start of "Lille"
@@ -169,7 +170,7 @@ class MistralZeroShot:
 # Methods that send document text to a third-party API: never run on real documents.
 API_METHODS = {"mistral"}
 
-METHODS: dict[str, Callable[[], object]] = {
+METHODS: dict[str, Callable[[], Detector]] = {
     "rules": RuleDetector,
     "presidio": PresidioBaseline,
     "gliner": GlinerBaseline,

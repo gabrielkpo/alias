@@ -103,13 +103,13 @@ def _read_plain(path: Path, fmt: str) -> Document:
     if b"\x00" in raw:
         # Real text never contains NUL bytes: this is UTF-16 without a byte order mark (which
         # also decodes as "valid" UTF-8, giving "m\x00a\x00i\x00l").
-        encoding = _utf16_byte_order(raw)
-        if encoding is None:
+        wide = _utf16_byte_order(raw)
+        if wide is None:
             raise UnsupportedFileError(
                 f"{path.name}: contains NUL bytes but is not recognisable UTF-16 text"
             )
-        text = _decode_wide(path, raw, encoding)
-        return Document(path, text, fmt, [f"no byte order mark, decoded as {encoding}"])
+        text = _decode_wide(path, raw, wide)
+        return Document(path, text, fmt, [f"no byte order mark, decoded as {wide}"])
     text, legacy_bytes = _decode_mixed(raw)
     warnings = []
     if legacy_bytes:

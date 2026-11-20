@@ -155,7 +155,8 @@ def wikiner(raw: Path, part: str, sentences: int = 4) -> Iterator[Document]:
 
 def convert(documents: Iterator[Document]) -> tuple[list[Document], Counter]:
     """Documents that pass the quality gates and the rejections by reason."""
-    kept, rejected = [], Counter()
+    kept: list[Document] = []
+    rejected: Counter[str] = Counter()
     for document in documents:
         problems = quality.check(document.text, document.spans)
         if problems:

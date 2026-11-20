@@ -21,4 +21,5 @@ jobs:
         run: uv sync --locked --group dev --python 3.12
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .
-      - run: uv run --frozen pytest
+      - run: uv run --frozen mypy
+      - run: uv run --frozen pytest --cov --cov-report=term

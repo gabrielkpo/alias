@@ -174,7 +174,10 @@ def _commit() -> str:
         return os.environ["ALIAS_COMMIT"]
     try:
         return subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
+            ["git", "rev-parse", "--short", "HEAD"],  # noqa: S607 (git from PATH, fixed arguments)
+            capture_output=True,
+            text=True,
+            check=True,
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"

@@ -40,7 +40,8 @@ MODEL_FILES = [
     "special_tokens_map.json",
 ]
 KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT = "alias-pii", "mistral"
-TOKEN_ACCOUNT = "local-token"  # what tools send to the bridge when it holds the Mistral key
+# What tools send to the bridge when it holds the Mistral key (the name of a keychain account).
+TOKEN_ACCOUNT = "local-token"  # noqa: S105
 PORT = 8001
 log = logging.getLogger("alias.cli")
 
@@ -50,9 +51,15 @@ def cached_model() -> Path | None:
     from huggingface_hub import snapshot_download
     from huggingface_hub.errors import LocalEntryNotFoundError
 
-    options = {"revision": MODEL_REVISION, "allow_patterns": MODEL_FILES}
     try:
-        return Path(snapshot_download(MODEL_REPO, local_files_only=True, **options))
+        return Path(
+            snapshot_download(
+                MODEL_REPO,
+                revision=MODEL_REVISION,
+                allow_patterns=MODEL_FILES,
+                local_files_only=True,
+            )
+        )
     except LocalEntryNotFoundError:
         return None
 
