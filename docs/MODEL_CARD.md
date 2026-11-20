@@ -66,6 +66,10 @@ from huggingface_hub import snapshot_download
 from alias_pii.detector import RulesAndModel
 from alias_pii.masking import mask
 
-detector = RulesAndModel.from_checkpoint(snapshot_download("Gabrielkph/alias-mmbert-small"))
+# The weights of the tag v1.0, by commit: a tag can be moved, a commit cannot.
+model = snapshot_download(
+    "Gabrielkph/alias-mmbert-small", revision="41638ca5485ab9b963e7e900914fe417bc314907"
+)
+detector = RulesAndModel.from_checkpoint(model)
 print(mask("Écrire à Jean Dupont, 14 rue des Lilas, 69003 Lyon.", detector).text)
 ```
