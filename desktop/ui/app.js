@@ -153,7 +153,8 @@ function renderKey(key) {
   $("key-detail").hidden = Boolean(key.error);
   $("key-detail").textContent = key.stored
     ? "Saved in the macOS keychain. Your tools never need it."
-    : "No key saved: Alias passes on the key each tool sends.";
+    : "No key saved: a tool sending its own Mistral key still works; one sending the Alias " +
+      "API key gets an error until you add a key.";
   $("replace").textContent = key.stored ? "Replace the key" : "Add a key";
   $("delete").hidden = !key.stored;
 }

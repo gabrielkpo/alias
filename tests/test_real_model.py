@@ -61,3 +61,16 @@ def test_the_published_model_masks_and_restores_through_the_bridge():
     assert "[PERSON_1]" in sent and "[EMAIL_1]" in sent and "[IBAN_1]" in sent
     answer = client.post("/v1/chat/completions", json=body).json()
     assert answer["choices"][0]["message"]["content"] == f"Reçu : {TEXT}"
+
+
+def test_the_published_model_finds_values_past_the_first_window():
+    """A text longer than one window (512 tokens): values near the end and across window
+    boundaries are found as well as at the start."""
+    from alias_pii import cli
+
+    detector = cli.model_detector(cli.published_model())
+    filler = "Le rapport annuel présente les résultats du service et les projets à venir. " * 60
+    text = f"{TEXT} {filler} {TEXT} {filler} {TEXT}"
+    found = [e.text for e in detector.detect(text)]
+    for value in (NAME, EMAIL, IBAN):
+        assert found.count(value) == 3, (value, found.count(value))
