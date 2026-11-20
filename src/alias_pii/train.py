@@ -213,8 +213,13 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="first N documents (smoke test)")
     parser.add_argument("--results", type=Path, default=Path("results/training.jsonl"))
     args = parser.parse_args()
-    if "real" in args.data.resolve().parts:
-        parser.error("training uses synthetic and public data only, never real documents")
+    from alias_pii.data_guard import built_dataset, shareable
+
+    if not (shareable(args.data) or built_dataset(args.data)):
+        parser.error(
+            "training uses synthetic and public data only, never real documents: give a data/ "
+            "folder of the project or a dataset written by build_dataset (with DATASHEET.md)"
+        )
 
     import torch
     from datasets import Dataset
