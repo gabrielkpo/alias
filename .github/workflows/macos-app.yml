@@ -39,12 +39,26 @@ on:
 permissions:
   contents: read
 jobs:
+  # The app's Rust code is formatted (rustfmt, on its own: a quick answer before the long build).
+  # Not on a release rebuild, like the lints below.
+  rust-format:
+    if: ${{ !inputs.release_tag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: cargo fmt --check
+        working-directory: desktop/src-tauri
+        run: cargo fmt --check
   macos-app:
     runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          persist-credentials: false
           ref: ${{ inputs.release_tag }}
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -69,9 +83,26 @@ jobs:
       - name: Build the app and the .dmg
         working-directory: desktop
         run: |
-          npx tauri build --bundles app,dmg -- --locked
+          # hdiutil, which makes the .dmg, sometimes fails on GitHub's machines ("Resource
+          # busy"): two more tries, the build itself being cached, after detaching what the
+          # failed try left mounted and removing its temporary image.
+          for try in 1 2 3; do
+            npx tauri build --bundles app,dmg -- --locked && break
+            [ "$try" = 3 ] && exit 1
+            for v in /Volumes/Alias*; do [ -d "$v" ] && hdiutil detach -force "$v" || true; done
+            rm -f src-tauri/target/release/bundle/dmg/rw.*.dmg src-tauri/target/release/bundle/macos/rw.*.dmg
+            sleep 15
+          done
           ls -la src-tauri/target/release/bundle/macos src-tauri/target/release/bundle/dmg
           du -sh src-tauri/target/release/bundle/macos/Alias.app
+      # Lints and unit tests of the app's Rust code, with the sidecar and icons the build needed.
+      # Not on a release rebuild: a lint added by a newer Rust must not hold back a release.
+      - name: Rust lints (clippy) and tests
+        if: ${{ !inputs.release_tag }}
+        working-directory: desktop/src-tauri
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
       # The hardened runtime enforces library validation: the bridge executable then cannot load
       # the Python it unpacks (signed apart), and dies at start on a Mac with SIP on. GitHub's
       # macOS machines run with SIP off, so the launch check below would not see it: check the
@@ -99,9 +130,16 @@ jobs:
           fi
       - name: Killing the app (no clean quit) stops its bridge too
         run: |
-          open desktop/src-tauri/target/release/bundle/macos/Alias.app
+          # The app quit above may still be closing (the likely cause of rare failures here):
+          # `open` would then only bring it back instead of starting it again.
+          for i in $(seq 30); do pgrep -f 'Alias.app/Contents/MacOS/' > /dev/null || break; sleep 1; done
+          open -n desktop/src-tauri/target/release/bundle/macos/Alias.app
           for i in $(seq 90); do curl -sf localhost:8001/health > health.json && break; sleep 2; done
-          grep -q '"instance":' health.json
+          if ! grep -q '"instance":' health.json; then
+            echo "::error::the app, opened again, started no bridge"
+            pgrep -fl 'Alias.app/Contents/MacOS/' || true
+            lsof -nP -iTCP:8001 || true; curl -s localhost:8001/health || true; exit 1
+          fi
           pkill -9 -f 'Alias.app/Contents/MacOS/alias-desktop'
           for i in $(seq 30); do curl -sf localhost:8001/health > /dev/null || break; sleep 1; done
           if curl -sf localhost:8001/health; then
@@ -111,6 +149,7 @@ jobs:
         with:
           name: alias-macos-dmg
           path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          retention-days: 3  # about 110 MB each run
   # Only for a release, after the app passed the launch check above.
   attach:
     needs: macos-app
@@ -119,6 +158,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      id-token: write  # signs the build provenance (Sigstore)
+      attestations: write
     env:
       TAG: ${{ inputs.release_tag }}
     steps:
@@ -131,12 +172,20 @@ jobs:
         with:
           name: alias-macos-dmg
           path: dmg
-      - name: Attach the .dmg and its SHA-256 to the release
+      - name: Check the .dmg matches the tag
+        run: |
+          dmg=$(ls dmg/Alias_*_aarch64.dmg)
+          [ "$dmg" = "dmg/Alias_${TAG#v}_aarch64.dmg" ] || { echo "::error::$dmg does not match $TAG"; exit 1; }
+      # A signed statement of which workflow, commit and run built this file, checked by
+      # `gh attestation verify` (docs/BRIDGE.md): the SHA-256 alone comes from the same job.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dmg/Alias_*_aarch64.dmg
+      - name: Attach the .dmg and its SHA-256 to the release (never replacing a file)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd dmg
           dmg=$(ls Alias_*_aarch64.dmg)
-          [ "$dmg" = "Alias_${TAG#v}_aarch64.dmg" ] || { echo "::error::$dmg does not match $TAG"; exit 1; }
           shasum -a 256 "$dmg" > "$dmg.sha256"
-          gh release upload "$TAG" "$dmg" "$dmg.sha256" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" "$dmg" "$dmg.sha256" --repo "$GITHUB_REPOSITORY"

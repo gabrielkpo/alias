@@ -1,7 +1,8 @@
 """Alias Bridge: a local endpoint, compatible with Mistral's (and OpenAI's) chat API, that masks
 every message before it leaves the machine and puts the real values back in the answer.
 
-    uv run --extra app python -m alias_pii.bridge --model <checkpoint>
+    alias-pii serve                                          # the published model (ONNX)
+    uv run --extra app python -m alias_pii.bridge --model <checkpoint>   # development (PyTorch)
 
 The user's tool keeps its code and only changes its base URL, from `https://api.mistral.ai/v1`
 to `http://127.0.0.1:8001/v1`. For `POST /v1/chat/completions` the bridge:
@@ -34,6 +35,7 @@ import json
 import logging
 import os
 import re
+import sys
 import threading
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
@@ -48,6 +50,7 @@ from alias_pii import __version__
 from alias_pii.entities import EntityType
 from alias_pii.limits import BodyLimit
 from alias_pii.masking import (
+    ALIAS_PATTERN,
     AliasTable,
     Detector,
     MaskResult,
@@ -55,7 +58,7 @@ from alias_pii.masking import (
     mask,
     restore,
 )
-from alias_pii.rules import RuleDetector
+from alias_pii.rules import SPACES, RuleDetector
 
 UPSTREAM = "https://api.mistral.ai"
 # Values the rules prove by a checksum: if one is still readable after masking, the request stops.
@@ -65,6 +68,10 @@ COMPACT_CHECKED = frozenset({EntityType.IBAN, EntityType.NATIONAL_ID, EntityType
 MAX_CHARS = 200_000  # the whole conversation of one request
 MAX_BODY = 20_000_000  # bytes of one request, inline images included
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+# What a model id looks like ("mistral-small-latest", "ft:open-mistral-7b:abc:def"): anything
+# else in `model` would be free text forwarded unmasked.
+MODEL_ID = re.compile(r"[A-Za-z0-9._:/-]{1,100}")
+
 # What a request may hold besides `messages`: settings with no text of their own. Any other
 # field (`prediction`, `user`, a JSON schema...) could carry personal data the bridge does not
 # mask, so the request is refused rather than forwarded with it.
@@ -86,12 +93,15 @@ SETTINGS = frozenset(
 )
 MESSAGE_KEYS = frozenset({"role", "content", "prefix"})
 ROLES = frozenset({"system", "user", "assistant"})
-# An image may only come inline: base64 data and nothing else, so no text rides in its URL.
-IMAGE_DATA = re.compile(r"data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]*")
-# Where answer text may become a request of the client's own. A link (`](`) or a bare URL (`//`,
-# `www.`) only works inside its paragraph (inline markdown never crosses a blank line) and needs
-# a click, so from such a mark to the end of the paragraph aliases stay masked. From any of these
-# to the end of the text, nothing more is restored (`FAR`):
+# An image may only come inline, as base64 data of a raster format and nothing else, so no text
+# rides in its URL (an SVG is text). Images are never masked: they are refused unless the bridge
+# was started with `allow_images` (`--allow-images`).
+IMAGE_DATA = re.compile(r"data:image/(?:png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]*")
+# Where answer text may become a request of the client's own. A link (`](`) or a URL (`//`,
+# `www.`, a scheme such as `mailto:` or `http:` without slashes, or a bare domain followed by a
+# path, query or fragment: `evil.example/?q=`) only works inside its paragraph (inline markdown
+# never crosses a blank line) and needs a click, so from such a mark to the end of the paragraph
+# aliases stay masked. From any of these to the end of the text, nothing more is restored (`FAR`):
 # - an image (`![`): it is fetched as soon as it is shown;
 # - a reference definition (`]:`), from the start of the text: an image anywhere in the answer
 #   can use it, and its label may hold an alias, across a blank line a YAML decoder removes;
@@ -101,14 +111,19 @@ IMAGE_DATA = re.compile(r"data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]*")
 # - a backslash: a client decoding the answer as JSON, JSON5 or YAML turns `\u003c` into `<`,
 #   `\/\/` into `//`, and drops a backslash before a line break, all marks hidden here.
 FAR = re.compile(r"!\[|(?<=\]):|<(?![\s=\d])|\\")
-NEAR = re.compile(r"(?<=\])\(|//|www\.", re.IGNORECASE)
+SCHEMES = ("http", "https", "ftp", "ftps", "mailto", "file", "data", "tel", "sms", "javascript",
+           "ws", "wss", "ssh", "git", "irc")  # fmt: skip
+SCHEME = rf"\b(?:{'|'.join(SCHEMES)}):"
+BARE_URL = r"\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}[/?#]"
+NEAR = re.compile(rf"(?<=\])\(|//|www\.|{SCHEME}|{BARE_URL}", re.IGNORECASE)
 LINK_MARK = re.compile(f"{FAR.pattern}|{NEAR.pattern}", re.IGNORECASE)
 DEFINITION = re.compile(r"(?<=\]):")
 PARAGRAPH_END = re.compile(r"\n[ \t]*\n")
 # A mark a client could form by joining two strings of a JSON document in any order: one string
 # ends with its start, another starts with its end. An image also needs `](` or a definition
 # (`]:`), so `![` split in two is caught through them; a split `<` is a string ending with `<`.
-SPLIT_MARKS = ("](", "]:", "//", "www.")
+# A bare domain split in two is not caught: any word can end one string and `.fr/` start another.
+SPLIT_MARKS = ("](", "]:", "//", "www.", *(f"{scheme}:" for scheme in SCHEMES))
 OPENING = re.compile(r"[\[{]")
 log = logging.getLogger("alias.bridge")
 
@@ -169,21 +184,74 @@ def mask_messages(
     known = list({e.text: e for result in results for e in result.entities}.values())
     if not known:
         return out, results, counts
-    known.sort(key=lambda e: len(e.text), reverse=True)  # the longest value first
-    pattern = re.compile(
-        "|".join(rf"(?P<v{i}>(?<!\w){re.escape(e.text)}(?!\w))" for i, e in enumerate(known)),
-        re.IGNORECASE,
-    )
+    sweep = Sweep(known)
 
-    def alias(match: re.Match[str]) -> str:
-        entity = known[int(match.lastgroup[1:])]
+    def alias(entity) -> str:
         counts[entity.type.value] += 1
         return table.alias_for(entity)
 
-    return _each_text(out, lambda text: pattern.sub(alias, text)), results, counts
+    return _each_text(out, lambda text: sweep.replace(text, alias)), results, counts
 
 
-def unmaskable(body: dict) -> str | None:
+# White space a value may be written with elsewhere in the request: any run of spaces, tabs,
+# line breaks and typographic spaces stands for the single space of the value as found.
+_GAP = rf"(?:\s|[{''.join(sorted(SPACES))}])+"
+_WORD = re.compile(r"\w+")
+
+
+class Sweep:
+    """Finds, in a text, every whole-word occurrence of values already aliased in the request:
+    written with any white space between their words, in any case, except a one-word name or
+    address, only as found, in capitals or in title case (a first name such as Claire is also a
+    common word: "une réponse claire" stays as is).
+
+    Cost: one scan of the text's words, each looked up in an index of the values' first words,
+    instead of trying every value at every position (values x characters)."""
+
+    def __init__(self, known: list) -> None:
+        self.index: dict[str, list[tuple[int, re.Pattern[str], object]]] = {}
+        for entity in sorted(known, key=lambda e: len(e.text), reverse=True):
+            first = _WORD.search(entity.text)
+            if first is None:
+                continue
+            self.index.setdefault(first.group().casefold(), []).append(
+                (first.start(), self._pattern(entity.text, entity.type), entity)
+            )
+
+    @staticmethod
+    def _pattern(value: str, type_) -> re.Pattern[str]:
+        def spaced(text: str) -> str:
+            return _GAP.join(re.escape(part) for part in text.split())
+
+        # A one-word name can be a common word ("claire", "pierre"): only as found, in capitals
+        # or in title case. A longer name or an address is no phrase of its own: any case.
+        if type_ in (EntityType.PERSON, EntityType.ADDRESS) and len(value.split()) == 1:
+            forms = dict.fromkeys([value, value.upper(), value.title()])
+            body = "|".join(spaced(form) for form in forms)
+            return re.compile(rf"(?<!\w)(?:{body})(?!\w)")
+        return re.compile(rf"(?<!\w)(?:{spaced(value)})(?!\w)", re.IGNORECASE)
+
+    def replace(self, text: str, alias) -> str:
+        out: list[str] = []
+        cursor = 0
+        for word in _WORD.finditer(text):
+            if word.start() < cursor:
+                continue
+            for offset, pattern, entity in self.index.get(word.group().casefold(), ()):
+                start = word.start() - offset
+                if start < cursor:
+                    continue
+                match = pattern.match(text, start)
+                if match:
+                    out.append(text[cursor:start])
+                    out.append(alias(entity))
+                    cursor = match.end()
+                    break
+        out.append(text[cursor:])
+        return "".join(out)
+
+
+def unmaskable(body: dict, allow_images: bool = False) -> str | None:
     """Where the request holds text the bridge would forward without masking it, else None: a
     field that is not a setting, a message key other than role/content/prefix, a content that
     is neither text nor text and inline image parts, a JSON schema, a setting that is not a
@@ -191,7 +259,10 @@ def unmaskable(body: dict) -> str | None:
     for name in body:
         if name != "messages" and name not in SETTINGS:
             return f"'{name}'"
-    if not isinstance(body.get("model", ""), str):
+    # A model id, not text: free text there would be forwarded unmasked.
+    if "model" in body and not (
+        isinstance(body["model"], str) and MODEL_ID.fullmatch(body["model"])
+    ):
         return "'model'"
     for name in SETTINGS - {"model", "response_format", "stop"}:
         value = body.get(name)
@@ -233,8 +304,12 @@ def unmaskable(body: dict) -> str | None:
                 and part["type"] == "text"
                 and isinstance(part["text"], str)
             )
-            if not (text or inline_image(part)):
+            if text:
+                continue
+            if not inline_image(part):
                 return f"{where}.content[{j}]"
+            if not allow_images:
+                return f"{where}.content[{j}] (an image, sent as it is: start with --allow-images)"
     return None
 
 
@@ -256,9 +331,45 @@ def inline_image(part) -> bool:
     )
 
 
+def image_parts(body: dict) -> int:
+    """How many inline images the request holds (forwarded unmasked)."""
+    messages = body.get("messages")
+    return sum(
+        1
+        for message in (messages if isinstance(messages, list) else [])
+        if isinstance(message, dict) and isinstance(message.get("content"), list)
+        for part in message["content"]
+        if inline_image(part)
+    )
+
+
 def stops(body: dict) -> list[str]:
     stop = body.get("stop")
     return [stop] if isinstance(stop, str) else list(stop or [])
+
+
+def _folded(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def unmasked_fields(body: dict) -> list[str]:
+    """The request's text outside the messages, forwarded as it is: the stop sequences and the
+    model id."""
+    model = body.get("model")
+    return stops(body) + ([model] if isinstance(model, str) else [])
+
+
+def aliased_value_outside(body: dict, results: list[MaskResult]) -> bool:
+    """Whether a stop sequence or the model id holds, as a whole word, a value this request
+    aliased in its messages (in any case and spacing): the detector may miss it in such a short
+    string, and these fields cannot be masked."""
+    values = {_folded(e.text) for result in results for e in result.entities} - {""}
+    fields = [_folded(field) for field in unmasked_fields(body)]
+    return any(
+        re.search(rf"(?<!\w){re.escape(value)}(?!\w)", field)
+        for field in fields
+        for value in values
+    )
 
 
 def check_masked(masked: list[str], results: list[MaskResult]) -> None:
@@ -296,12 +407,29 @@ def link_spans(text: str) -> list[tuple[int, int]]:
 def put_back(text: str, results: list[MaskResult], restored: set[str]) -> str:
     """The text with the values of this request's aliases put back, except in links and what
     follows them (`link_spans`): an alias there stays masked, so a client loading a link or an
-    image sends no value."""
+    image sends no value. A restored value can itself be a URL (a file number such as
+    `www.host/a1`): after it, to the end of its paragraph, nothing more is restored."""
 
-    def plain(segment: str) -> str:
+    def restored_text(segment: str) -> str:
         back = restore(segment, *results)
         restored.update(back.restored)
         return back.text
+
+    def plain(segment: str) -> str:
+        out: list[str] = []
+        cursor = 0
+        for match in ALIAS_PATTERN.finditer(segment):
+            if match.start() < cursor:  # inside a paragraph already kept masked
+                continue
+            value = restore(match.group(), *results).text
+            if value != match.group() and (LINK_MARK.search(value) or NEAR.search(value)):
+                end = PARAGRAPH_END.search(segment, match.end())
+                stop = end.start() if end else len(segment)
+                out.append(restored_text(segment[cursor : match.end()]))
+                out.append(segment[match.end() : stop])
+                cursor = stop
+        out.append(restored_text(segment[cursor:]))
+        return "".join(out)
 
     parts: list[str] = []
     cursor = 0
@@ -491,6 +619,16 @@ def stream_events(data: dict) -> Iterator[str]:
     yield "data: [DONE]\n\n"
 
 
+def host_name(header: str) -> str:
+    """The host of a `Host` header, lowercased and without its port: `127.0.0.1:8001` and
+    `localhost` as they are, an IPv6 literal with or without a port (`[::1]:8001`, `[::1]`)
+    without its brackets."""
+    header = header.strip().lower()
+    if header.startswith("["):
+        return header[1 : header.find("]")] if "]" in header else ""
+    return header.rsplit(":", 1)[0] if header.count(":") == 1 else header
+
+
 def create_bridge(
     detector: Detector,
     api_key: str | None = None,
@@ -501,15 +639,19 @@ def create_bridge(
     detector_name: str = "custom",
     local_token: str | None = None,
     instance: str | None = None,
+    idle_token: str | None = None,
+    allow_images: bool = False,
 ) -> FastAPI:
     """The bridge around one detector, loaded once by the caller. `api_key`: the Mistral key
     (else the one the client sends); `transport`: for tests, a fake provider; `detector_name`:
     shown in `/health` and in the `X-Alias-Detector` header, so a client can check what masks
     its text; `local_token`: when the bridge holds the key, the token each tool must send as its
     own API key (`Authorization: Bearer <token>`), so another program or account on the machine
-    cannot spend the key."""
+    cannot spend the key; `idle_token`: that token while the bridge holds no key, so a tool still
+    sending it gets 401 instead of having it forwarded to Mistral as if it were a key."""
     if local_token is not None and not (api_key and local_token):
         raise ValueError("a local token needs a non-empty token and the bridge's own Mistral key")
+    idle = idle_token.encode() if idle_token and not api_key else None
     expected = f"Bearer {local_token}".encode() if local_token else None
     client = httpx.AsyncClient(base_url=upstream, transport=transport, timeout=120)
 
@@ -537,7 +679,7 @@ def create_bridge(
         # send Origin on cross-site requests (SDKs and scripts do not), a DNS-rebinding page
         # arrives with its own host name, and a JSON content type forces a CORS preflight that
         # the bridge never answers.
-        host = request.headers.get("host", "").rsplit(":", 1)[0].strip("[]")
+        host = host_name(request.headers.get("host", ""))
         if "origin" in request.headers or host not in hosts:
             return JSONResponse({"detail": "only local tools may use the bridge"}, 403)
         if request.method == "POST" and not request.headers.get("content-type", "").startswith(
@@ -565,8 +707,13 @@ def create_bridge(
         if api_key:
             return api_key
         auth = request.headers.get("authorization", "")
-        if auth.lower().startswith("bearer ") and auth[7:].strip():
-            return auth[7:].strip()
+        sent = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        if idle and hmac.compare_digest(sent.encode(), idle):
+            raise HTTPException(
+                401, "Alias holds no Mistral key: add one (the local token is not a Mistral key)"
+            )
+        if sent:
+            return sent
         raise HTTPException(401, "no Mistral API key: set one for the bridge or send it")
 
     def masked_request(body: dict) -> tuple[dict, list[MaskResult], Counter]:
@@ -577,12 +724,18 @@ def create_bridge(
         if size > max_chars:
             raise HTTPException(413, f"conversation too long: at most {max_chars} characters")
         with lock:
-            # A stop sequence cannot be masked without changing what it stops on.
-            if any(detector.detect(stop) for stop in stops(body)):
+            # A stop sequence cannot be masked without changing what it stops on, nor a model id.
+            if any(detector.detect(field) for field in unmasked_fields(body)):
                 raise HTTPException(
-                    422, "a stop sequence holds personal data, which cannot be masked: not sent"
+                    422,
+                    "a stop sequence or the model holds personal data, which cannot be "
+                    "masked: not sent",
                 )
             masked, results, counts = mask_messages(messages, detector)
+        if aliased_value_outside(body, results):
+            raise HTTPException(
+                422, "a stop sequence or the model holds a value aliased in the messages: not sent"
+            )
         try:
             check_masked(texts(masked), results)
         except LeftInClear:
@@ -609,7 +762,7 @@ def create_bridge(
     async def chat(request: Request) -> Response:
         try:
             body = await request.json()
-        except ValueError:
+        except (ValueError, RecursionError):  # not JSON, or nested too deep to read
             raise HTTPException(400, "the body must be JSON") from None
         if not isinstance(body, dict):
             raise HTTPException(400, "the body must be a JSON object")
@@ -620,7 +773,7 @@ def create_bridge(
         ):
             # Tool definitions and call arguments are not masked yet: refuse rather than leak.
             raise HTTPException(501, "tool calls are not supported yet")
-        where = unmaskable(body)
+        where = unmaskable(body, allow_images)
         if where:
             raise HTTPException(
                 400, f"{where} is not supported: its text would reach Mistral unmasked"
@@ -649,7 +802,7 @@ def create_bridge(
         ).startswith("json")
         try:
             data = answer.json()
-        except ValueError:
+        except (ValueError, RecursionError):
             data = None
         if not isinstance(data, dict):
             raise HTTPException(502, "Mistral's answer is not a JSON object")
@@ -660,6 +813,8 @@ def create_bridge(
             "X-Alias-Restored": str(restored),
             "X-Alias-Detector": detector_name,
         }
+        if allow_images:  # what went to Mistral without masking, for the client to see
+            headers["X-Alias-Unmasked-Images"] = str(image_parts(body))
         if streaming:
             return StreamingResponse(
                 stream_events(data), media_type="text/event-stream", headers=headers
@@ -688,7 +843,6 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="no model: names and addresses reach Mistral in clear",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="0.0.0.0 only inside a container")
     parser.add_argument("--port", type=int, default=8001)
     args = parser.parse_args(argv)
     if args.model and args.rules_only:
@@ -702,6 +856,11 @@ def options(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main() -> None:
+    """The development entry point (a PyTorch checkpoint). It listens on 127.0.0.1 only and,
+    holding MISTRAL_API_KEY, asks tools for a local token made for this run, as `alias-pii serve`
+    does; everything else (keychain, container, published model) is `alias-pii serve`'s."""
+    import secrets
+
     from alias_pii.app import load_detector
 
     args = options()
@@ -713,8 +872,12 @@ def main() -> None:
         log.warning("rules only: names and addresses are NOT masked and reach Mistral in clear")
     else:
         log.info("detector: %s", name)
-    app = create_bridge(detector, api_key=os.environ.get("MISTRAL_API_KEY"), detector_name=name)
-    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    api_key = os.environ.get("MISTRAL_API_KEY")
+    token = secrets.token_urlsafe(32) if api_key else None
+    if token:  # the bridge spends the key for whoever calls it: only a tool given this token may
+        print(f"Local token for this run (the tools' API key): {token}", file=sys.stderr)
+    app = create_bridge(detector, api_key=api_key, detector_name=name, local_token=token)
+    uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
 
 
 if __name__ == "__main__":

@@ -46,7 +46,6 @@ def test_the_key_is_stored_in_the_keychain_and_never_shown(keychain, monkeypatch
 
 
 def test_the_published_model_is_downloaded_once_at_a_pinned_revision(monkeypatch, tmp_path):
-    pytest.importorskip("huggingface_hub")
     from huggingface_hub.errors import LocalEntryNotFoundError
 
     calls = []
@@ -182,7 +181,6 @@ def test_fetch_progress_prints_json_lines_then_ready(monkeypatch, tmp_path, caps
     import json
     import time
 
-    pytest.importorskip("huggingface_hub")
     monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(tmp_path))
     blobs = tmp_path / f"models--{cli.MODEL_REPO.replace('/', '--')}" / "blobs"
     blobs.mkdir(parents=True)
@@ -215,7 +213,6 @@ def test_fetch_progress_says_ready_at_once_when_the_model_is_cached(monkeypatch,
 def test_fetch_progress_reports_a_failed_download(monkeypatch, tmp_path, capsys):
     import json
 
-    pytest.importorskip("huggingface_hub")
     monkeypatch.setattr("huggingface_hub.constants.HF_HUB_CACHE", str(tmp_path))
 
     def download():
