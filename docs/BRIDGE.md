@@ -58,7 +58,9 @@ refuses unknown `Host` names. `alias-pii fetch` downloads the model ahead of tim
 container too.
 
 The development version runs from a clone with
-`uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>` (PyTorch).
+`uv run --extra app --extra model python -m alias_pii.bridge --model <checkpoint>` (PyTorch). It
+listens on 127.0.0.1 only and, holding `MISTRAL_API_KEY`, prints a local token for the run that
+tools must send, like `alias-pii serve`.
 
 ### The macOS app
 
