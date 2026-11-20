@@ -39,6 +39,19 @@ on:
 permissions:
   contents: read
 jobs:
+  # The app's Rust code is formatted (rustfmt, on its own: a quick answer before the long build).
+  # Not on a release rebuild, like the lints below.
+  rust-format:
+    if: ${{ !inputs.release_tag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: cargo fmt --check
+        working-directory: desktop/src-tauri
+        run: cargo fmt --check
   macos-app:
     runs-on: macos-15
     timeout-minutes: 60
@@ -82,6 +95,14 @@ jobs:
           done
           ls -la src-tauri/target/release/bundle/macos src-tauri/target/release/bundle/dmg
           du -sh src-tauri/target/release/bundle/macos/Alias.app
+      # Lints and unit tests of the app's Rust code, with the sidecar and icons the build needed.
+      # Not on a release rebuild: a lint added by a newer Rust must not hold back a release.
+      - name: Rust lints (clippy) and tests
+        if: ${{ !inputs.release_tag }}
+        working-directory: desktop/src-tauri
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
       # The hardened runtime enforces library validation: the bridge executable then cannot load
       # the Python it unpacks (signed apart), and dies at start on a Mac with SIP on. GitHub's
       # macOS machines run with SIP off, so the launch check below would not see it: check the
