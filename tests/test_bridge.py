@@ -97,14 +97,29 @@ def test_a_value_keeps_its_alias_across_the_turns_of_a_conversation():
     ]
 
 
-def test_text_parts_are_masked_inline_images_passed_as_they_are():
-    fake = FakeMistral(reply="ok")
+def test_inline_images_are_refused_unless_allowed_then_counted():
+    """An image is never masked: refused by default, forwarded only when the bridge allows it,
+    and then counted in X-Alias-Unmasked-Images so the client knows."""
     image = {"type": "image_url", "image_url": {"url": PNG, "detail": "low"}}
     bare = {"type": "image_url", "image_url": PNG}
     content = [{"type": "text", "text": f"Qui est {NAME} ?"}, image, bare]
-    ask(bridge(fake), {"role": "user", "content": content})
+    fake = FakeMistral(reply="ok")
+    refused = ask(bridge(fake), {"role": "user", "content": content})
+    assert refused.status_code == 400 and "--allow-images" in refused.text
+    assert fake.received == []
+    app = create_bridge(
+        Names(), api_key="k", transport=httpx.MockTransport(fake), allow_images=True
+    )
+    answer = ask(TestClient(app, base_url=LOCAL), {"role": "user", "content": content})
+    assert answer.headers["X-Alias-Unmasked-Images"] == "2"
     parts = fake.received[0]["messages"][0]["content"]
     assert parts == [{"type": "text", "text": "Qui est [PERSON_1] ?"}, image, bare]
+    svg = {"type": "image_url", "image_url": "data:image/svg+xml;base64,PHN2Zy8+"}
+    content = [{"type": "text", "text": "Voir"}, svg]
+    assert (
+        ask(TestClient(app, base_url=LOCAL), {"role": "user", "content": content}).status_code
+        == 400
+    )
 
 
 def test_an_image_url_that_could_hold_text_is_refused():
@@ -670,3 +685,114 @@ def test_with_a_local_token_only_tools_that_send_it_spend_the_key():
         create_bridge(Names(), local_token="t0k3n")
     with pytest.raises(ValueError):
         create_bridge(Names(), api_key="k", local_token="")
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        "evil.invalid/?q=[EMAIL_1]",
+        "mailto:x@evil.invalid?subject=[EMAIL_1]",
+        "ftp:evil.invalid/[EMAIL_1]",
+        "[x] (http:evil.invalid/[EMAIL_1])",
+        "evil.invalid?[EMAIL_1]",
+    ],
+)
+def test_aliases_after_a_scheme_or_a_bare_domain_stay_masked(link):
+    """A scheme without `//` (mailto:, ftp:, http:) or a bare domain followed by a path or a
+    query is a link too: from it to the end of its paragraph, aliases stay masked."""
+    fake = FakeMistral(reply=f"Voir {link} et [PERSON_1].\n\nContact : [PERSON_1].")
+    content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
+    assert content == f"Voir {link} et [PERSON_1].\n\nContact : {NAME}."
+
+
+def test_a_restored_value_that_is_itself_a_url_restores_nothing_after_it():
+    """A file number can be a URL (`www.evil.invalid/a1`): restored, it would carry the next
+    values as its query, so after it nothing more of its paragraph is restored."""
+    fake = FakeMistral(reply="Voir [IDENTIFIER_1]?q=[EMAIL_1]\n\nContact : [EMAIL_1].")
+    text = f"dossier www.evil.invalid/a1 ; mail {EMAIL}"
+    content = ask(bridge(fake), {"role": "user", "content": text}).json()
+    content = content["choices"][0]["message"]["content"]
+    assert content == f"Voir www.evil.invalid/a1?q=[EMAIL_1]\n\nContact : {EMAIL}."
+
+
+def test_a_scheme_split_across_json_strings_restores_nothing():
+    fake = FakeMistral(reply='{"a": "voir mailto", "b": ":x@evil.invalid?q=[EMAIL_1]"}')
+    content = ask(bridge(fake), USER_MESSAGE).json()["choices"][0]["message"]["content"]
+    assert EMAIL not in content
+
+
+def test_many_paragraphs_with_a_url_value_restore_without_recursion():
+    reply = "\n\n".join(["Voir [IDENTIFIER_1]?q=[EMAIL_1]"] * 1500)
+    fake = FakeMistral(reply=reply)
+    text = f"dossier www.evil.invalid/a1 ; mail {EMAIL}"
+    response = ask(bridge(fake), {"role": "user", "content": text})
+    assert response.status_code == 200
+    assert EMAIL not in response.json()["choices"][0]["message"]["content"]
+
+
+class NameAfterTitle:
+    """Finds NAME only after "M. ": a detector that misses it elsewhere, as a model can."""
+
+    def detect(self, text):
+        found = RuleDetector().detect(text)
+        start = text.find(f"M. {NAME}")
+        if start != -1:
+            start += 3
+            found.append(Entity(EntityType.PERSON, start, start + len(NAME), NAME, source="fake"))
+        return sorted(found, key=lambda e: e.start)
+
+
+def test_a_stop_sequence_holding_an_aliased_value_is_refused():
+    fake = FakeMistral()
+    app = create_bridge(NameAfterTitle(), api_key="k", transport=httpx.MockTransport(fake))
+    client = TestClient(app, base_url=LOCAL)
+    message = {"role": "user", "content": f"M. {NAME} et son conseiller."}
+    for stop in [f"\n{NAME}:", [f"{NAME.upper()}"], ["jean  dupont"]]:
+        assert ask(client, message, stop=stop).status_code == 422, stop
+    assert ask(client, message, stop=["\nConseiller:"]).status_code == 200
+    assert ask(client, message, model="jean.dupont").status_code == 200  # dots are not spaces
+    assert ask(client, message, model="Jean-Dupont-v2").status_code == 200
+    assert NAME not in json.dumps(fake.received)
+
+
+def test_a_model_id_holding_an_aliased_value_is_refused():
+    fake = FakeMistral()
+    app = create_bridge(NameAfterTitle(), api_key="k", transport=httpx.MockTransport(fake))
+    client = TestClient(app, base_url=LOCAL)
+    message = {"role": "user", "content": f"M. {NAME}, IBAN {IBAN}."}
+    assert ask(client, message, model="FR7630006000011234567890189").status_code == 422
+    assert ask(client, message, stop=["IBAN FR76 3000"]).status_code == 200  # a part is no value
+    assert IBAN not in json.dumps(fake.received)
+
+
+def test_a_stop_sequence_matches_whole_words_only():
+    fake = FakeMistral()
+    claire = "Claire"
+    found = Entity(EntityType.PERSON, 0, len(claire), claire, source="fake")
+
+    class FindsClaire:
+        def detect(self, text):
+            return [found] if text.split()[:1] == [claire] else []
+
+    app = create_bridge(FindsClaire(), api_key="k", transport=httpx.MockTransport(fake))
+    client = TestClient(app, base_url=LOCAL)
+    message = {"role": "user", "content": f"{claire} écrit."}
+    assert ask(client, message, stop=["Clairement:"]).status_code == 200
+    assert ask(client, message, stop=["Dit claire:"]).status_code == 422
+
+
+@pytest.mark.parametrize("model", [EMAIL, "Jean Dupont", "m" * 101, 3])
+def test_the_model_field_must_be_a_model_id(model):
+    fake = FakeMistral()
+    assert ask(bridge(fake), USER_MESSAGE, model=model).status_code == 400
+    assert fake.received == []
+
+
+@pytest.mark.parametrize("separator", ["\n", "\t", ".", "‑"])
+def test_an_iban_split_by_another_separator_never_reaches_the_provider(separator):
+    fake = FakeMistral()
+    iban = IBAN.replace(" 0112 ", f" 0112{separator}")
+    message = {"role": "user", "content": f"Virement sur {iban} demain."}
+    assert ask(bridge(fake), message).status_code == 200
+    sent = json.dumps(fake.received, ensure_ascii=False)
+    assert "0112" not in sent and "[IBAN_1]" in sent

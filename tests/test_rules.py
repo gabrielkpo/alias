@@ -178,3 +178,28 @@ def test_a_qualifier_between_the_keyword_and_its_number_word():
     ]:
         assert [(e.type, e.text) for e in detect(text)] == [(EntityType.IDENTIFIER, value)], text
     assert detect("Le dossier médical de Paul est complet.") == []
+
+
+@pytest.mark.parametrize(
+    "separator",
+    [".", "\n", "\t", "  ", "/", "‑", "–", "‎", " ‏", "᠎", " ⁦"],
+)
+def test_a_strict_value_written_with_other_separators_is_still_found(separator):
+    """Dots, a line break, a tab, a double space, a slash, a non-breaking hyphen, an en dash or
+    a direction mark between the groups must not hide an IBAN, a NIR or an SSN."""
+    iban = "FR76 3000 6000 0112 3456 7890 189".replace(" ", separator)
+    nir = "1 85 05 78 006 084 91".replace(" ", separator)
+    for text, type_ in [(f"IBAN {iban} merci.", "IBAN"), (f"NIR {nir} merci.", "NATIONAL_ID")]:
+        found = RuleDetector().detect(text)
+        assert [e.type for e in found] == [EntityType(type_)], repr(text)
+        assert text[found[0].start : found[0].end] == found[0].text
+
+
+@pytest.mark.parametrize("ssn", ["123.45.6789", "123–45–6789", "123‑45‑6789"])
+def test_an_ssn_with_dots_or_unicode_dashes_is_found(ssn):
+    assert [e.text for e in RuleDetector().detect(f"SSN {ssn}.")] == [ssn]
+
+
+def test_full_width_digits_do_not_hide_an_iban():
+    text = "IBAN FR７６ 3000 6000 0112 3456 7890 189."
+    assert [e.type for e in RuleDetector().detect(text)] == [EntityType.IBAN]
