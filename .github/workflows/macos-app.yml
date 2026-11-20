@@ -126,6 +126,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      id-token: write  # signs the build provenance (Sigstore)
+      attestations: write
     env:
       TAG: ${{ inputs.release_tag }}
     steps:
@@ -138,12 +140,20 @@ jobs:
         with:
           name: alias-macos-dmg
           path: dmg
-      - name: Attach the .dmg and its SHA-256 to the release
+      - name: Check the .dmg matches the tag
+        run: |
+          dmg=$(ls dmg/Alias_*_aarch64.dmg)
+          [ "$dmg" = "dmg/Alias_${TAG#v}_aarch64.dmg" ] || { echo "::error::$dmg does not match $TAG"; exit 1; }
+      # A signed statement of which workflow, commit and run built this file, checked by
+      # `gh attestation verify` (docs/BRIDGE.md): the SHA-256 alone comes from the same job.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dmg/Alias_*_aarch64.dmg
+      - name: Attach the .dmg and its SHA-256 to the release (never replacing a file)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd dmg
           dmg=$(ls Alias_*_aarch64.dmg)
-          [ "$dmg" = "Alias_${TAG#v}_aarch64.dmg" ] || { echo "::error::$dmg does not match $TAG"; exit 1; }
           shasum -a 256 "$dmg" > "$dmg.sha256"
-          gh release upload "$TAG" "$dmg" "$dmg.sha256" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" "$dmg" "$dmg.sha256" --repo "$GITHUB_REPOSITORY"
