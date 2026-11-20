@@ -36,7 +36,9 @@ from `MISTRAL_API_KEY`, else from the `Authorization` header the tool sends; it 
 logged or written in clear. When the bridge holds the key (keychain or variable), any program on
 the machine could otherwise spend it: each tool must then send the bridge's **local token** as its
 API key (`alias-pii key token` shows it; it is created once and kept in the keychain), and a
-request without it gets 401. Mistral still receives the real key, never the token.
+request without it gets 401. Mistral still receives the real key, never the token. Without a
+key (deleted, or never set), a tool still sending the token gets 401 too: the bridge never
+forwards it to Mistral as if it were a key.
 
 ### In a container
 
@@ -104,20 +106,30 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 
 ## How it behaves
 
+- **Detector**: the published model plus the rules. Unlike the benchmark detector, the bridge
+  also keeps the rules' e-mails and phones: a company mailbox masked by mistake comes back in the
+  answer, while a personal one the model missed would reach Mistral in clear.
 - **Conversations**: one alias table per request, aliases given in order of appearance. A tool
   resends the whole history at each turn, so a value keeps its alias from turn to turn and the
   bridge keeps no state. Once a value has an alias, every other whole-word occurrence of it in
-  the request (any case) gets the same alias, even where the detector missed it.
+  the request gets the same alias, even where the detector missed it: written with any white
+  space between its words and in any case, except a one-word name or address, only as found,
+  in capitals or in title case (a first name such as Claire is also a common word).
 - **Message parts**: the text of `content`, or of its `{"type": "text"}` parts, is masked.
-  An image may only come inline (`image_url` holding `data:image/...;base64,...`) and passes as
-  it is: neither what it shows nor its metadata (author, location) is masked. An image given by
-  URL is refused (400), since the URL itself could hold a name or an address.
+  An image is never masked (neither what it shows nor its metadata: author, location), so it is
+  refused (400) unless the bridge is started with `--allow-images` (or `ALIAS_ALLOW_IMAGES=1`).
+  Then it may only come inline, as PNG, JPEG, GIF or WebP data (`image_url` holding
+  `data:image/png;base64,...`), passes as it is, and the answer's `X-Alias-Unmasked-Images`
+  header counts the images sent. An image given by URL, or an SVG (which is text), is always
+  refused (400).
 - **Nothing unmasked goes through**: besides `messages` (keys `role`, `content`, `prefix`), a
   request may only hold settings without text of their own (`model`, `temperature`, `top_p`,
   `max_tokens`, `random_seed`, `n`, `presence_penalty`, `frequency_penalty`, `safe_prompt`,
   `stream`, `stop`, `response_format` of type `text` or `json_object`). Anything else (a message
   `name`, `prediction`, a JSON schema, `user`, another part type, an image URL) is refused (400)
-  rather than sent unmasked. A `stop` sequence holding personal data is refused too (422).
+  rather than sent unmasked. `model` must look like a model id (letters, digits, `._:/-`, at
+  most 100), else 400. A `stop` sequence or a `model` holding personal data, or a value aliased
+  in the messages (as a whole word, in any case or spacing), is refused too (422).
 - **Check before sending**: if the rules still find an IBAN or a national ID in the masked text,
   or an IBAN, national ID or phone number of the request is still readable with other
   separators (`01.99.00.12.34` for `01 99 00 12 34`), the request is refused (422) and nothing
@@ -128,9 +140,11 @@ print(answer.choices[0].message.content)  # Mistral saw [PERSON_1] and [IBAN_1];
 - **Links stay masked**: restored inside a link or an image, a value would leave the machine,
   for example if the answer follows instructions hidden in a pasted document. Markdown and HTML
   have too many forms to follow one by one, so the bridge errs on the side of masking:
-  - from a link or URL mark (`](`, `//`, `www.`) to the end of its paragraph, aliases keep their
-    alias form; the text before the mark (link text included) and other paragraphs get the
-    values back;
+  - from a link or URL mark (`](`, `//`, `www.`, a scheme such as `mailto:`, `ftp:` or `http:`
+    without slashes, a bare domain followed by `/`, `?` or `#`) to the end of its paragraph,
+    aliases keep their alias form; the text before the mark (link text included) and other
+    paragraphs get the values back. A value that is itself a URL (a file number such as
+    `www.host/a1`) is restored, but nothing after it in its paragraph;
   - from the first image (`![`), `<` followed by anything but a space, `=` or a digit, or
     backslash, nothing more is restored: an image is fetched as soon as it is shown, an HTML
     block can run across blank lines, and a client decoding the answer as JSON, JSON5 or YAML
