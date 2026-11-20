@@ -70,7 +70,16 @@ jobs:
       - name: Build the app and the .dmg
         working-directory: desktop
         run: |
-          npx tauri build --bundles app,dmg -- --locked
+          # hdiutil, which makes the .dmg, sometimes fails on GitHub's machines ("Resource
+          # busy"): two more tries, the build itself being cached, after detaching what the
+          # failed try left mounted and removing its temporary image.
+          for try in 1 2 3; do
+            npx tauri build --bundles app,dmg -- --locked && break
+            [ "$try" = 3 ] && exit 1
+            for v in /Volumes/Alias*; do [ -d "$v" ] && hdiutil detach -force "$v" || true; done
+            rm -f src-tauri/target/release/bundle/dmg/rw.*.dmg src-tauri/target/release/bundle/macos/rw.*.dmg
+            sleep 15
+          done
           ls -la src-tauri/target/release/bundle/macos src-tauri/target/release/bundle/dmg
           du -sh src-tauri/target/release/bundle/macos/Alias.app
       # The hardened runtime enforces library validation: the bridge executable then cannot load
@@ -119,6 +128,7 @@ jobs:
         with:
           name: alias-macos-dmg
           path: desktop/src-tauri/target/release/bundle/dmg/*.dmg
+          retention-days: 3  # about 110 MB each run
   # Only for a release, after the app passed the launch check above.
   attach:
     needs: macos-app

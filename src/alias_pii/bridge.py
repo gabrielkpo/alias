@@ -619,6 +619,16 @@ def stream_events(data: dict) -> Iterator[str]:
     yield "data: [DONE]\n\n"
 
 
+def host_name(header: str) -> str:
+    """The host of a `Host` header, lowercased and without its port: `127.0.0.1:8001` and
+    `localhost` as they are, an IPv6 literal with or without a port (`[::1]:8001`, `[::1]`)
+    without its brackets."""
+    header = header.strip().lower()
+    if header.startswith("["):
+        return header[1 : header.find("]")] if "]" in header else ""
+    return header.rsplit(":", 1)[0] if header.count(":") == 1 else header
+
+
 def create_bridge(
     detector: Detector,
     api_key: str | None = None,
@@ -669,7 +679,7 @@ def create_bridge(
         # send Origin on cross-site requests (SDKs and scripts do not), a DNS-rebinding page
         # arrives with its own host name, and a JSON content type forces a CORS preflight that
         # the bridge never answers.
-        host = request.headers.get("host", "").rsplit(":", 1)[0].strip("[]")
+        host = host_name(request.headers.get("host", ""))
         if "origin" in request.headers or host not in hosts:
             return JSONResponse({"detail": "only local tools may use the bridge"}, 403)
         if request.method == "POST" and not request.headers.get("content-type", "").startswith(
