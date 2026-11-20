@@ -239,6 +239,7 @@ def build(name: str, methods: dict[str, Callable[[], Detector]]) -> Detector:
 
 def main(methods: dict[str, Callable[[], Detector]] | None = None) -> None:
     from alias_pii.baselines import API_METHODS, METHODS
+    from alias_pii.data_guard import SHAREABLE, shareable
 
     methods = methods or METHODS
     parser = argparse.ArgumentParser(description="Benchmark Alias detectors.")
@@ -249,8 +250,11 @@ def main(methods: dict[str, Callable[[], Detector]] | None = None) -> None:
     parser.add_argument("--out", type=Path, default=Path("reports"))
     args = parser.parse_args()
     api = API_METHODS & set(args.methods.split(","))
-    if api and "real" in args.data.resolve().parts:
-        parser.error(f"{sorted(api)} send text to an API: real documents never leave the machine")
+    if api and not shareable(args.data):
+        parser.error(
+            f"{sorted(api)} send text to an API: only {', '.join(SHAREABLE)} may leave the "
+            "machine, never real documents"
+        )
     documents = load(args.data / f"{args.split}.jsonl")
     if args.limit:
         documents = documents[: args.limit]

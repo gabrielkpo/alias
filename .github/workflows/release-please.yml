@@ -47,6 +47,8 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     permissions:
       contents: write
+      id-token: write  # the .dmg's build provenance
+      attestations: write
     uses: ./.github/workflows/macos-app.yml
     with:
       release_tag: ${{ needs.release-please.outputs.tag_name }}

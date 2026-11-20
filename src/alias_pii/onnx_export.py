@@ -62,6 +62,7 @@ class OnnxDetector:
         stride: int = 128,
         threads: int = 0,
         model_file: str = MODEL_FILE,
+        batch: int = 8,
     ):
         import onnxruntime as ort
         from transformers import AutoTokenizer
@@ -75,6 +76,9 @@ class OnnxDetector:
         )
         self.tokenizer = AutoTokenizer.from_pretrained(path)
         self.max_length, self.stride = max_length, stride
+        # Windows of a long text go to the model a few at a time: one padded batch of every
+        # window of a 200,000-character request would hold memory for all of them at once.
+        self.batch = batch
 
     def detect(self, text: str) -> list[Entity]:
         encoded = self.tokenizer(
@@ -87,14 +91,15 @@ class OnnxDetector:
             padding=True,
             return_tensors="np",
         )
-        logits = self.session.run(
-            ["logits"],
-            {
-                "input_ids": encoded["input_ids"].astype("int64"),
-                "attention_mask": encoded["attention_mask"].astype("int64"),
-            },
-        )[0]
-        predicted = logits.argmax(-1).tolist()
+        ids = encoded["input_ids"].astype("int64")
+        mask = encoded["attention_mask"].astype("int64")
+        predicted: list[list[int]] = []
+        for first in range(0, len(ids), self.batch):
+            chunk = slice(first, first + self.batch)
+            logits = self.session.run(
+                ["logits"], {"input_ids": ids[chunk], "attention_mask": mask[chunk]}
+            )
+            predicted.extend(logits[0].argmax(-1).tolist())
         offsets = encoded["offset_mapping"].tolist()
         windows = [
             ([tuple(o) for o in offs], tags) for offs, tags in zip(offsets, predicted, strict=True)

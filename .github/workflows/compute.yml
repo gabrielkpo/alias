@@ -40,42 +40,45 @@ jobs:
       METHODS: ${{ inputs.methods || 'rules' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
-          python-version: "3.12"
-      - name: Install uv
-        run: pip install uv
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.7"
       - name: Download the public corpora
         run: |
+          # The corpora at fixed commits, so a rebuilt dataset cannot change under the same code.
           base=https://huggingface.co/datasets
+          gretel=7b844d16738527a04264f50214cb426a4cea0897
+          wikiner=7037bf1d59316b4f3368adf7a958cf31c1eb07ab
           mkdir -p data/raw/gretel data/raw/wikiner_fr
           for f in English_train English_test France_train France_test; do
             curl -sSfL -o "data/raw/gretel/$f.parquet" \
-              "$base/gretelai/synthetic_pii_finance_multilingual/resolve/main/data/$f-00000-of-00001.parquet"
+              "$base/gretelai/synthetic_pii_finance_multilingual/resolve/$gretel/data/$f-00000-of-00001.parquet"
           done
           curl -sSfL -o data/raw/wikiner_fr/train.parquet \
-            "$base/Jean-Baptiste/wikiner_fr/resolve/main/data/train-00000-of-00001-8a0e6775bf277040.parquet"
+            "$base/Jean-Baptiste/wikiner_fr/resolve/$wikiner/data/train-00000-of-00001-8a0e6775bf277040.parquet"
           curl -sSfL -o data/raw/wikiner_fr/test.parquet \
-            "$base/Jean-Baptiste/wikiner_fr/resolve/main/data/test-00000-of-00001-f042d39bd1dddf20.parquet"
+            "$base/Jean-Baptiste/wikiner_fr/resolve/$wikiner/data/test-00000-of-00001-f042d39bd1dddf20.parquet"
       - name: Build the dataset
         run: |
           if [ "$SIZE" = full ]; then n="--train 30000 --validation 3000 --test 3000"
           else n="--train 1000 --validation 200 --test 200"; fi
-          uv run --group data python -m alias_pii.build_dataset --out data/synthetic --raw data/raw $n
+          uv run --frozen --python 3.12 --group data python -m alias_pii.build_dataset --out data/synthetic --raw data/raw $n
       - name: Training smoke test (mmBERT-small, CPU)
         if: env.TASK == 'smoke-train'
         run: |
-          uv run --group data --group train python -m alias_pii.train \
+          uv run --frozen --python 3.12 --group data --group train python -m alias_pii.train \
             --model jhu-clsp/mmBERT-small --data data/synthetic --out models/smoke \
             --epochs 1 --limit 300 --batch-size 8 --results reports/training-smoke.jsonl
       - name: Benchmark
         if: env.TASK == 'benchmark'
         run: |
           if echo "$METHODS" | grep -q presidio; then  # Presidio needs the spaCy models
-            uv run --group bench python -m spacy download fr_core_news_lg
-            uv run --group bench python -m spacy download en_core_web_lg
+            uv run --frozen --python 3.12 --group bench python -m spacy download fr_core_news_lg
+            uv run --frozen --python 3.12 --group bench python -m spacy download en_core_web_lg
           fi
-          uv run --group data --group bench python -m alias_pii.benchmark \
+          uv run --frozen --python 3.12 --group data --group bench python -m alias_pii.benchmark \
             --data data/synthetic --split test --methods "$METHODS" --out reports
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
