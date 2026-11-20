@@ -187,6 +187,20 @@ def local_token() -> tuple[str, bool]:
         return secrets.token_urlsafe(32), False
 
 
+def stored_token() -> str | None:
+    """The local token already in the keychain (ALIAS_TOKEN when set), without creating one."""
+    given = os.environ.get("ALIAS_TOKEN")
+    if given:
+        return given
+    import keyring
+    from keyring.errors import KeyringError
+
+    try:
+        return keyring.get_password(KEYCHAIN_SERVICE, TOKEN_ACCOUNT) or None
+    except KeyringError:
+        return None
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="alias-pii", description=__doc__.splitlines()[0])
     commands = root.add_subparsers(dest="command", required=True)
@@ -212,6 +226,12 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="stop when standard input closes (the app keeps it open while it runs, so the "
         "bridge stops with the app, even when the app is killed)",
+    )
+    serve.add_argument(
+        "--allow-images",
+        action="store_true",
+        default=os.environ.get("ALIAS_ALLOW_IMAGES") == "1",
+        help="forward inline images, which are NOT masked (refused by default)",
     )
     serve.add_argument("--port", type=int, default=PORT)
     serve.add_argument(
@@ -332,10 +352,12 @@ def serve_command(args: argparse.Namespace) -> int:
         if not isinstance(secrets_given, dict):
             raise SystemExit('--secrets-stdin expects one JSON object: {"key": ..., "token": ...}')
         api_key = secrets_given.get("key") or None
-        token = secrets_given.get("token") if api_key else None
+        token = secrets_given.get("token") or None
         instance = secrets_given.get("instance") or None
         if instance is not None and not isinstance(instance, str):
             raise SystemExit("--secrets-stdin: instance must be a string")
+        if token is not None and not isinstance(token, str):
+            raise SystemExit("--secrets-stdin: token must be a string")
         if api_key and (not token or len(token) < 32):
             raise SystemExit("--secrets-stdin: a key needs a local token of 32 characters or more")
         if api_key:
@@ -344,6 +366,9 @@ def serve_command(args: argparse.Namespace) -> int:
             log.info("no key given by the app: each tool's own key is used")
     else:
         api_key = stored_key() or os.environ.get("MISTRAL_API_KEY")
+        token = None if api_key else stored_token()
+    # Without a key, a token tools were given is not forwarded to Mistral: they get 401.
+    idle_token, token = (None, token) if api_key else (token, None)
     if api_key and token is None:
         # The bridge spends this key for whoever calls it: only a tool given the local token may.
         token, stored = local_token()
@@ -366,7 +391,11 @@ def serve_command(args: argparse.Namespace) -> int:
         local_token=token,
         allowed_hosts=hosts,
         instance=instance,
+        idle_token=idle_token,
+        allow_images=args.allow_images,
     )
+    if args.allow_images:
+        log.warning("inline images are forwarded unmasked (--allow-images)")
     if args.stop_on_stdin_close:
         stop_when_closed(sys.stdin)
     print(f"Alias Bridge on http://{args.host}:{args.port}/v1", file=sys.stderr)
