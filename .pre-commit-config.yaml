@@ -16,3 +16,9 @@ repos:
     rev: v8.30.1
     hooks:
       - id: gitleaks
+  # No file over 10 MB (data, models, archives) ever enters the history.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=10240"]
