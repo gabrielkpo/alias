@@ -22,17 +22,18 @@ PHONE_REGIONS = ("FR", "GB", "US")
 # Unicode domains too (jean@société.example): \w is Unicode-aware; the TLD is letters only.
 _EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]++@[\w-]++(?:\.[\w-]++)*\.[^\W\d_]{2,}\b")
 
-# 15 characters with optional single separators (space, dot or dash): sex, year, month,
-# department (or 2A/2B), commune, order number, key. The checksum decides; the pattern only
-# finds candidates.
-_SEP = r"[ .-]?"
+# 15 characters with optional separators between them (up to two of: white space, including a
+# line break or a tab, dot, slash, dash): sex, year, month, department (or 2A/2B), commune,
+# order number, key. The checksum decides; the pattern only finds candidates.
+_SEP = r"[\s./-]{0,2}"
 _NIR = re.compile(
     rf"(?<![\w])[1-478](?:{_SEP}\d){{4}}{_SEP}(?:\d{_SEP}\d|2{_SEP}[ABab])(?:{_SEP}\d){{6}}"
     rf"{_SEP}\d{_SEP}\d(?![\w])"
 )
 
-# Separators required: nine bare digits are too often something else.
-_US_SSN = re.compile(r"(?<![\d-])(?!000|666|9\d\d)\d{3}([- ])(?!00)\d{2}\1(?!0000)\d{4}(?![\d-])")
+# Separators required (the same twice: dash, space or dot): nine bare digits are too often
+# something else.
+_US_SSN = re.compile(r"(?<![\d-])(?!000|666|9\d\d)\d{3}([-. ])(?!00)\d{2}\1(?!0000)\d{4}(?![\d-])")
 
 # HMRC rules: no D, F, I, Q, U, V in either prefix letter, no O second, and some pairs unused.
 _UK_NINO = re.compile(
@@ -102,26 +103,40 @@ def keyword_kind(keyword: str) -> str:
 
 
 # Typography the rules would not read as a separator: spaces other than U+0020 (no-break,
-# narrow no-break, thin, figure...) count as a space, and invisible characters (zero-width
-# spaces and joiners, soft hyphen, BOM) are skipped. A value written with them, common in French
-# typography and in text copied from a PDF, would otherwise stay readable.
+# narrow no-break, thin, figure...) count as a space, dashes other than U+002D (non-breaking
+# hyphen, en and em dashes, minus...) as a dash, full-width digits as digits, and invisible
+# characters (zero-width spaces and joiners, soft hyphen, BOM, direction and other format
+# marks) are skipped. A value written with them, common in French typography and in text copied
+# from a PDF, would otherwise stay readable.
 SPACES = frozenset(
     "\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008"
     "\u2009\u200a\u202f\u205f\u3000"
 )
-INVISIBLE = frozenset("\u00ad\u200b\u200c\u200d\u2060\ufeff")
-_TYPOGRAPHY = re.compile(f"[{''.join(sorted(SPACES | INVISIBLE))}]")
+DASHES = frozenset("\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d")
+INVISIBLE = frozenset(
+    "\u00ad\u061c\u180e\u200b\u200c\u200d\u200e\u200f\u202a\u202b\u202c\u202d\u202e"
+    "\u2060\u2061\u2062\u2063\u2064\u2066\u2067\u2068\u2069\ufeff"
+)
+_FULLWIDTH_DIGITS = "".join(chr(c) for c in range(0xFF10, 0xFF1A))
+_TYPOGRAPHY = re.compile(f"[{''.join(sorted(SPACES | DASHES | INVISIBLE))}{_FULLWIDTH_DIGITS}]")
 
 
 def shadow(text: str) -> tuple[str, list[int]]:
-    """The text as the rules read it (`SPACES` as a space, `INVISIBLE` skipped), and for each of
-    its positions, plus its end, the position in the original text."""
+    """The text as the rules read it (`SPACES` as a space, `DASHES` as a dash, full-width digits
+    as digits, `INVISIBLE` skipped), and for each of its positions, plus its end, the position in
+    the original text."""
     chars: list[str] = []
     origin: list[int] = []
     for i, char in enumerate(text):
         if char in INVISIBLE:
             continue
-        chars.append(" " if char in SPACES else char)
+        if char in SPACES:
+            char = " "
+        elif char in DASHES:
+            char = "-"
+        elif "\uff10" <= char <= "\uff19":
+            char = chr(ord(char) - 0xFEE0)
+        chars.append(char)
         origin.append(i)
     origin.append(len(text))
     return "".join(chars), origin
@@ -176,8 +191,9 @@ class RuleDetector:
 
     def _ibans(self, text: str) -> Iterator[Entity]:
         for m in _IBAN_START.finditer(text):
-            # Walk alphanumerics, allowing one space or dash between groups, and remember where
-            # each character ends so a valid IBAN can be cut at its exact length.
+            # Walk alphanumerics, allowing up to two separators between groups (white space,
+            # including a line break or a tab, dash, dot, slash), and remember where each
+            # character ends so a valid IBAN can be cut at its exact length.
             ends: list[int] = []
             i = m.start()
             while i < len(text) and len(ends) < 34:
@@ -185,12 +201,13 @@ class RuleDetector:
                 if char.isascii() and char.isalnum():
                     i += 1
                     ends.append(i)
-                elif char in " -" and i + 1 < len(text) and text[i + 1].isascii():
-                    if not text[i + 1].isalnum():
-                        break
-                    i += 1
-                else:
+                    continue
+                j = i
+                while j < len(text) and j - i < 2 and (text[j] in "-./" or text[j].isspace()):
+                    j += 1
+                if j == i or j >= len(text) or not (text[j].isascii() and text[j].isalnum()):
                     break
+                i = j
             expected = IBAN_LENGTHS.get(m.group()[:2].upper())
             lengths = [expected] if expected else range(len(ends), 14, -1)
             for length in lengths:

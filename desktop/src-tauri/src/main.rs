@@ -271,8 +271,8 @@ fn start_bridge(alias: &Alias) -> Result<(), String> {
     if alias.exiting.load(Ordering::SeqCst) {
         return Ok(());
     }
-    // The key, the token and the instance id on a pipe; without a key, the id alone (tools
-    // then send their own key).
+    // The key (if any), the token and the instance id on a pipe. Without a key, tools send their
+    // own, and the bridge refuses the token instead of forwarding it.
     let secrets = match stored_secrets(alias) {
         Some(s) => serde_json::json!({"key": s.key, "token": s.token, "instance": alias.instance}),
         None => serde_json::json!({"instance": alias.instance}),
@@ -422,7 +422,8 @@ async fn retry(app: AppHandle, alias: State<'_, Alias>) -> Result<(), String> {
 async fn key_status(alias: State<'_, Alias>) -> Result<KeyState, String> {
     let keychain = alias.keychain.lock().map_err(|e| e.to_string())?.clone();
     Ok(match keychain {
-        Keychain::Stored(_) => KeyState { stored: true, error: None },
+        // After "Delete the key" the item keeps the token (tools keep it), with an empty key.
+        Keychain::Stored(s) => KeyState { stored: !s.key.is_empty(), error: None },
         Keychain::Unreadable(error) => KeyState { stored: false, error: Some(error) },
         Keychain::Missing | Keychain::Unread => KeyState { stored: false, error: None },
     })
@@ -471,11 +472,20 @@ async fn set_key(key: String, alias: State<'_, Alias>) -> Result<String, String>
 
 #[tauri::command]
 async fn delete_key(alias: State<'_, Alias>) -> Result<String, String> {
-    match keychain_entry()?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => {}
-        Err(error) => return Err(format!("Alias could not delete the key: {error}")),
-    }
-    *alias.keychain.lock().map_err(|e| e.to_string())? = Keychain::Missing;
+    // The token stays: tools keep sending it, and the bridge, holding no key, answers them 401
+    // instead of forwarding it to Mistral as if it were a key.
+    let state = match stored_secrets(&alias) {
+        Some(secrets) => {
+            let kept = Secrets { key: String::new(), token: secrets.token };
+            let text = serde_json::to_string(&kept).map_err(|e| e.to_string())?;
+            keychain_entry()?
+                .set_password(&text)
+                .map_err(|e| format!("Alias could not delete the key: {e}"))?;
+            Keychain::Stored(kept)
+        }
+        None => Keychain::Missing,
+    };
+    *alias.keychain.lock().map_err(|e| e.to_string())? = state;
     if model_ready(&alias) {
         start_bridge(&alias)?;
     }

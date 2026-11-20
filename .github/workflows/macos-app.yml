@@ -99,9 +99,16 @@ jobs:
           fi
       - name: Killing the app (no clean quit) stops its bridge too
         run: |
-          open desktop/src-tauri/target/release/bundle/macos/Alias.app
+          # The app quit above may still be closing (the likely cause of rare failures here):
+          # `open` would then only bring it back instead of starting it again.
+          for i in $(seq 30); do pgrep -f 'Alias.app/Contents/MacOS/' > /dev/null || break; sleep 1; done
+          open -n desktop/src-tauri/target/release/bundle/macos/Alias.app
           for i in $(seq 90); do curl -sf localhost:8001/health > health.json && break; sleep 2; done
-          grep -q '"instance":' health.json
+          if ! grep -q '"instance":' health.json; then
+            echo "::error::the app, opened again, started no bridge"
+            pgrep -fl 'Alias.app/Contents/MacOS/' || true
+            lsof -nP -iTCP:8001 || true; curl -s localhost:8001/health || true; exit 1
+          fi
           pkill -9 -f 'Alias.app/Contents/MacOS/alias-desktop'
           for i in $(seq 30); do curl -sf localhost:8001/health > /dev/null || break; sleep 1; done
           if curl -sf localhost:8001/health; then
@@ -119,6 +126,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      id-token: write  # signs the build provenance (Sigstore)
+      attestations: write
     env:
       TAG: ${{ inputs.release_tag }}
     steps:
@@ -131,12 +140,20 @@ jobs:
         with:
           name: alias-macos-dmg
           path: dmg
-      - name: Attach the .dmg and its SHA-256 to the release
+      - name: Check the .dmg matches the tag
+        run: |
+          dmg=$(ls dmg/Alias_*_aarch64.dmg)
+          [ "$dmg" = "dmg/Alias_${TAG#v}_aarch64.dmg" ] || { echo "::error::$dmg does not match $TAG"; exit 1; }
+      # A signed statement of which workflow, commit and run built this file, checked by
+      # `gh attestation verify` (docs/BRIDGE.md): the SHA-256 alone comes from the same job.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dmg/Alias_*_aarch64.dmg
+      - name: Attach the .dmg and its SHA-256 to the release (never replacing a file)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd dmg
           dmg=$(ls Alias_*_aarch64.dmg)
-          [ "$dmg" = "Alias_${TAG#v}_aarch64.dmg" ] || { echo "::error::$dmg does not match $TAG"; exit 1; }
           shasum -a 256 "$dmg" > "$dmg.sha256"
-          gh release upload "$TAG" "$dmg" "$dmg.sha256" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" "$dmg" "$dmg.sha256" --repo "$GITHUB_REPOSITORY"
