@@ -752,7 +752,7 @@ def create_bridge(
     async def chat(request: Request) -> Response:
         try:
             body = await request.json()
-        except ValueError:
+        except (ValueError, RecursionError):  # not JSON, or nested too deep to read
             raise HTTPException(400, "the body must be JSON") from None
         if not isinstance(body, dict):
             raise HTTPException(400, "the body must be a JSON object")
@@ -792,7 +792,7 @@ def create_bridge(
         ).startswith("json")
         try:
             data = answer.json()
-        except ValueError:
+        except (ValueError, RecursionError):
             data = None
         if not isinstance(data, dict):
             raise HTTPException(502, "Mistral's answer is not a JSON object")
