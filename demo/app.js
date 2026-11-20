@@ -14,7 +14,9 @@ import { TAGS, detect, mask, restore } from "./alias.js";
 const MODEL = "Gabrielkph/alias-mmbert-small";
 // The model version the demo was tested with: a tag on the model repository, so a later upload
 // of new weights cannot change the demo without a new release of it.
-const MODEL_REVISION = "v1.0";
+// The published model's tag v1.0, fetched by its commit (as alias-pii does): a tag can move.
+const MODEL_TAG = "v1.0";
+const MODEL_REVISION = "41638ca5485ab9b963e7e900914fe417bc314907";
 const VERSION = "0.4.0"; // x-release-please-version
 // What the first visit downloads: the ONNX model (563 MB) and the tokenizer (34 MB).
 const EXPECTED_BYTES = 597e6;
@@ -299,7 +301,7 @@ function updateCount() {
   $("count").textContent = n ? `${n.toLocaleString()} characters` : "";
 }
 
-$("version").textContent = `Alias v${VERSION}, model ${MODEL_REVISION}.`;
+$("version").textContent = `Alias v${VERSION}, model ${MODEL_TAG}.`;
 $("mask").addEventListener("click", maskText);
 $("example").addEventListener("click", () => {
   $("input").value = EXAMPLE;

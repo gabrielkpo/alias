@@ -13,13 +13,21 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      # A PR opened with GITHUB_TOKEN triggers no workflow, so the required checks would never
+      # run on the release PR: without RELEASE_PLEASE_TOKEN (a fine-grained PAT, contents + pull
+      # requests read/write on this repo only), fail loudly instead of falling back to
+      # GITHUB_TOKEN (an expired token already fails in the action itself).
+      - name: Check the release token
+        env:
+          TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::RELEASE_PLEASE_TOKEN is not set: release PRs would run no checks"; exit 1
+          fi
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
         id: release
         with:
-          # A PR opened with GITHUB_TOKEN triggers no workflow, so the required checks
-          # would never run on the release PR. RELEASE_PLEASE_TOKEN is a fine-grained
-          # PAT (contents + pull requests: read/write on this repo only).
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
   # A published release deploys the demo at that tag (the public demo changes only with a release).

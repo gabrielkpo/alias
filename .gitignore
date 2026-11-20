@@ -1,5 +1,6 @@
 # secrets: every .env file, except the versioned example
 .env*
+*.env
 !.env.example
 # datasets, hand-annotated real texts and trained weights stay out of Git
 data/raw/

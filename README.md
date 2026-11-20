@@ -18,7 +18,8 @@ back and get the real values again. Model:
 > fine-tuned mmBERT-small) is chosen and measured: recall 0.98 and leak rate 1.1 % on the
 > synthetic test split, 0.93 and 3.5 % on documents written by an LLM it never saw, 12.5 % of
 > names left readable on English court judgments (see [Results](#results)). It runs in a local
-> API and page, a Docker image, a public demo and Alias Bridge. Expect breaking changes.
+> API and page, a Docker image, a public demo, Alias Bridge and a macOS app. Expect breaking
+> changes.
 
 ## Why
 Hospitals, banks and public bodies want to use LLMs on their documents, but cannot send a
@@ -124,16 +125,12 @@ The page and `POST /api/mask` return the masked text and each span's type, posit
 never the values; nothing is loaded from outside. The bridge: [docs/BRIDGE.md](docs/BRIDGE.md);
 Docker: the `Dockerfile`; input formats: [docs/READERS.md](docs/READERS.md).
 
-## Entity types
+**macOS app** (Apple silicon, not notarized): the bridge in a window, a `.dmg` on the
+[Releases](https://github.com/gabrielkpo/alias/releases) page ([docs/BRIDGE.md](docs/BRIDGE.md#the-macos-app)).
 
-| Label | Content | Detected by |
-|---|---|---|
-| `PERSON`, `ADDRESS` | need context | model |
-| `EMAIL`, `PHONE` | e-mail (accented domains too); French, UK and US numbers | model (the rules find them too, but are not kept: docs/DETECTOR.md) |
-| `IBAN` | any country | rules (mod 97, length per country) and model |
-| `NATIONAL_ID` | `FR_NIR`, `US_SSN`, `UK_NINO` | rules (checksum) and model |
-| `IDENTIFIER` | file, contract or customer number after a keyword | model; rules after a person's-file keyword |
-| `BIRTH_DATE` | date of birth | rules after a keyword ("né(e) le", "DOB"), model otherwise |
+## Entity types
+`PERSON`, `ADDRESS`, `EMAIL`, `PHONE`, `IBAN`, `NATIONAL_ID` (NIR, SSN, NINO), `IDENTIFIER`,
+`BIRTH_DATE`; rules or model for each: [docs/DETECTOR.md](docs/DETECTOR.md#entity-types).
 
 ## Project structure
 
@@ -141,6 +138,8 @@ Docker: the `Dockerfile`; input formats: [docs/READERS.md](docs/READERS.md).
 |---|---|
 | `src/alias_pii/` | rules, masking, readers, trained detector, web API (`app.py`), Alias Bridge (`bridge.py`), dataset build and benchmark |
 | `demo/` | the detector ported to JavaScript, run in the browser (docs/DEMO.md) |
+| `desktop/` | the macOS app (Tauri): window, Rust process manager, keychain |
+| `packaging/` | the app's bridge executable (PyInstaller), icon, locked CI installs |
 | `docs/`, `results/` | design and measurement notes; training records |
 | `tests/` | tests; `tests/README.md` lists allowed fixture values |
 
@@ -149,8 +148,11 @@ Docker: the `Dockerfile`; input formats: [docs/READERS.md](docs/READERS.md).
   domains, French fiction phone ranges, published example IBANs).
 - **Never in the repository:** real documents. Hand-annotated real texts live in `data/real/`,
   ignored by Git.
-- **Never sent to a third party:** real texts; only synthetic and public data go to an LLM API
-  or a notebook service. No weights trained on real data are published.
+- **Training and measuring:** only synthetic and public data go to an LLM API or a notebook
+  service, never real texts. No weights trained on real data are published.
+- **What the bridge sends to Mistral:** the masked messages (what the detector missed stays in
+  clear), inline images whole only with `--allow-images`, the model name, stop strings and
+  settings, the user's key. Never the alias table or the local token.
 - **Training data:** synthetic Faker text (MIT), WikiNER French (CC BY 4.0; it holds names of
   public figures), gretel synthetic PII finance multilingual (Apache-2.0). How the dataset is
   built and checked: [docs/DATASET.md](docs/DATASET.md).

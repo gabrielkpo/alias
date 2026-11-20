@@ -34,10 +34,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.12"
-      - name: Install
-        run: |
-          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.3"
-          pip install -e ".[model]" "huggingface_hub>=0.24"
+      - name: Install (the versions of uv.lock, PyTorch CPU)
+        run: sh packaging/install-locked.sh --extra model
       - name: Download TAB
         run: |
           git init -q data/raw/tab
@@ -45,7 +43,7 @@ jobs:
             https://github.com/NorskRegnesentral/text-anonymization-benchmark "$TAB_COMMIT"
           git -C data/raw/tab checkout -q FETCH_HEAD
       - name: Download the published model
-        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Gabrielkph/alias-mmbert-small', revision='v1.0', local_dir='model')"
+        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('Gabrielkph/alias-mmbert-small', revision='41638ca5485ab9b963e7e900914fe417bc314907', local_dir='model')"
       - name: Convert
         run: |
           tab_split=$([ "$SPLIT" = validation ] && echo dev || echo test)
