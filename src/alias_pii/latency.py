@@ -16,7 +16,8 @@ import statistics
 import time
 from pathlib import Path
 
-from alias_pii.benchmark import Detector, load
+from alias_pii.benchmark import load
+from alias_pii.masking import Detector
 
 PAGE = 3000
 
