@@ -17,7 +17,7 @@ const MODEL = "Gabrielkph/alias-mmbert-small";
 // The published model's tag v1.0, fetched by its commit (as alias-pii does): a tag can move.
 const MODEL_TAG = "v1.0";
 const MODEL_REVISION = "41638ca5485ab9b963e7e900914fe417bc314907";
-const VERSION = "0.4.0"; // x-release-please-version
+const VERSION = "0.4.1"; // x-release-please-version
 // What the first visit downloads: the ONNX model (563 MB) and the tokenizer (34 MB).
 const EXPECTED_BYTES = 597e6;
 
