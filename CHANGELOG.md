@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.4.1](https://github.com/gabrielkpo/alias/compare/v0.4.0...v0.4.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **benchmark:** send text to an API only from the shareable data folders ([#105](https://github.com/gabrielkpo/alias/issues/105)) ([e12c229](https://github.com/gabrielkpo/alias/commit/e12c2293bad1dbcb3e0171d79625df12da7dcd56))
+* **bridge:** keep aliases masked after schemes, bare domains and URL values ([#100](https://github.com/gabrielkpo/alias/issues/100)) ([8371ab8](https://github.com/gabrielkpo/alias/commit/8371ab8839a5c6e3d94b3dabeba0a44821a275db))
+* **bridge:** never forward the local token to Mistral when the bridge holds no key ([#102](https://github.com/gabrielkpo/alias/issues/102)) ([23baeff](https://github.com/gabrielkpo/alias/commit/23baeffaecb893c93463ec262f4cb9ea977f2baa))
+* **bridge:** refuse aliased values in stop sequences and text in the model field ([#98](https://github.com/gabrielkpo/alias/issues/98)) ([7059d65](https://github.com/gabrielkpo/alias/commit/7059d653af5b42ecfd5292d0bce642081a3e264e))
+* **bridge:** refuse inline images unless the bridge allows them ([#99](https://github.com/gabrielkpo/alias/issues/99)) ([b9eac30](https://github.com/gabrielkpo/alias/commit/b9eac30ef9d26794402d9d5ed9ce2e71d02db2ce))
+* **bridge:** refuse JSON nested too deep instead of failing with a 500 ([#104](https://github.com/gabrielkpo/alias/issues/104)) ([a0b70b0](https://github.com/gabrielkpo/alias/commit/a0b70b0176fac1402390d2da46395f3a0f6b0f04))
+* **bridge:** sweep aliased values through white space, keep common words, in one scan ([#101](https://github.com/gabrielkpo/alias/issues/101)) ([9d4c9cb](https://github.com/gabrielkpo/alias/commit/9d4c9cba21e1d9f06d7b37eb528f3e94b962f918))
+* **bridge:** the development entry point listens locally and asks for a token ([#103](https://github.com/gabrielkpo/alias/issues/103)) ([ea26dd1](https://github.com/gabrielkpo/alias/commit/ea26dd157af664f03345963781f90b364bbe12cd))
+* **desktop:** trust only the app's own bridge, and stop it when the app dies ([#94](https://github.com/gabrielkpo/alias/issues/94)) ([f0164a0](https://github.com/gabrielkpo/alias/commit/f0164a0d8b7fafe4293b8418fbf5b06fe7126b3f))
+* **detector:** keep the rules' e-mails and phones in the bridge ([#95](https://github.com/gabrielkpo/alias/issues/95)) ([d78459d](https://github.com/gabrielkpo/alias/commit/d78459da8fe9786e92a366bc3a83c22c1607c2d0))
+* **onnx:** run a long text's windows in small batches, and test it past one window ([#106](https://github.com/gabrielkpo/alias/issues/106)) ([69fdacd](https://github.com/gabrielkpo/alias/commit/69fdacd1305d36996f236d3c5236e4adb7969626))
+* **rules:** read IBANs, NIRs and SSNs through any separator ([#96](https://github.com/gabrielkpo/alias/issues/96)) ([8b9c6de](https://github.com/gabrielkpo/alias/commit/8b9c6de8ecaff24b46311db0602779c0a3965614))
+
+
+### Documentation
+
+* a screenshot of the macOS app in the README ([#117](https://github.com/gabrielkpo/alias/issues/117)) ([b0e3c2f](https://github.com/gabrielkpo/alias/commit/b0e3c2fb245095cf7a1edcaa29b5de4126cdd736))
+* the demo in three screenshots at the top of the README ([#118](https://github.com/gabrielkpo/alias/issues/118)) ([153bf20](https://github.com/gabrielkpo/alias/commit/153bf20c2b92c1fc582cc83299a46f71ad880873))
+* what the bridge sends to Mistral, the macOS app, a pinned model card snippet ([#113](https://github.com/gabrielkpo/alias/issues/113)) ([56e904a](https://github.com/gabrielkpo/alias/commit/56e904aea045b311860e46437f91151cf55a2bd2))
+
 ## [0.4.0](https://github.com/gabrielkpo/alias/compare/v0.3.0...v0.4.0) (2026-11-16)
 
 
