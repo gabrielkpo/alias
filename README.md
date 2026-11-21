@@ -9,16 +9,25 @@ Alias masks the personal data in a French or English document **on your own mach
 text can go to an LLM without the names, IBANs or social security numbers, then puts the real
 values back into the answer.
 
-**Try it:** [public demo](https://huggingface.co/spaces/Gabrielkph/alias), the detector running in
-your browser (fictitious data only): mask a text, send it to the LLM you use, paste its answer
-back and get the real values again. Model:
-[Gabrielkph/alias-mmbert-small](https://huggingface.co/Gabrielkph/alias-mmbert-small).
+**Try it:** [public demo](https://huggingface.co/spaces/Gabrielkph/alias) (fictitious data only),
+model [Gabrielkph/alias-mmbert-small](https://huggingface.co/Gabrielkph/alias-mmbert-small).
+
+1. **Paste a text.** The detector runs in your browser: the text never leaves the page.
+
+   <img src="docs/images/demo-1-text.png" alt="Demo: the text" width="600">
+2. **Each value gets an alias.** Rules catch what a checksum or a keyword proves (the IBAN, a
+   date after "né le"); the model finds the rest from context. Only the masked text goes out.
+
+   <img src="docs/images/demo-2-masked.png" alt="Demo: masked text" width="600">
+3. **Paste the LLM's answer back.** Its aliases become the real values again, in the page; an
+   alias this text did not create stays as it is.
+
+   <img src="docs/images/demo-3-restored.png" alt="Demo: restored answer" width="600">
 
 > **Status:** work in progress (see [Roadmap](#status-and-roadmap)). The detector (rules + a
 > fine-tuned mmBERT-small) is chosen and measured: recall 0.98 and leak rate 1.1 % on the
 > synthetic test split, 0.93 and 3.5 % on documents written by an LLM it never saw, 12.5 % of
-> names left readable on English court judgments (see [Results](#results)). It runs in a local
-> API and page, a Docker image, a public demo, Alias Bridge and a macOS app. Expect breaking
+> names left readable on English court judgments (see [Results](#results)). Expect breaking
 > changes.
 
 ## Why
@@ -52,8 +61,8 @@ Choices and trade-offs:
 - **Rules for what they prove, a model for context.** IBANs and national IDs are caught exactly by
   checksums; names, addresses and birth dates need context, so a trained model handles them.
 - **Stable aliases.** The same value keeps the same alias across a document (`01 99 00…` and
-  `+33 1 99 00…` are one phone), so the LLM can follow who is who; two e-mail addresses that
-  differ by a dot keep two aliases. The cost is a table to keep, and to protect.
+  `+33 1 99 00…` are one phone), so the LLM can follow who is who. The cost is a table to keep,
+  and to protect.
 - **Recall first.** A missed value leaks; a false positive only hides a word. Overlapping spans
   are merged rather than dropped, so no part of a value stays in clear.
 - **Restoring is scoped to the exchange**; the bridge never restores inside a link or an image.
@@ -61,17 +70,8 @@ Choices and trade-offs:
 
 ## Example
 
-```python
-from alias_pii.masking import mask, restore
-from alias_pii.rules import RuleDetector
-
-result = mask(
-    "Écrire à jean.dupont@example.com, IBAN FR76 3000 6000 0112 3456 7890 189.", RuleDetector()
-)
-result.text  # "Écrire à [EMAIL_1], IBAN [IBAN_1]."  <- only this goes to the LLM
-answer = "Virement vers [IBAN_1] confirmé."
-restore(answer, result).text  # real IBAN back, only for aliases sent in this exchange
-```
+In Python: `mask(text, detector)` then `restore(answer, result)`, from `alias_pii.masking`
+([docs/MODEL_CARD.md](docs/MODEL_CARD.md#use)).
 
 **Alias Bridge** does this for tools that already call Mistral (a script, an SDK, LibreChat…):
 they change only their base URL to `http://127.0.0.1:8001/v1`; the bridge masks each request,
