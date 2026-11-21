@@ -125,8 +125,10 @@ The page and `POST /api/mask` return the masked text and each span's type, posit
 never the values; nothing is loaded from outside. The bridge: [docs/BRIDGE.md](docs/BRIDGE.md);
 Docker: the `Dockerfile`; input formats: [docs/READERS.md](docs/READERS.md).
 
-**macOS app** (Apple silicon, not notarized): the bridge in a window, a `.dmg` on the
-[Releases](https://github.com/gabrielkpo/alias/releases) page ([docs/BRIDGE.md](docs/BRIDGE.md#the-macos-app)).
+**macOS app** (Apple silicon, not notarized): the bridge in a window, a `.dmg` in
+[Releases](https://github.com/gabrielkpo/alias/releases) ([docs/BRIDGE.md](docs/BRIDGE.md#the-macos-app)).
+
+<img src="docs/images/macos-app.png" alt="Alias app" width="360">
 
 ## Entity types
 `PERSON`, `ADDRESS`, `EMAIL`, `PHONE`, `IBAN`, `NATIONAL_ID` (NIR, SSN, NINO), `IDENTIFIER`,
