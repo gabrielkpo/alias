@@ -64,12 +64,15 @@ precision.
 from huggingface_hub import snapshot_download
 
 from alias_pii.detector import RulesAndModel
-from alias_pii.masking import mask
+from alias_pii.masking import mask, restore
 
 # The weights of the tag v1.0, by commit: a tag can be moved, a commit cannot.
 model = snapshot_download(
     "Gabrielkph/alias-mmbert-small", revision="41638ca5485ab9b963e7e900914fe417bc314907"
 )
 detector = RulesAndModel.from_checkpoint(model)
-print(mask("Écrire à Jean Dupont, 14 rue des Lilas, 69003 Lyon.", detector).text)
+result = mask("Écrire à Jean Dupont, 14 rue des Lilas, 69003 Lyon.", detector)
+print(result.text)  # "Écrire à [PERSON_1], [ADDRESS_1]."  <- only this goes to the LLM
+answer = "Courrier envoyé à [PERSON_1]."  # the LLM's answer
+print(restore(answer, result).text)  # "Courrier envoyé à Jean Dupont."
 ```
